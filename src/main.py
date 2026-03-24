@@ -138,6 +138,25 @@ async def screen_text(symbols: List[str] = Query(..., description="List of stock
         ],
     }
 
+@app.get("/fetch-top-performers")
+async def fetch_top_performers(top_n: int = Query(10, ge=1, le=50)):
+    """Analyze a curated list of popular stocks and return top picks."""
+    symbols = [
+        "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA",
+        "META", "TSLA", "BRK-B", "JPM", "JNJ",
+        "V", "PG", "UNH", "HD", "MA",
+    ]
+
+    filters = ScreeningFilter(min_overall_score=0)
+    result = screener.screen_stocks(symbols, filters, top_n=top_n)
+
+    return {
+        "results": result.top_picks,
+        "total_candidates": result.total_candidates,
+        "filtered_count": result.filtered_count,
+        "screening_timestamp": result.screening_timestamp,
+    }
+
 @app.get("/")
 async def root():
     return {
