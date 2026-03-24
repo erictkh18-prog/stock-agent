@@ -3,6 +3,7 @@ import yfinance as yf
 import logging
 from typing import List, Optional
 from datetime import datetime
+from src.config import config
 from src.models import (
     StockAnalysis, ScreeningFilter, ScreeningResult,
     FundamentalAnalysis, TechnicalAnalysis, SentimentAnalysis
@@ -21,6 +22,8 @@ class StockScreener:
         self.technical_analyzer = TechnicalAnalyzer()
         self.sentiment_analyzer = SentimentAnalyzer()
         self.logger = logger
+        self.cache_ttl_seconds = config.CACHE_TTL_SECONDS
+        self.analysis_cache = {}
     
     def analyze_stock(self, symbol: str) -> Optional[StockAnalysis]:
         """
@@ -33,6 +36,10 @@ class StockScreener:
             StockAnalysis object with all metrics
         """
         try:
+            cached_analysis = self._get_cached_analysis(symbol)
+            if cached_analysis:
+                return cached_analysis
+
             # Fetch basic info
             stock = yf.Ticker(symbol)
             info = self._safe_get_info(stock, symbol)
@@ -45,7 +52,7 @@ class StockScreener:
                 return None
             
             # Run all analyses
-            fundamental = self.fundamental_analyzer.analyze(symbol)
+            fundamental = self.fundamental_analyzer.analyze(symbol, stock=stock, info=info)
             technical = self.technical_analyzer.analyze(symbol)
             sentiment_dict = self.sentiment_analyzer.analyze(symbol)
             
@@ -63,7 +70,7 @@ class StockScreener:
                 fundamental, technical, sentiment_dict
             )
             
-            return StockAnalysis(
+            analysis = StockAnalysis(
                 symbol=symbol,
                 name=name,
                 current_price=current_price,
@@ -75,10 +82,26 @@ class StockScreener:
                 recommendation=recommendation,
                 confidence=confidence
             )
+
+            self.analysis_cache[symbol] = analysis
+            return analysis
         
         except Exception as e:
             self.logger.error(f"Error analyzing {symbol}: {e}")
             return None
+
+    def _get_cached_analysis(self, symbol: str) -> Optional[StockAnalysis]:
+        """Return a recently cached analysis to reduce provider rate-limit pressure."""
+        cached = self.analysis_cache.get(symbol)
+        if not cached:
+            return None
+
+        age_seconds = (datetime.now() - cached.timestamp).total_seconds()
+        if age_seconds <= self.cache_ttl_seconds:
+            return cached
+
+        self.analysis_cache.pop(symbol, None)
+        return None
 
     def _safe_get_info(self, stock: yf.Ticker, symbol: str) -> dict:
         """Fetch quote info but degrade gracefully when Yahoo blocks the request."""

@@ -13,7 +13,7 @@ class FundamentalAnalyzer:
     def __init__(self):
         self.logger = logger
     
-    def analyze(self, symbol: str) -> Optional[FundamentalAnalysis]:
+    def analyze(self, symbol: str, stock=None, info: Optional[dict] = None) -> Optional[FundamentalAnalysis]:
         """
         Analyze fundamental metrics for a stock
         
@@ -25,13 +25,24 @@ class FundamentalAnalyzer:
         """
         try:
             # Fetch stock data
-            stock = yf.Ticker(symbol)
-            info = stock.info
+            if stock is None:
+                stock = yf.Ticker(symbol)
+
+            if info is None:
+                try:
+                    raw_info = stock.info
+                    info = raw_info if isinstance(raw_info, dict) else {}
+                except Exception as exc:
+                    self.logger.warning(f"Could not fetch info for {symbol}: {exc}")
+                    info = {}
             
             # Extract fundamental metrics
             pe_ratio = info.get('trailingPE')
             eps = info.get('trailingEps')
             dividend_yield = info.get('dividendYield')
+            # Yahoo may return yield as percent (e.g., 0.41 for 0.41%).
+            if dividend_yield is not None and dividend_yield > 0.2:
+                dividend_yield = dividend_yield / 100
             debt_to_equity = info.get('debtToEquity')
             current_ratio = info.get('currentRatio')
             roa = info.get('returnOnAssets')
