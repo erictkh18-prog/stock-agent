@@ -2,7 +2,7 @@
 import yfinance as yf
 import logging
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from src.config import config
 from src.models import (
     StockAnalysis, ScreeningFilter, ScreeningResult,
@@ -24,6 +24,7 @@ class StockScreener:
         self.logger = logger
         self.cache_ttl_seconds = config.CACHE_TTL_SECONDS
         self.analysis_cache = {}
+        self.info_backoff_until = None
     
     def analyze_stock(self, symbol: str) -> Optional[StockAnalysis]:
         """
@@ -105,10 +106,15 @@ class StockScreener:
 
     def _safe_get_info(self, stock: yf.Ticker, symbol: str) -> dict:
         """Fetch quote info but degrade gracefully when Yahoo blocks the request."""
+        if self.info_backoff_until and datetime.now() < self.info_backoff_until:
+            return {}
+
         try:
             info = stock.info
             return info if isinstance(info, dict) else {}
         except Exception as exc:
+            if "Too Many Requests" in str(exc):
+                self.info_backoff_until = datetime.now() + timedelta(minutes=5)
             self.logger.warning(f"Falling back from info lookup for {symbol}: {exc}")
             return {}
 
