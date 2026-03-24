@@ -1,4 +1,7 @@
-const API_URL = 'http://localhost:8000';
+// Use same-origin in production and localhost only for local file testing.
+const API_URL = window.location.origin.startsWith('http')
+    ? window.location.origin
+    : 'http://localhost:8000';
 
 let scoreChart = null;
 
