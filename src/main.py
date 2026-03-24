@@ -1,12 +1,17 @@
 """Main FastAPI application for Stock Analysis Agent"""
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from typing import List, Optional
-import logging
+import os
+import subprocess
+import threading
+from collections import defaultdict, deque
 from datetime import datetime
 from pathlib import Path
+from typing import List, Optional
+
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+import logging
 
 from src.config import config
 from src.models import StockAnalysis, ScreeningFilter, ScreeningResult
@@ -19,10 +24,33 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def _resolve_commit_hash() -> str:
+    """Resolve commit hash from platform env vars, then fallback to local git."""
+    env_commit = os.getenv("RENDER_GIT_COMMIT") or os.getenv("COMMIT_SHA")
+    if env_commit:
+        return env_commit[:12]
+
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=2,
+        )
+        return result.stdout.strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+
+APP_VERSION = "1.0.0"
+COMMIT_HASH = _resolve_commit_hash()
+
 app = FastAPI(
     title="Stock Analysis Agent",
     description="AI-powered stock analysis and screening tool",
-    version="1.0.0"
+    version=APP_VERSION
 )
 
 app.add_middleware(
@@ -42,6 +70,50 @@ if static_dir.exists():
 
 screener = StockScreener()
 
+# Lightweight in-memory rate limit for expensive API endpoints.
+RATE_LIMIT_REQUESTS = 30
+RATE_LIMIT_WINDOW_SECONDS = 60
+_request_windows = defaultdict(deque)
+_rate_limit_lock = threading.Lock()
+
+
+def _should_rate_limit(path: str) -> bool:
+    return path.startswith("/analyze") or path.startswith("/screen") or path.startswith("/fetch-top-performers")
+
+
+@app.middleware("http")
+async def ip_rate_limit_middleware(request: Request, call_next):
+    path = request.url.path
+    if not _should_rate_limit(path):
+        return await call_next(request)
+
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    if forwarded_for:
+        client_ip = forwarded_for.split(",")[0].strip()
+    else:
+        client_ip = request.client.host if request.client else "unknown"
+
+    now = datetime.now().timestamp()
+    with _rate_limit_lock:
+        window = _request_windows[client_ip]
+        cutoff = now - RATE_LIMIT_WINDOW_SECONDS
+        while window and window[0] < cutoff:
+            window.popleft()
+
+        if len(window) >= RATE_LIMIT_REQUESTS:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "detail": (
+                        "Rate limit exceeded. Please wait a moment and try again."
+                    )
+                },
+            )
+
+        window.append(now)
+
+    return await call_next(request)
+
 @app.get("/")
 async def root():
     """Serve the dashboard"""
@@ -54,6 +126,17 @@ async def root():
 async def health():
     """Health check endpoint"""
     return {"status": "healthy", "timestamp": datetime.now()}
+
+
+@app.get("/version")
+async def version():
+    """Return app version metadata for deployment verification."""
+    return {
+        "service": "stock-agent",
+        "version": APP_VERSION,
+        "commit": COMMIT_HASH,
+        "timestamp": datetime.now(),
+    }
 
 @app.get("/analyze/{symbol}", response_model=StockAnalysis)
 async def analyze_stock(symbol: str):
@@ -155,19 +238,6 @@ async def fetch_top_performers(top_n: int = Query(10, ge=1, le=50)):
         "total_candidates": result.total_candidates,
         "filtered_count": result.filtered_count,
         "screening_timestamp": result.screening_timestamp,
-    }
-
-@app.get("/")
-async def root():
-    return {
-        "message": "Stock Analysis Agent",
-        "endpoints": {
-            "health": "/health",
-            "analyze": "/analyze/{symbol}",
-            "screen": "/screen",
-            "analyze_text": "/analyze-text/{symbol}",
-            "screen_text": "/screen-text"
-        },
     }
 
 if __name__ == "__main__":

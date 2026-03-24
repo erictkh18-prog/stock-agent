@@ -28,12 +28,12 @@ Stock Agent/
 ├── web/                       # Web UI assets
 │   ├── static/                # CSS, JS, images
 │   └── templates/             # HTML templates
-├── deployment/                # Deployment configurations
+├── deployment/                # Optional Docker deployment files
 │   ├── Dockerfile             # Docker container config
-│   ├── .dockerignore          # Docker ignore file
-│   ├── Procfile               # Heroku/Render config
-│   └── render.yaml            # Render.com deployment config
+│   └── .dockerignore          # Docker ignore file
 ├── tests/                     # Unit tests
+├── Procfile                   # Process command for PaaS
+├── render.yaml                # Render.com blueprint config
 ├── requirements.txt           # Python dependencies
 ├── .env.example              # Environment variables template
 └── README.md                 # This file
