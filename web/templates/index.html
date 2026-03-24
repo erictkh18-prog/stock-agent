@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Analysis Agent</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 24px; }
+        .box { border: 1px solid #ccc; padding: 16px; border-radius: 8px; margin-bottom: 16px; }
+        .success { color: #0c6; }
+        .danger { color: #c00; }
+        input, button, textarea { font-size: 1rem; }
+    </style>
+</head>
+<body>
+    <h1>Stock Analysis Agent</h1>
+    <p>Enter one stock symbol to analyze, or multiple symbols separated by commas for screening.</p>
+
+    <div class="box">
+        <form action="/ui" method="post">
+            <label for="symbols">Stock Symbol(s):</label><br>
+            <input id="symbols" name="symbols" style="width: 400px;" value="AAPL" required><br><br>
+
+            <label for="min_overall_score">Minimum overall score:</label>
+            <input id="min_overall_score" name="min_overall_score" type="number" min="0" max="100" step="1" value="60"><br><br>
+
+            <label for="top_n">Top results to show:</label>
+            <input id="top_n" name="top_n" type="number" min="1" max="20" value="5"><br><br>
+
+            <button type="submit">Analyze / Screen</button>
+        </form>
+    </div>
+
+    {% if error %}
+    <div class="box danger">Error: {{ error }}</div>
+    {% endif %}
+
+    {% if analysis %}
+    <div class="box">
+        <h2>Single Stock Analysis: {{ analysis.symbol }}</h2>
+        <p><strong>{{ analysis.name }}</strong></p>
+        <p>Current Price: ${{ "%.2f"|format(analysis.current_price) }}</p>
+        <p>Overall Score: {{ "%.1f"|format(analysis.overall_score) }} / 100</p>
+        <p>Recommendation: <strong>{{ analysis.recommendation }}</strong></p>
+        <p>Confidence: {{ "%.1f"|format(analysis.confidence * 100) }}%</p>
+    </div>
+    {% endif %}
+
+    {% if screen_result %}
+    <div class="box">
+        <h2>Screen Results</h2>
+        <p>Analyzed: {{ screen_result.total_candidates }}, Passed: {{ screen_result.filtered_count }}</p>
+
+        {% if screen_result.top_picks|length > 0 %}
+        <ol>
+            {% for stock in screen_result.top_picks %}
+            <li>
+                <strong>{{ stock.symbol }}</strong> ({{ stock.name }}): {{ "%.1f"|format(stock.overall_score) }} / 100,
+                {{ stock.recommendation }} ({{ "%.1f"|format(stock.confidence * 100) }}%)
+            </li>
+            {% endfor %}
+        </ol>
+        {% else %}
+        <p>No symbols passed the filter.</p>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="box">
+        <h3>Quick Help</h3>
+        <ul>
+            <li>Single: AAPL</li>
+            <li>Multiple: AAPL, MSFT, GOOGL, NVDA</li>
+            <li>Min score = 70 to focus on stronger picks</li>
+        </ul>
+    </div>
+
+    <p>Remember: This is research assistance, not financial advice.</p>
+</body>
+</html>

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Analysis Agent</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="../static/style.css">
+</head>
+<body>
+    <div class="header">
+        <h1>📊 Stock Analysis Agent</h1>
+        <p>Smart investing with AI-powered analysis</p>
+    </div>
+
+    <div class="container">
+        <!-- SECTION 1: Analyze Single Stock -->
+        <div class="card">
+            <h2>🔍 Analyze a Stock</h2>
+            <p class="description">Enter a stock symbol and get detailed analysis</p>
+            
+            <div class="input-group">
+                <input type="text" id="singleSymbol" placeholder="Enter stock symbol (e.g., AAPL)" maxlength="5">
+                <button onclick="analyzeStock()">Analyze</button>
+            </div>
+
+            <div id="singleResult" class="result hidden">
+                <div class="stock-header">
+                    <h3 id="resultSymbol"></h3>
+                    <div class="price-info">
+                        <span id="resultPrice" class="price"></span>
+                        <span id="resultStatus" class="status"></span>
+                    </div>
+                </div>
+
+                <div class="score-gauge">
+                    <canvas id="scoreChart" width="200" height="200"></canvas>
+                </div>
+
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <label>P/E Ratio</label>
+                        <span id="metricPE">—</span>
+                    </div>
+                    <div class="metric">
+                        <label>EPS</label>
+                        <span id="metricEPS">—</span>
+                    </div>
+                    <div class="metric">
+                        <label>Dividend Yield</label>
+                        <span id="metricDividend">—</span>
+                    </div>
+                    <div class="metric">
+                        <label>Trend</label>
+                        <span id="metricTrend">—</span>
+                    </div>
+                </div>
+
+                <div class="scores">
+                    <div class="score-bar">
+                        <label>Fundamentals</label>
+                        <div class="bar-bg">
+                            <div id="fundamentalBar" class="bar-fill"></div>
+                        </div>
+                        <span id="fundamentalScore"></span>
+                    </div>
+                    <div class="score-bar">
+                        <label>Technical</label>
+                        <div class="bar-bg">
+                            <div id="technicalBar" class="bar-fill"></div>
+                        </div>
+                        <span id="technicalScore"></span>
+                    </div>
+                    <div class="score-bar">
+                        <label>Sentiment</label>
+                        <div class="bar-bg">
+                            <div id="sentimentBar" class="bar-fill"></div>
+                        </div>
+                        <span id="sentimentScore"></span>
+                    </div>
+                </div>
+
+                <div id="recommendationBox" class="recommendation"></div>
+            </div>
+        </div>
+
+        <!-- SECTION 2: Screen Multiple Stocks -->
+        <div class="card">
+            <h2>🎯 Screen Multiple Stocks</h2>
+            <p class="description">Compare several stocks and find the best opportunities</p>
+            
+            <div class="input-group">
+                <input type="text" id="multipleSymbols" placeholder="Enter symbols separated by commas (e.g., AAPL,MSFT,GOOGL)">
+                <button onclick="screenStocks()">Screen</button>
+            </div>
+
+            <div id="screenResult" class="result hidden">
+                <div id="screenerTable" class="table-container">
+                    <!-- Results will be inserted here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- SECTION 3: Top Performers -->
+        <div class="card">
+            <h2>⭐ Top Performers</h2>
+            <p class="description">See the best stocks from major companies</p>
+            
+            <button onclick="fetchTopPerformers()" class="btn-large">Show Top 10</button>
+
+            <div id="topResult" class="result hidden">
+                <div id="topPerformersTable" class="table-container">
+                    <!-- Results will be inserted here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>💡 Recommendations: <strong>BUY</strong> (70+) | <strong>HOLD</strong> (50-69) | <strong>SELL</strong> (&lt;50)</p>
+        <p>Data powered by Yahoo Finance • Updated in real-time</p>
+    </div>
+
+    <script src="../static/script.js"></script>
+</body>
+</html>
