@@ -35,10 +35,10 @@ class StockScreener:
         try:
             # Fetch basic info
             stock = yf.Ticker(symbol)
-            info = stock.info
-            
-            current_price = info.get('currentPrice') or info.get('regularMarketPrice')
-            name = info.get('longName', symbol)
+            info = self._safe_get_info(stock, symbol)
+
+            current_price = self._get_current_price(stock, info, symbol)
+            name = info.get('longName') or info.get('shortName') or symbol
             
             if not current_price:
                 self.logger.warning(f"Could not fetch price for {symbol}")
@@ -79,6 +79,52 @@ class StockScreener:
         except Exception as e:
             self.logger.error(f"Error analyzing {symbol}: {e}")
             return None
+
+    def _safe_get_info(self, stock: yf.Ticker, symbol: str) -> dict:
+        """Fetch quote info but degrade gracefully when Yahoo blocks the request."""
+        try:
+            info = stock.info
+            return info if isinstance(info, dict) else {}
+        except Exception as exc:
+            self.logger.warning(f"Falling back from info lookup for {symbol}: {exc}")
+            return {}
+
+    def _get_current_price(self, stock: yf.Ticker, info: dict, symbol: str) -> Optional[float]:
+        """Resolve the best available current price using multiple Yahoo data paths."""
+        price_candidates = [
+            info.get('currentPrice'),
+            info.get('regularMarketPrice'),
+            info.get('previousClose'),
+        ]
+
+        try:
+            fast_info = stock.fast_info
+            for key in ('lastPrice', 'regularMarketPrice', 'previousClose'):
+                try:
+                    value = fast_info.get(key)
+                except Exception:
+                    value = None
+                price_candidates.append(value)
+        except Exception as exc:
+            self.logger.warning(f"fast_info lookup failed for {symbol}: {exc}")
+
+        for price in price_candidates:
+            if price is not None:
+                try:
+                    return float(price)
+                except (TypeError, ValueError):
+                    continue
+
+        try:
+            history = stock.history(period="5d", interval="1d", auto_adjust=False)
+            if not history.empty:
+                close_series = history['Close'].dropna()
+                if not close_series.empty:
+                    return float(close_series.iloc[-1])
+        except Exception as exc:
+            self.logger.warning(f"history fallback failed for {symbol}: {exc}")
+
+        return None
     
     def screen_stocks(
         self, symbols: List[str], filters: Optional[ScreeningFilter] = None,
