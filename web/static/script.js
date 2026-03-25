@@ -252,6 +252,8 @@ async function scanUsMarket(buttonEl = null) {
     const sector = document.getElementById('marketSector')?.value || 'all';
     const minScore = Number(document.getElementById('marketMinScore')?.value || 65);
     const topN = Number(document.getElementById('marketTopN')?.value || 20);
+    const maxSymbolsInput = Number(document.getElementById('marketMaxSymbols')?.value || 80);
+    const maxSymbols = Math.min(800, Math.max(25, Math.floor(maxSymbolsInput || 80)));
 
     try {
         setButtonState(btn, true, 'Scanning...', 'Scan US Market');
@@ -263,6 +265,14 @@ async function scanUsMarket(buttonEl = null) {
         }
         params.append('min_overall_score', String(minScore));
         params.append('top_n', String(topN));
+        params.append('max_symbols', String(maxSymbols));
+
+        const progressEl = document.getElementById('marketScanMeta');
+        const progressSector = sector === 'all' ? 'all sectors' : sector;
+        if (progressEl) {
+            progressEl.textContent = `Scanning up to ${maxSymbols} symbols from ${universe} (${progressSector}). This may take 10-60 seconds...`;
+        }
+        document.getElementById('marketScanResult')?.classList.remove('hidden');
 
         const response = await fetch(`${API_URL}/scan-us-market?${params}`);
         if (!response.ok) {

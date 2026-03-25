@@ -552,7 +552,7 @@ async def scan_us_market(
     sector: Optional[str] = Query(None),
     min_overall_score: float = Query(65, ge=0, le=100),
     top_n: int = Query(20, ge=1, le=100),
-    max_symbols: int = Query(300, ge=25, le=800),
+    max_symbols: int = Query(80, ge=25, le=800),
 ):
     """Scan a broad US market universe and return potential opportunities."""
     global _market_scan_cache_hits, _market_scan_cache_misses

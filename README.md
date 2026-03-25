@@ -205,7 +205,7 @@ POST /screen-async?symbols=AAPL&symbols=MSFT&symbols=GOOGL&min_overall_score=60&
 
 #### 3. Scan US Market Opportunities
 ```bash
-GET /scan-us-market?universe=combined&sector=technology&min_overall_score=65&top_n=20&max_symbols=300
+GET /scan-us-market?universe=combined&sector=technology&min_overall_score=65&top_n=20&max_symbols=80
 ```
 
 Scans a broad US universe and returns potential opportunities ranked by overall score.
@@ -215,7 +215,7 @@ Scans a broad US universe and returns potential opportunities ranked by overall 
 - `sector` (optional): sector filter (for example `technology`, `healthcare`, `financial services`)
 - `min_overall_score` (0-100): Minimum score threshold
 - `top_n` (1-100): Number of opportunities to return
-- `max_symbols` (25-800): Cap on symbols scanned per request
+- `max_symbols` (25-800): Cap on symbols scanned per request (lower values return faster)
 
 Legacy quick list endpoint:
 
