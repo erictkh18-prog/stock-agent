@@ -203,12 +203,26 @@ POST /screen-async?symbols=AAPL&symbols=MSFT&symbols=GOOGL&min_overall_score=60&
 - `trend` (optional): Trend filter (uptrend, downtrend, sideways)
 - `top_n` (1-100): Number of top picks to return
 
-#### 3. Get Top Performers
+#### 3. Scan US Market Opportunities
+```bash
+GET /scan-us-market?universe=combined&min_overall_score=65&top_n=20&max_symbols=300
+```
+
+Scans a broad US universe and returns potential opportunities ranked by overall score.
+
+**Request Parameters**:
+- `universe`: `sp500`, `nasdaq100`, or `combined`
+- `min_overall_score` (0-100): Minimum score threshold
+- `top_n` (1-100): Number of opportunities to return
+- `max_symbols` (25-800): Cap on symbols scanned per request
+
+Legacy quick list endpoint:
+
 ```bash
 GET /fetch-top-performers?top_n=10
 ```
 
-Analyzes popular large-cap stocks and returns top recommendations.
+Returns top picks from a smaller built-in list of large-cap stocks.
 
 #### 4. Runtime Metrics
 ```bash

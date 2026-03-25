@@ -245,26 +245,45 @@ function displayScreenResults(results, tableContainerId = 'screenerTable', resul
     resultDiv.classList.remove('hidden');
 }
 
-// ============ TOP PERFORMERS ============
-async function fetchTopPerformers(buttonEl = null) {
-    const btn = buttonEl || document.getElementById('topBtn');
+// ============ US MARKET SCANNER ============
+async function scanUsMarket(buttonEl = null) {
+    const btn = buttonEl || document.getElementById('marketScanBtn');
+    const universe = document.getElementById('marketUniverse')?.value || 'sp500';
+    const minScore = Number(document.getElementById('marketMinScore')?.value || 65);
+    const topN = Number(document.getElementById('marketTopN')?.value || 20);
 
     try {
-        setButtonState(btn, true, 'Loading...', 'Show Top 10');
+        setButtonState(btn, true, 'Scanning...', 'Scan US Market');
 
-        const response = await fetch(`${API_URL}/fetch-top-performers?top_n=10`);
+        const params = new URLSearchParams();
+        params.append('universe', universe);
+        params.append('min_overall_score', String(minScore));
+        params.append('top_n', String(topN));
+
+        const response = await fetch(`${API_URL}/scan-us-market?${params}`);
         if (!response.ok) {
-            const errorMessage = await parseApiError(response, 'Could not fetch top performers');
+            const errorMessage = await parseApiError(response, 'Could not scan US market');
             throw new Error(errorMessage);
         }
         
         const data = await response.json();
-        displayScreenResults(data?.results || data, 'topPerformersTable', 'topResult');
+
+        const scannedCount = data?.scanned_count ?? 'N/A';
+        const filteredCount = data?.filtered_count ?? 'N/A';
+        const universeLabel = universe === 'sp500'
+            ? 'S&P 500'
+            : (universe === 'nasdaq100' ? 'Nasdaq-100' : 'Combined');
+        const metaEl = document.getElementById('marketScanMeta');
+        if (metaEl) {
+            metaEl.textContent = `Scanned ${scannedCount} symbols from ${universeLabel}; ${filteredCount} passed filters.`;
+        }
+
+        displayScreenResults(data?.results || [], 'marketScanTable', 'marketScanResult');
         
-        setButtonState(btn, false, 'Loading...', 'Show Top 10');
+        setButtonState(btn, false, 'Scanning...', 'Scan US Market');
     } catch (error) {
         alert(`Error: ${error.message}`);
-        setButtonState(btn, false, 'Loading...', 'Show Top 10');
+        setButtonState(btn, false, 'Scanning...', 'Scan US Market');
     }
 }
 

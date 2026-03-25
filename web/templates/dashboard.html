@@ -101,15 +101,25 @@
             </div>
         </div>
 
-        <!-- SECTION 3: Top Performers -->
+        <!-- SECTION 3: US Market Scanner -->
         <div class="card">
-            <h2>⭐ Top Performers</h2>
-            <p class="description">See the best stocks from major companies</p>
-            
-            <button id="topBtn" onclick="fetchTopPerformers(this)" class="btn-large">Show Top 10</button>
+            <h2>🇺🇸 US Market Scanner</h2>
+            <p class="description">Scan broad US stock universes and surface potential opportunities</p>
 
-            <div id="topResult" class="result hidden">
-                <div id="topPerformersTable" class="table-container">
+            <div class="input-group">
+                <select id="marketUniverse">
+                    <option value="sp500" selected>S&amp;P 500</option>
+                    <option value="nasdaq100">Nasdaq-100</option>
+                    <option value="combined">Combined (S&amp;P 500 + Nasdaq-100)</option>
+                </select>
+                <input type="number" id="marketMinScore" min="0" max="100" step="1" value="65" placeholder="Min score">
+                <input type="number" id="marketTopN" min="1" max="100" step="1" value="20" placeholder="Top N">
+                <button id="marketScanBtn" onclick="scanUsMarket(this)">Scan US Market</button>
+            </div>
+
+            <div id="marketScanResult" class="result hidden">
+                <p id="marketScanMeta" class="description"></p>
+                <div id="marketScanTable" class="table-container">
                     <!-- Results will be inserted here -->
                 </div>
             </div>

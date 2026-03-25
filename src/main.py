@@ -9,6 +9,7 @@ from collections import defaultdict, deque
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
+import pandas as pd
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -85,6 +86,31 @@ _top_performers_cache_lock = threading.Lock()
 _top_performers_cache_hits = 0
 _top_performers_cache_misses = 0
 
+MARKET_SCAN_CACHE_TTL_SECONDS = 900
+MARKET_UNIVERSE_CACHE_TTL_SECONDS = 21600
+_market_scan_cache = {}
+_market_scan_cache_lock = threading.Lock()
+_market_scan_cache_hits = 0
+_market_scan_cache_misses = 0
+_market_universe_cache = {}
+_market_universe_cache_lock = threading.Lock()
+
+FALLBACK_SP500_SYMBOLS = [
+    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "BRK-B", "JPM", "V",
+    "MA", "UNH", "XOM", "PG", "JNJ", "HD", "COST", "ABBV", "KO", "PEP",
+    "AVGO", "ADBE", "BAC", "CVX", "WMT", "MRK", "AMD", "DIS", "NFLX", "CSCO",
+    "CRM", "ABT", "TMO", "MCD", "NKE", "LIN", "ACN", "DHR", "TXN", "INTC",
+    "QCOM", "AMGN", "IBM", "GE", "INTU", "SPGI", "NOW", "GS", "PLD", "ISRG",
+]
+
+FALLBACK_NASDAQ100_SYMBOLS = [
+    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AVGO", "COST", "NFLX",
+    "ADBE", "PEP", "CSCO", "AMD", "INTC", "QCOM", "AMGN", "TXN", "INTU", "ISRG",
+    "BKNG", "MU", "ADP", "GILD", "SBUX", "LRCX", "MDLZ", "ADI", "PANW", "AMAT",
+    "KLAC", "MELI", "SNPS", "CDNS", "CTAS", "FTNT", "CHTR", "CRWD", "MRVL", "ORLY",
+    "REGN", "AZN", "PDD", "CSX", "PAYX", "ROST", "MAR", "IDXX", "KDP", "ODFL",
+]
+
 _request_metrics_lock = threading.Lock()
 _request_metrics = {
     "total_requests": 0,
@@ -96,7 +122,75 @@ _request_metrics = {
 
 
 def _should_rate_limit(path: str) -> bool:
-    return path.startswith("/analyze") or path.startswith("/screen") or path.startswith("/fetch-top-performers")
+    return (
+        path.startswith("/analyze")
+        or path.startswith("/screen")
+        or path.startswith("/fetch-top-performers")
+        or path.startswith("/scan-us-market")
+    )
+
+
+def _fetch_symbols_from_wikipedia(url: str, candidate_columns: List[str]) -> List[str]:
+    """Fetch ticker symbols from a Wikipedia table."""
+    tables = pd.read_html(url)
+    for table in tables:
+        for column in candidate_columns:
+            if column in table.columns:
+                symbols = [str(value).strip().upper() for value in table[column].tolist()]
+                cleaned = [_normalize_symbol(symbol.replace(".", "-")) for symbol in symbols]
+                return [symbol for symbol in cleaned if symbol]
+    return []
+
+
+def _get_us_market_universe(universe: str) -> List[str]:
+    """Build a broad US stock universe with caching and safe fallbacks."""
+    universe_key = (universe or "sp500").lower()
+    now = datetime.now()
+
+    with _market_universe_cache_lock:
+        cached = _market_universe_cache.get(universe_key)
+        if cached:
+            age_seconds = (now - cached["timestamp"]).total_seconds()
+            if age_seconds <= MARKET_UNIVERSE_CACHE_TTL_SECONDS:
+                return cached["symbols"]
+
+    try:
+        sp500_symbols = _fetch_symbols_from_wikipedia(
+            "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
+            ["Symbol"],
+        )
+    except Exception as exc:
+        logger.warning("Could not fetch S&P 500 symbols from Wikipedia: %s", exc)
+        sp500_symbols = FALLBACK_SP500_SYMBOLS
+
+    try:
+        nasdaq100_symbols = _fetch_symbols_from_wikipedia(
+            "https://en.wikipedia.org/wiki/Nasdaq-100",
+            ["Ticker", "Ticker symbol", "Symbol"],
+        )
+    except Exception as exc:
+        logger.warning("Could not fetch Nasdaq-100 symbols from Wikipedia: %s", exc)
+        nasdaq100_symbols = FALLBACK_NASDAQ100_SYMBOLS
+
+    if not sp500_symbols:
+        sp500_symbols = FALLBACK_SP500_SYMBOLS
+    if not nasdaq100_symbols:
+        nasdaq100_symbols = FALLBACK_NASDAQ100_SYMBOLS
+
+    if universe_key == "nasdaq100":
+        selected = nasdaq100_symbols
+    elif universe_key == "combined":
+        selected = list(dict.fromkeys(sp500_symbols + nasdaq100_symbols))
+    else:
+        selected = sp500_symbols
+
+    with _market_universe_cache_lock:
+        _market_universe_cache[universe_key] = {
+            "timestamp": now,
+            "symbols": selected,
+        }
+
+    return selected
 
 
 def _normalize_symbol(symbol: str) -> Optional[str]:
@@ -392,6 +486,49 @@ async def fetch_top_performers(top_n: int = Query(10, ge=1, le=50)):
     return payload
 
 
+@app.get("/scan-us-market")
+async def scan_us_market(
+    universe: str = Query("sp500", pattern="^(sp500|nasdaq100|combined)$"),
+    min_overall_score: float = Query(65, ge=0, le=100),
+    top_n: int = Query(20, ge=1, le=100),
+    max_symbols: int = Query(300, ge=25, le=800),
+):
+    """Scan a broad US market universe and return potential opportunities."""
+    global _market_scan_cache_hits, _market_scan_cache_misses
+
+    cache_key = f"{universe}:{min_overall_score}:{top_n}:{max_symbols}"
+    now = datetime.now()
+    with _market_scan_cache_lock:
+        cached = _market_scan_cache.get(cache_key)
+        if cached:
+            age_seconds = (now - cached["timestamp"]).total_seconds()
+            if age_seconds <= MARKET_SCAN_CACHE_TTL_SECONDS:
+                _market_scan_cache_hits += 1
+                return cached["payload"]
+        _market_scan_cache_misses += 1
+
+    symbols = _get_us_market_universe(universe)[:max_symbols]
+    filters = ScreeningFilter(min_overall_score=min_overall_score)
+    result = await asyncio.to_thread(screener.screen_stocks, symbols, filters, top_n)
+
+    payload = {
+        "universe": universe,
+        "scanned_count": len(symbols),
+        "results": result.top_picks,
+        "total_candidates": result.total_candidates,
+        "filtered_count": result.filtered_count,
+        "screening_timestamp": result.screening_timestamp,
+    }
+
+    with _market_scan_cache_lock:
+        _market_scan_cache[cache_key] = {
+            "timestamp": now,
+            "payload": payload,
+        }
+
+    return payload
+
+
 @app.get("/metrics")
 async def metrics():
     """Runtime metrics for request latency and cache effectiveness."""
@@ -406,6 +543,14 @@ async def metrics():
         cache_hits = _top_performers_cache_hits
         cache_misses = _top_performers_cache_misses
         cache_size = len(_top_performers_cache)
+
+    with _market_scan_cache_lock:
+        market_scan_hits = _market_scan_cache_hits
+        market_scan_misses = _market_scan_cache_misses
+        market_scan_cache_size = len(_market_scan_cache)
+
+    with _market_universe_cache_lock:
+        market_universe_cache_size = len(_market_universe_cache)
 
     top_cache_lookups = cache_hits + cache_misses
     top_cache_hit_rate = (
@@ -433,6 +578,19 @@ async def metrics():
             "cache_misses": cache_misses,
             "cache_hit_rate_pct": top_cache_hit_rate,
             "cache_size": cache_size,
+        },
+        "market_scan_cache": {
+            "scan_ttl_seconds": MARKET_SCAN_CACHE_TTL_SECONDS,
+            "universe_ttl_seconds": MARKET_UNIVERSE_CACHE_TTL_SECONDS,
+            "scan_cache_hits": market_scan_hits,
+            "scan_cache_misses": market_scan_misses,
+            "scan_cache_hit_rate_pct": (
+                round((market_scan_hits / (market_scan_hits + market_scan_misses)) * 100, 2)
+                if (market_scan_hits + market_scan_misses)
+                else 0.0
+            ),
+            "scan_cache_size": market_scan_cache_size,
+            "universe_cache_size": market_universe_cache_size,
         },
     }
 
