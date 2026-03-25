@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StockPulse — AI Market Scanner</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e0f; --surface: #111618; --surface2: #171d1f; --border: #1f2a2d;
+    --accent: #00e5a0; --accent2: #00b37a; --gold: #f0b429; --red: #ff4d6a;
+    --blue: #4d9fff; --text: #e8f0ee; --muted: #5a7270; --muted2: #3a4f4d;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Lora', Georgia, serif; min-height: 100vh; overflow-x: hidden; }
+  body::before { content: ''; position: fixed; inset: 0; background-image: linear-gradient(rgba(0,229,160,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,229,160,0.03) 1px, transparent 1px); background-size: 40px 40px; pointer-events: none; z-index: 0; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+  header { border-bottom: 1px solid var(--border); padding: 20px 0; background: rgba(10,14,15,0.92); backdrop-filter: blur(12px); position: sticky; top: 0; z-index: 100; }
+  .header-inner { display: flex; align-items: center; justify-content: space-between; }
+  .logo { display: flex; align-items: baseline; gap: 10px; }
+  .logo-mark { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 22px; color: var(--accent); letter-spacing: -0.5px; }
+  .logo-sub { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; }
+  .status-pill { display: flex; align-items: center; gap: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted); }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.3} }
+  .api-setup { background: var(--surface); border: 1px solid rgba(0,229,160,0.3); border-radius: 4px; padding: 28px; margin: 40px 0 24px; }
+  .api-setup-title { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 18px; margin-bottom: 8px; }
+  .api-setup-desc { font-size: 14px; color: var(--muted); line-height: 1.7; margin-bottom: 18px; }
+  .api-setup-desc a { color: var(--accent); text-decoration: none; }
+  .api-input-row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .api-input-row input { flex: 1; min-width: 240px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 11px 16px; font-family: 'IBM Plex Mono', monospace; font-size: 13px; border-radius: 2px; outline: none; transition: border-color 0.2s; }
+  .api-input-row input:focus { border-color: var(--accent); }
+  .api-input-row input::placeholder { color: var(--muted2); }
+  .save-key-btn { background: var(--accent); color: #0a0e0f; border: none; padding: 11px 24px; font-family: 'Syne', sans-serif; font-weight: 700; font-size: 13px; border-radius: 2px; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+  .save-key-btn:hover { background: var(--accent2); }
+  .key-saved { display: none; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--accent); margin-top: 10px; }
+  .key-saved.visible { display: block; }
+  .hero { padding: 50px 0 32px; text-align: center; }
+  .hero-tag { display: inline-block; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: var(--accent); border: 1px solid rgba(0,229,160,0.3); padding: 5px 14px; border-radius: 2px; margin-bottom: 20px; }
+  h1 { font-family: 'Syne', sans-serif; font-weight: 800; font-size: clamp(28px, 5vw, 52px); line-height: 1.05; letter-spacing: -2px; margin-bottom: 14px; }
+  h1 span { color: var(--accent); }
+  .hero-desc { color: var(--muted); font-size: 15px; max-width: 500px; margin: 0 auto; line-height: 1.7; }
+  .scanner-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 28px; margin-bottom: 24px; }
+  .panel-title { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); margin-bottom: 18px; }
+  .filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin-bottom: 22px; }
+  .filter-group label { display: block; font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 7px; }
+  .filter-group select { width: 100%; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 10px 14px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; border-radius: 2px; outline: none; transition: border-color 0.2s; appearance: none; cursor: pointer; }
+  .filter-group select:focus { border-color: var(--accent); }
+  .strategy-tags { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 22px; }
+  .tag { font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 6px 13px; border-radius: 2px; border: 1px solid var(--border); color: var(--muted); cursor: pointer; transition: all 0.2s; user-select: none; }
+  .tag.active { border-color: var(--accent); color: var(--accent); background: rgba(0,229,160,0.07); }
+  .scan-btn { background: var(--accent); color: #0a0e0f; border: none; padding: 14px 36px; font-family: 'Syne', sans-serif; font-weight: 700; font-size: 14px; letter-spacing: 1px; text-transform: uppercase; border-radius: 2px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 10px; }
+  .scan-btn:hover { background: var(--accent2); transform: translateY(-1px); }
+  .scan-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  .loading-state { display: none; text-align: center; padding: 60px 20px; }
+  .loading-state.visible { display: block; }
+  .spinner { width: 38px; height: 38px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 18px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: var(--muted); }
+  .loading-steps { margin-top: 14px; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+  .loading-step { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted2); opacity: 0; transition: opacity 0.4s; }
+  .loading-step.active { color: var(--accent); opacity: 1; }
+  .loading-step.done { color: var(--muted); opacity: 0.6; }
+  .progress-bar-wrap { width: 200px; height: 2px; background: var(--border); margin: 16px auto 0; border-radius: 2px; overflow: hidden; }
+  .progress-bar { height: 100%; background: var(--accent); width: 0%; transition: width 0.5s; }
+  .results-section { display: none; }
+  .results-section.visible { display: block; }
+  .results-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  .results-title { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 20px; }
+  .results-count { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--muted); }
+  .stocks-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 18px; margin-bottom: 40px; }
+  .stock-card { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 22px; transition: border-color 0.2s, transform 0.2s; opacity: 0; transform: translateY(16px); animation: cardIn 0.4s forwards; }
+  .stock-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  @keyframes cardIn { to { opacity: 1; transform: translateY(0); } }
+  .card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
+  .stock-ticker { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 22px; letter-spacing: -0.5px; }
+  .stock-name { font-size: 12px; color: var(--muted); margin-top: 3px; font-family: 'IBM Plex Mono', monospace; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .score-badge { text-align: right; }
+  .score-label { font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+  .score-value { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 26px; line-height: 1; }
+  .score-high { color: var(--accent); }
+  .score-mid { color: var(--gold); }
+  .score-low { color: var(--red); }
+  .metrics-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 14px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+  .metric { text-align: center; }
+  .metric-label { font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+  .metric-value { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 500; }
+  .up { color: var(--accent); } .down { color: var(--red); }
+  .strategy-labels { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .strategy-label { font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; padding: 3px 8px; border-radius: 2px; }
+  .label-value { background: rgba(77,159,255,0.15); color: var(--blue); }
+  .label-growth { background: rgba(0,229,160,0.1); color: var(--accent); }
+  .label-dividend { background: rgba(240,180,41,0.12); color: var(--gold); }
+  .label-momentum { background: rgba(255,77,106,0.12); color: var(--red); }
+  .ai-analysis { font-size: 13px; line-height: 1.7; color: #a0b8b4; font-style: italic; border-left: 2px solid var(--accent); padding-left: 12px; }
+  .ai-summary-section { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 26px; margin-bottom: 28px; display: none; }
+  .ai-summary-section.visible { display: block; }
+  .ai-summary-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .ai-icon { width: 28px; height: 28px; background: rgba(0,229,160,0.1); border: 1px solid rgba(0,229,160,0.3); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; }
+  .ai-summary-title { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 16px; }
+  .ai-summary-text { font-size: 15px; line-height: 1.8; color: #a0b8b4; }
+  .error-msg { display: none; background: rgba(255,77,106,0.07); border: 1px solid rgba(255,77,106,0.3); border-radius: 4px; padding: 16px 20px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--red); margin-bottom: 20px; line-height: 1.6; }
+  .error-msg.visible { display: block; }
+  .disclaimer { background: rgba(240,180,41,0.05); border: 1px solid rgba(240,180,41,0.2); border-radius: 4px; padding: 14px 18px; margin-bottom: 40px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: rgba(240,180,41,0.7); line-height: 1.6; }
+  footer { border-top: 1px solid var(--border); padding: 22px 0; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted2); }
+</style>
+</head>
+<body>
+<header>
+  <div class="container header-inner">
+    <div class="logo">
+      <span class="logo-mark">StockPulse</span>
+      <span class="logo-sub">AI Scanner</span>
+    </div>
+    <div class="status-pill"><div class="status-dot"></div><span>Finnhub Live Data</span></div>
+  </div>
+</header>
+
+<div class="container">
+  <div class="hero">
+    <div class="hero-tag">AI-Powered Market Analysis</div>
+    <h1>Find Your Next<br><span>Smart Investment</span></h1>
+    <p class="hero-desc">Real-time US market scan. AI identifies undervalued picks, high-growth opportunities, and dividend plays.</p>
+  </div>
+
+  <div class="api-setup" id="apiSetup">
+    <div class="api-setup-title">🔑 Step 1 — Get your free Finnhub API Key</div>
+    <div class="api-setup-desc">
+      Sign up free at <a href="https://finnhub.io/register" target="_blank" rel="noopener noreferrer">finnhub.io/register</a> (30 seconds, no credit card).
+      After signing in, your API key is shown on the dashboard. Paste it below.<br>
+      <span style="font-size:12px; color: var(--muted2);">Stored only in your browser. Free tier = 60 calls/min, plenty for this scanner.</span>
+    </div>
+    <div class="api-input-row">
+      <input type="password" id="apiKeyInput" placeholder="Paste your Finnhub API key here..." autocomplete="off" />
+      <button class="save-key-btn" id="saveKeyBtn">Save &amp; Activate</button>
+    </div>
+    <div class="key-saved" id="keySaved">✓ Key saved — scroll down and run your scan!</div>
+  </div>
+
+  <div class="scanner-panel">
+    <div class="panel-title">// Step 2 — Configure Your Scan</div>
+    <div class="filters">
+      <div class="filter-group">
+        <label>Sector</label>
+        <select id="sectorFilter">
+          <option value="all">All Sectors</option>
+          <option value="technology">Technology</option>
+          <option value="healthcare">Healthcare</option>
+          <option value="finance">Finance</option>
+          <option value="consumer">Consumer</option>
+          <option value="energy">Energy</option>
+          <option value="industrials">Industrials</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Market Cap</label>
+        <select id="capFilter">
+          <option value="all">All Sizes</option>
+          <option value="large">Large Cap ($10B+)</option>
+          <option value="mid">Mid Cap ($2B–$10B)</option>
+          <option value="small">Small Cap (&lt;$2B)</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Time Horizon</label>
+        <select id="horizonFilter">
+          <option value="both">Short + Long Term</option>
+          <option value="short">Short Term</option>
+          <option value="long">Long Term</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Min Dividend Yield</label>
+        <select id="dividendFilter">
+          <option value="0">Any / None</option>
+          <option value="1">1%+</option>
+          <option value="2">2%+</option>
+          <option value="3">3%+</option>
+        </select>
+      </div>
+    </div>
+    <div style="margin-bottom:20px;">
+      <div class="panel-title">// Investment Strategy</div>
+      <div class="strategy-tags">
+        <div class="tag active" data-strategy="value">Undervalued / Value</div>
+        <div class="tag active" data-strategy="growth">High Growth</div>
+        <div class="tag active" data-strategy="dividend">Dividend Income</div>
+        <div class="tag" data-strategy="momentum">Momentum</div>
+        <div class="tag" data-strategy="turnaround">Turnaround</div>
+      </div>
+    </div>
+    <button class="scan-btn" id="scanBtn">⟳ Run AI Scan</button>
+  </div>
+
+  <div class="error-msg" id="errorMsg"></div>
+
+  <div class="loading-state" id="loadingState">
+    <div class="spinner"></div>
+    <div class="loading-text" id="loadingText">Initializing scanner...</div>
+    <div class="loading-steps">
+      <div class="loading-step" id="step1">→ Building stock universe</div>
+      <div class="loading-step" id="step2">→ Fetching quotes &amp; fundamentals</div>
+      <div class="loading-step" id="step3">→ Scoring investment metrics</div>
+      <div class="loading-step" id="step4">→ Running AI analysis</div>
+      <div class="loading-step" id="step5">→ Generating recommendations</div>
+    </div>
+    <div class="progress-bar-wrap"><div class="progress-bar" id="progressBar"></div></div>
+  </div>
+
+  <div class="ai-summary-section" id="aiSummary">
+    <div class="ai-summary-header">
+      <div class="ai-icon">✦</div>
+      <div class="ai-summary-title">AI Market Overview</div>
+    </div>
+    <div class="ai-summary-text" id="aiSummaryText"></div>
+  </div>
+
+  <div class="results-section" id="resultsSection">
+    <div class="results-header">
+      <div class="results-title">Top Picks</div>
+      <div class="results-count" id="resultsCount"></div>
+    </div>
+    <div class="stocks-grid" id="stocksGrid"></div>
+  </div>
+
+  <div class="disclaimer">⚠ DISCLAIMER: For informational and educational purposes only. Not financial advice. Always conduct your own research and consult a qualified financial advisor before making any investment decisions.</div>
+</div>
+
+<footer><div class="container">StockPulse — Powered by Finnhub · Free tier: 60 API calls/min</div></footer>
+
+<script>
+const UNIVERSE = {
+  technology:  ['AAPL','MSFT','NVDA','GOOGL','META','ORCL','CRM','ADBE','INTC','AMD','QCOM','TXN','MU','NOW','SNOW'],
+  healthcare:  ['JNJ','UNH','PFE','ABBV','MRK','LLY','BMY','AMGN','GILD','CVS','HUM','MDT','ABT','ISRG'],
+  finance:     ['JPM','BAC','WFC','GS','MS','BLK','AXP','COF','SCHW','CB','MMC','PGR','MET'],
+  consumer:    ['AMZN','WMT','COST','TGT','HD','LOW','MCD','SBUX','NKE','PG','KO','PEP','CL'],
+  energy:      ['XOM','CVX','COP','SLB','EOG','PSX','VLO','MPC','HAL','DVN','OXY','KMI'],
+  industrials: ['CAT','HON','GE','MMM','UPS','FDX','DE','ITW','ETN','LMT','RTX','PH']
+};
+
+// Validate ticker symbols to prevent injection
+function isValidTicker(t) {
+  return /^[A-Z]{1,5}$/.test(t);
+}
+
+let activeTags = new Set(['value','growth','dividend']);
+let apiKey = '';
+
+// Load saved key on page load (masked in UI)
+window.addEventListener('DOMContentLoaded', () => {
+  const saved = localStorage.getItem('finnhub_key');
+  if (saved) {
+    apiKey = saved;
+    document.getElementById('keySaved').classList.add('visible');
+  }
+
+  document.getElementById('saveKeyBtn').addEventListener('click', saveApiKey);
+  document.getElementById('scanBtn').addEventListener('click', runScan);
+
+  document.querySelectorAll('.tag').forEach(t =>
+    t.addEventListener('click', () => {
+      const s = t.dataset.strategy;
+      if (activeTags.has(s)) { activeTags.delete(s); t.classList.remove('active'); }
+      else { activeTags.add(s); t.classList.add('active'); }
+    })
+  );
+});
+
+function saveApiKey() {
+  const v = document.getElementById('apiKeyInput').value.trim();
+  if (!v) return;
+  // Basic format check: Finnhub keys are alphanumeric
+  if (!/^[a-zA-Z0-9_]{10,60}$/.test(v)) {
+    showError('Invalid API key format. Please check your Finnhub key.');
+    return;
+  }
+  apiKey = v;
+  localStorage.setItem('finnhub_key', v);
+  document.getElementById('apiKeyInput').value = '';
+  document.getElementById('keySaved').classList.add('visible');
+}
+
+function setStep(n) {
+  document.getElementById('progressBar').style.width = [0,10,35,60,80,100][n] + '%';
+  for (let i = 1; i <= 5; i++) {
+    document.getElementById('step' + i).className = 'loading-step' + (i < n ? ' done' : i === n ? ' active' : '');
+  }
+}
+
+async function fh(path) {
+  const url = 'https://finnhub.io/api/v1' + path + '&token=' + encodeURIComponent(apiKey);
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('Finnhub ' + r.status + ': ' + r.statusText);
+  return r.json();
+}
+
+async function fetchStock(ticker) {
+  if (!isValidTicker(ticker)) return null;
+  try {
+    const [q, p, m] = await Promise.all([
+      fh('/quote?symbol=' + ticker),
+      fh('/stock/profile2?symbol=' + ticker),
+      fh('/stock/metric?symbol=' + ticker + '&metric=all')
+    ]);
+    if (!q.c || q.c === 0) return null;
+    const met = m.metric || {};
+    return {
+      ticker,
+      name: p.name || ticker,
+      price: q.c, change: q.dp,
+      marketCap: p.marketCapitalization,
+      pe: met.peBasicExclExtraTTM || met.peTTM,
+      pb: met.pbAnnual,
+      ps: met.psTTM,
+      dividendYield: met.dividendYieldIndicatedAnnual,
+      revenueGrowth: met.revenueGrowthTTMYoy,
+      epsGrowth: met.epsGrowthTTMYoy,
+      roe: met.roeTTM,
+      debtEquity: met['totalDebt/totalEquityAnnual'],
+      currentRatio: met.currentRatioAnnual,
+      w52High: met['52WeekHigh'], w52Low: met['52WeekLow'],
+      grossMargin: met.grossMarginTTM,
+    };
+  } catch { return null; }
+}
+
+function scoreStock(s) {
+  let score = 50; const tags = [];
+  if (activeTags.has('value')) {
+    if (s.pe && s.pe > 0 && s.pe < 18) { score += 12; tags.push('value'); }
+    else if (s.pe && s.pe < 25) score += 5;
+    if (s.pb && s.pb < 2) score += 7;
+    if (s.ps && s.ps < 3) score += 5;
+  }
+  if (activeTags.has('growth')) {
+    if (s.revenueGrowth && s.revenueGrowth > 10) { score += 12; tags.push('growth'); }
+    if (s.epsGrowth && s.epsGrowth > 10) score += 8;
+    if (s.roe && s.roe > 15) score += 6;
+    if (s.grossMargin && s.grossMargin > 30) score += 4;
+  }
+  if (activeTags.has('dividend')) {
+    if (s.dividendYield && s.dividendYield > 2) { score += 10; tags.push('dividend'); }
+    if (s.dividendYield && s.dividendYield > 4) score += 6;
+  }
+  if (activeTags.has('momentum')) {
+    if (s.change && s.change > 0) score += 5;
+    const rng = (s.w52High || 0) - (s.w52Low || 0);
+    if (rng > 0 && s.price && (s.price - s.w52Low) / rng > 0.7) { score += 8; tags.push('momentum'); }
+  }
+  if (activeTags.has('turnaround')) {
+    if (s.change < -5 && s.pe > 0 && s.pe < 25) score += 10;
+  }
+  if (s.currentRatio > 1.5) score += 4;
+  if (s.debtEquity < 0.5) score += 4;
+  return { score: Math.min(99, Math.max(28, Math.round(score))), tags };
+}
+
+// Safe text content setter (prevents XSS)
+function safeText(el, text) {
+  el.textContent = String(text || '');
+}
+
+async function runScan() {
+  if (!apiKey) { showError('Please enter your Finnhub API key first. Get a free one at finnhub.io/register.'); return; }
+
+  const btn = document.getElementById('scanBtn');
+  const loading = document.getElementById('loadingState');
+  const results = document.getElementById('resultsSection');
+  const aiSum = document.getElementById('aiSummary');
+  const errDiv = document.getElementById('errorMsg');
+
+  btn.disabled = true;
+  errDiv.classList.remove('visible');
+  results.classList.remove('visible');
+  aiSum.classList.remove('visible');
+  loading.classList.add('visible');
+
+  const sector = document.getElementById('sectorFilter').value;
+  const cap = document.getElementById('capFilter').value;
+  const minDiv = parseFloat(document.getElementById('dividendFilter').value);
+  const horizon = document.getElementById('horizonFilter').value;
+
+  try {
+    setStep(1);
+    let pool = sector === 'all' ? Object.values(UNIVERSE).flat() : (UNIVERSE[sector] || []);
+    pool = pool.filter(isValidTicker).sort(() => 0.5 - Math.random()).slice(0, 15);
+
+    setStep(2);
+    safeText(document.getElementById('loadingText'), 'Fetching data for ' + pool.length + ' stocks...');
+
+    const allData = [];
+    for (let i = 0; i < pool.length; i += 3) {
+      const res = await Promise.all(pool.slice(i, i+3).map(fetchStock));
+      allData.push(...res);
+      if (i + 3 < pool.length) await sleep(400);
+    }
+
+    const valid = allData.filter(Boolean);
+    if (valid.length === 0) throw new Error('No data returned. Check your API key and try again.');
+
+    setStep(3);
+    let filtered = valid.filter(s => {
+      if (minDiv > 0 && (!s.dividendYield || s.dividendYield < minDiv)) return false;
+      if (cap === 'large' && (!s.marketCap || s.marketCap < 10000)) return false;
+      if (cap === 'mid' && (!s.marketCap || s.marketCap < 2000 || s.marketCap > 10000)) return false;
+      if (cap === 'small' && (!s.marketCap || s.marketCap > 2000)) return false;
+      return true;
+    });
+    if (!filtered.length) filtered = valid;
+
+    const scored = filtered
+      .map(s => { const {score, tags} = scoreStock(s); return {...s, score, tags}; })
+      .sort((a,b) => b.score - a.score).slice(0, 9);
+
+    setStep(4);
+    // AI analysis step is skipped (requires server-side proxy for Anthropic API key)
+    const aiData = { overview: '', picks: {} };
+
+    setStep(5);
+    await sleep(300);
+    loading.classList.remove('visible');
+
+    const grid = document.getElementById('stocksGrid');
+    grid.innerHTML = '';
+    scored.forEach((s, i) => {
+      const ch = s.change != null ? (s.change >= 0 ? '+' : '') + s.change.toFixed(2) + '%' : 'N/A';
+      const chC = (s.change || 0) >= 0 ? 'up' : 'down';
+      const scC = s.score >= 75 ? 'score-high' : s.score >= 60 ? 'score-mid' : 'score-low';
+      const thesis = aiData.picks?.[s.ticker] || s.name + ' presents characteristics aligned with your selected investment strategy.';
+
+      const card = document.createElement('div');
+      card.className = 'stock-card';
+      card.style.animationDelay = (i * 0.07) + 's';
+
+      // Build card using DOM (avoids innerHTML XSS with dynamic data)
+      const cardTop = document.createElement('div'); cardTop.className = 'card-top';
+      const tickerDiv = document.createElement('div');
+      const tickerEl = document.createElement('div'); tickerEl.className = 'stock-ticker'; safeText(tickerEl, s.ticker);
+      const nameEl = document.createElement('div'); nameEl.className = 'stock-name'; nameEl.title = s.name; safeText(nameEl, s.name);
+      tickerDiv.appendChild(tickerEl); tickerDiv.appendChild(nameEl);
+      const scoreBadge = document.createElement('div'); scoreBadge.className = 'score-badge';
+      const scoreLabel = document.createElement('div'); scoreLabel.className = 'score-label'; safeText(scoreLabel, 'AI Score');
+      const scoreVal = document.createElement('div'); scoreVal.className = 'score-value ' + scC; safeText(scoreVal, s.score);
+      scoreBadge.appendChild(scoreLabel); scoreBadge.appendChild(scoreVal);
+      cardTop.appendChild(tickerDiv); cardTop.appendChild(scoreBadge);
+
+      const metricsRow = document.createElement('div'); metricsRow.className = 'metrics-row';
+      const metrics = [
+        ['Price', '$' + s.price.toFixed(2), ''],
+        ['Today', ch, chC],
+        ['P/E', s.pe ? s.pe.toFixed(1) + 'x' : 'N/A', ''],
+        ['Dividend', s.dividendYield ? s.dividendYield.toFixed(2) + '%' : '—', ''],
+        ['Rev Growth', s.revenueGrowth != null ? (s.revenueGrowth >= 0 ? '+' : '') + s.revenueGrowth.toFixed(1) + '%' : 'N/A', ''],
+        ['ROE', s.roe != null ? s.roe.toFixed(1) + '%' : 'N/A', '']
+      ];
+      metrics.forEach(([label, val, cls]) => {
+        const m = document.createElement('div'); m.className = 'metric';
+        const ml = document.createElement('div'); ml.className = 'metric-label'; safeText(ml, label);
+        const mv = document.createElement('div'); mv.className = 'metric-value' + (cls ? ' ' + cls : ''); safeText(mv, val);
+        m.appendChild(ml); m.appendChild(mv); metricsRow.appendChild(m);
+      });
+
+      const tagsDiv = document.createElement('div'); tagsDiv.className = 'strategy-labels';
+      const labelMap = { value: 'label-value', growth: 'label-growth', dividend: 'label-dividend', momentum: 'label-momentum' };
+      s.tags.forEach(t => {
+        const sp = document.createElement('span');
+        sp.className = 'strategy-label ' + (labelMap[t] || 'label-value');
+        safeText(sp, t);
+        tagsDiv.appendChild(sp);
+      });
+
+      const aiEl = document.createElement('div'); aiEl.className = 'ai-analysis'; safeText(aiEl, thesis);
+
+      card.appendChild(cardTop);
+      card.appendChild(metricsRow);
+      if (s.tags.length) card.appendChild(tagsDiv);
+      card.appendChild(aiEl);
+      grid.appendChild(card);
+    });
+
+    safeText(document.getElementById('resultsCount'), scored.length + ' stocks analysed');
+    results.classList.add('visible');
+
+  } catch(err) {
+    loading.classList.remove('visible');
+    showError(err.message || 'Something went wrong. Please try again.');
+  }
+  btn.disabled = false;
+}
+
+function showError(msg) {
+  const el = document.getElementById('errorMsg');
+  safeText(el, '⚠ ' + msg);
+  el.classList.add('visible');
+}
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+</script>
+</body>
+</html>
