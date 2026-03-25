@@ -350,6 +350,14 @@ async def root():
         return FileResponse(str(dashboard_path))
     return {"message": "Stock Analysis Agent API - Visit /docs for API documentation"}
 
+@app.get("/stock-scanner")
+async def stock_scanner():
+    """Serve the StockPulse Finnhub scanner page"""
+    scanner_path = templates_dir / "stock-scanner.html"
+    if scanner_path.exists():
+        return FileResponse(str(scanner_path))
+    return {"message": "Stock scanner not available"}
+
 @app.get("/health")
 async def health():
     """Health check endpoint"""
