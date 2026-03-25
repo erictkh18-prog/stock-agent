@@ -189,46 +189,60 @@ class StockScreener:
     
     def screen_stocks(
         self, symbols: List[str], filters: Optional[ScreeningFilter] = None,
-        top_n: int = 10
+        top_n: int = 10, seed: Optional[int] = None
     ) -> ScreeningResult:
         """
-        Screen multiple stocks and return top picks
-        
+        Screen multiple stocks and return top picks.
+
         Args:
             symbols: List of stock symbols to analyze
             filters: Screening filters to apply
             top_n: Number of top picks to return
-        
+            seed: When provided, enables deterministic mode.  Input symbols are
+                  sorted alphabetically before processing and results are ranked
+                  with a stable secondary key (symbol name) so that identical
+                  inputs always produce the same ordering.
+
         Returns:
             ScreeningResult with filtered stocks
         """
         if filters is None:
             filters = ScreeningFilter()
-        
+
+        deterministic_mode = seed is not None
+
+        # In deterministic mode sort the candidate list so that the slice taken
+        # by max_symbols (applied upstream) and the parallel work queue are
+        # always consistent across runs.
+        work_symbols = sorted(symbols) if deterministic_mode else symbols
+
         results = []
 
-        max_workers = min(8, max(1, len(symbols)))
+        max_workers = min(8, max(1, len(work_symbols)))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [
                 executor.submit(self._analyze_symbol_for_screen, symbol, filters)
-                for symbol in symbols
+                for symbol in work_symbols
             ]
             for future in as_completed(futures):
                 analysis = future.result()
                 if analysis:
                     results.append(analysis)
-        
-        # Sort by overall score (descending)
-        results.sort(key=lambda x: x.overall_score, reverse=True)
-        
+
+        # Sort by overall score descending.  A secondary key on the symbol name
+        # ensures a fully deterministic, stable ordering whenever scores tie.
+        results.sort(key=lambda x: (-x.overall_score, x.symbol))
+
         # Get top picks
         top_picks = results[:top_n]
-        
+
         return ScreeningResult(
-            total_candidates=len(symbols),
+            total_candidates=len(work_symbols),
             filtered_count=len(results),
             top_picks=top_picks,
-            screening_timestamp=datetime.now()
+            screening_timestamp=datetime.now(),
+            deterministic_mode=deterministic_mode,
+            seed=seed,
         )
     
     def _passes_filters(self, analysis: StockAnalysis, filters: ScreeningFilter) -> bool:

@@ -68,3 +68,5 @@ class ScreeningResult(BaseModel):
     filtered_count: int
     top_picks: List[StockAnalysis]
     screening_timestamp: datetime
+    deterministic_mode: bool = Field(False, description="True when a seed was supplied for stable ordering")
+    seed: Optional[int] = Field(None, description="Seed value used for deterministic ordering")
