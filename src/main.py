@@ -1,5 +1,6 @@
 """Main FastAPI application for Stock Analysis Agent"""
 import os
+import re
 import subprocess
 import threading
 from collections import defaultdict, deque
@@ -85,6 +86,36 @@ def _should_rate_limit(path: str) -> bool:
     return path.startswith("/analyze") or path.startswith("/screen") or path.startswith("/fetch-top-performers")
 
 
+def _normalize_symbol(symbol: str) -> Optional[str]:
+    """Normalize one ticker symbol; return None for invalid values."""
+    if not symbol:
+        return None
+
+    normalized = symbol.strip().upper()
+    if not normalized:
+        return None
+
+    if len(normalized) > 10:
+        return None
+
+    if not re.fullmatch(r"[A-Z0-9.\-]+", normalized):
+        return None
+
+    return normalized
+
+
+def _normalize_symbols(symbols: List[str]) -> List[str]:
+    """Normalize, de-duplicate, and filter invalid symbols while preserving order."""
+    normalized_symbols = []
+    seen = set()
+    for symbol in symbols:
+        normalized = _normalize_symbol(symbol)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            normalized_symbols.append(normalized)
+    return normalized_symbols
+
+
 @app.middleware("http")
 async def ip_rate_limit_middleware(request: Request, call_next):
     path = request.url.path
@@ -146,9 +177,13 @@ async def version():
 async def analyze_stock(symbol: str):
     """Analyze one stock and return detailed analysis"""
     try:
-        analysis = screener.analyze_stock(symbol.upper())
+        normalized_symbol = _normalize_symbol(symbol)
+        if not normalized_symbol:
+            raise HTTPException(status_code=400, detail="Invalid symbol format")
+
+        analysis = screener.analyze_stock(normalized_symbol)
         if not analysis:
-            raise HTTPException(status_code=404, detail=f"Could not analyze {symbol}")
+            raise HTTPException(status_code=404, detail=f"Could not analyze {normalized_symbol}")
         return analysis
     except HTTPException:
         raise
@@ -168,6 +203,10 @@ async def screen_stocks(
 ):
     """Screen multiple stocks and return top candidates"""
     try:
+        normalized_symbols = _normalize_symbols(symbols)
+        if not normalized_symbols:
+            raise HTTPException(status_code=400, detail="No valid symbols provided")
+
         filters = ScreeningFilter(
             min_overall_score=min_overall_score,
             max_pe_ratio=max_pe_ratio,
@@ -175,7 +214,9 @@ async def screen_stocks(
             max_debt_to_equity=max_debt_to_equity,
             trend=trend,
         )
-        return screener.screen_stocks(symbols, filters, top_n)
+        return screener.screen_stocks(normalized_symbols, filters, top_n)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error screening stocks: {e}")
         raise HTTPException(status_code=500, detail=f"Error screening stocks: {e}")
@@ -183,9 +224,13 @@ async def screen_stocks(
 @app.get("/analyze-text/{symbol}")
 async def analyze_text(symbol: str):
     """Human-friendly text summary for one stock"""
-    analysis = screener.analyze_stock(symbol.upper())
+    normalized_symbol = _normalize_symbol(symbol)
+    if not normalized_symbol:
+        raise HTTPException(status_code=400, detail="Invalid symbol format")
+
+    analysis = screener.analyze_stock(normalized_symbol)
     if not analysis:
-        raise HTTPException(status_code=404, detail=f"Could not analyze {symbol}")
+        raise HTTPException(status_code=404, detail=f"Could not analyze {normalized_symbol}")
 
     fund_score = analysis.fundamental.score if analysis.fundamental else "N/A"
     tech_score = analysis.technical.score if analysis.technical else "N/A"
@@ -204,11 +249,15 @@ async def analyze_text(symbol: str):
 @app.get("/screen-text")
 async def screen_text(symbols: List[str] = Query(..., description="List of stock symbols to screen")):
     """Human-friendly text summary for multiple stocks"""
+    normalized_symbols = _normalize_symbols(symbols)
+    if not normalized_symbols:
+        raise HTTPException(status_code=400, detail="No valid symbols provided")
+
     filters = ScreeningFilter(min_overall_score=60)
-    result = screener.screen_stocks(symbols, filters, top_n=len(symbols))
+    result = screener.screen_stocks(normalized_symbols, filters, top_n=len(normalized_symbols))
 
     return {
-        "symbols": symbols,
+        "symbols": normalized_symbols,
         "results": [
             {
                 "symbol": stock.symbol,

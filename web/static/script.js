@@ -5,31 +5,47 @@ const API_URL = window.location.origin.startsWith('http')
 
 let scoreChart = null;
 
+function setButtonState(buttonEl, isBusy, busyText, idleText) {
+    if (!buttonEl) return;
+    buttonEl.disabled = isBusy;
+    buttonEl.textContent = isBusy ? busyText : idleText;
+}
+
+async function parseApiError(response, fallbackMessage) {
+    try {
+        const payload = await response.json();
+        return payload?.detail || fallbackMessage;
+    } catch (_) {
+        return fallbackMessage;
+    }
+}
+
 // ============ ANALYZE SINGLE STOCK ============
-async function analyzeStock() {
+async function analyzeStock(buttonEl = null) {
     const symbol = document.getElementById('singleSymbol').value.trim().toUpperCase();
     if (!symbol) {
         alert('Please enter a stock symbol');
         return;
     }
 
+    const btn = buttonEl || document.getElementById('analyzeBtn');
+
     try {
-        const btn = event.target;
-        btn.disabled = true;
-        btn.textContent = 'Analyzing...';
+        setButtonState(btn, true, 'Analyzing...', 'Analyze');
 
         const response = await fetch(`${API_URL}/analyze/${symbol}`);
-        if (!response.ok) throw new Error('Stock not found');
+        if (!response.ok) {
+            const errorMessage = await parseApiError(response, 'Stock not found');
+            throw new Error(errorMessage);
+        }
         
         const data = await response.json();
         displaySingleResult(data);
         
-        btn.disabled = false;
-        btn.textContent = 'Analyze';
+        setButtonState(btn, false, 'Analyzing...', 'Analyze');
     } catch (error) {
         alert(`Error: ${error.message}`);
-        event.target.disabled = false;
-        event.target.textContent = 'Analyze';
+        setButtonState(btn, false, 'Analyzing...', 'Analyze');
     }
 }
 
@@ -138,42 +154,53 @@ function drawGaugeChart(score) {
 }
 
 // ============ SCREEN MULTIPLE STOCKS ============
-async function screenStocks() {
+async function screenStocks(buttonEl = null) {
     const input = document.getElementById('multipleSymbols').value.trim();
     if (!input) {
         alert('Please enter stock symbols');
         return;
     }
 
-    const symbols = input.split(',').map(s => s.trim().toUpperCase());
+    const symbols = [...new Set(input.split(',').map(s => s.trim().toUpperCase()).filter(Boolean))];
+    if (!symbols.length) {
+        alert('Please enter at least one valid stock symbol');
+        return;
+    }
+
+    const btn = buttonEl || document.getElementById('screenBtn');
 
     try {
-        const btn = event.target;
-        btn.disabled = true;
-        btn.textContent = 'Screening...';
+        setButtonState(btn, true, 'Screening...', 'Screen');
 
         const params = new URLSearchParams();
         symbols.forEach(sym => params.append('symbols', sym));
         params.append('top_n', '20');
 
         const response = await fetch(`${API_URL}/screen?${params}`);
-        if (!response.ok) throw new Error('Screening failed');
+        if (!response.ok) {
+            const errorMessage = await parseApiError(response, 'Screening failed');
+            throw new Error(errorMessage);
+        }
         
         const data = await response.json();
-        displayScreenResults(data?.results || data);
+        displayScreenResults(data?.results || data, 'screenerTable', 'screenResult');
         
-        btn.disabled = false;
-        btn.textContent = 'Screen';
+        setButtonState(btn, false, 'Screening...', 'Screen');
     } catch (error) {
         alert(`Error: ${error.message}`);
-        event.target.disabled = false;
-        event.target.textContent = 'Screen';
+        setButtonState(btn, false, 'Screening...', 'Screen');
     }
 }
 
-function displayScreenResults(results) {
-    const resultDiv = document.getElementById('screenResult');
-    const tableDiv = document.getElementById('screenerTable');
+function displayScreenResults(results, tableContainerId = 'screenerTable', resultContainerId = 'screenResult') {
+    const resultDiv = document.getElementById(resultContainerId);
+    const tableDiv = document.getElementById(tableContainerId);
+
+    if (!Array.isArray(results) || !results.length) {
+        tableDiv.innerHTML = '<p>No results found for the selected symbols and filters.</p>';
+        resultDiv.classList.remove('hidden');
+        return;
+    }
     
     let html = `
         <table>
@@ -219,35 +246,38 @@ function displayScreenResults(results) {
 }
 
 // ============ TOP PERFORMERS ============
-async function fetchTopPerformers() {
+async function fetchTopPerformers(buttonEl = null) {
+    const btn = buttonEl || document.getElementById('topBtn');
+
     try {
-        const btn = event.target;
-        btn.disabled = true;
-        btn.textContent = 'Loading...';
+        setButtonState(btn, true, 'Loading...', 'Show Top 10');
 
         const response = await fetch(`${API_URL}/fetch-top-performers?top_n=10`);
-        if (!response.ok) throw new Error('Could not fetch top performers');
+        if (!response.ok) {
+            const errorMessage = await parseApiError(response, 'Could not fetch top performers');
+            throw new Error(errorMessage);
+        }
         
         const data = await response.json();
-        displayScreenResults(data?.results || data);
-        document.getElementById('topResult').classList.remove('hidden');
+        displayScreenResults(data?.results || data, 'topPerformersTable', 'topResult');
         
-        btn.disabled = false;
-        btn.textContent = 'Show Top 10';
+        setButtonState(btn, false, 'Loading...', 'Show Top 10');
     } catch (error) {
         alert(`Error: ${error.message}`);
-        event.target.disabled = false;
-        event.target.textContent = 'Show Top 10';
+        setButtonState(btn, false, 'Loading...', 'Show Top 10');
     }
 }
 
 // ============ ENTER KEY SUPPORT ============
 document.addEventListener('DOMContentLoaded', () => {
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    const screenBtn = document.getElementById('screenBtn');
+
     document.getElementById('singleSymbol')?.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') analyzeStock();
+        if (e.key === 'Enter') analyzeStock(analyzeBtn);
     });
 
     document.getElementById('multipleSymbols')?.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') screenStocks();
+        if (e.key === 'Enter') screenStocks(screenBtn);
     });
 });

@@ -21,7 +21,7 @@
             
             <div class="input-group">
                 <input type="text" id="singleSymbol" placeholder="Enter stock symbol (e.g., AAPL)" maxlength="5">
-                <button onclick="analyzeStock()">Analyze</button>
+                <button id="analyzeBtn" onclick="analyzeStock(this)">Analyze</button>
             </div>
 
             <div id="singleResult" class="result hidden">
@@ -91,7 +91,7 @@
             
             <div class="input-group">
                 <input type="text" id="multipleSymbols" placeholder="Enter symbols separated by commas (e.g., AAPL,MSFT,GOOGL)">
-                <button onclick="screenStocks()">Screen</button>
+                <button id="screenBtn" onclick="screenStocks(this)">Screen</button>
             </div>
 
             <div id="screenResult" class="result hidden">
@@ -106,7 +106,7 @@
             <h2>⭐ Top Performers</h2>
             <p class="description">See the best stocks from major companies</p>
             
-            <button onclick="fetchTopPerformers()" class="btn-large">Show Top 10</button>
+            <button id="topBtn" onclick="fetchTopPerformers(this)" class="btn-large">Show Top 10</button>
 
             <div id="topResult" class="result hidden">
                 <div id="topPerformersTable" class="table-container">
