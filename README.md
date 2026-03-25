@@ -188,6 +188,12 @@ curl http://localhost:8000/analyze/AAPL
 POST /screen?symbols=AAPL&symbols=MSFT&symbols=GOOGL&min_overall_score=60&top_n=5
 ```
 
+Async-friendly variant (recommended for high concurrency):
+
+```bash
+POST /screen-async?symbols=AAPL&symbols=MSFT&symbols=GOOGL&min_overall_score=60&top_n=5
+```
+
 **Request Parameters**:
 - `symbols` (list): Stock symbols to analyze
 - `min_overall_score` (0-100): Minimum score filter
@@ -199,17 +205,17 @@ POST /screen?symbols=AAPL&symbols=MSFT&symbols=GOOGL&min_overall_score=60&top_n=
 
 #### 3. Get Top Performers
 ```bash
-POST /fetch-top-performers?top_n=10
+GET /fetch-top-performers?top_n=10
 ```
 
 Analyzes popular large-cap stocks and returns top recommendations.
 
-#### 4. Get Quick Recommendations
+#### 4. Runtime Metrics
 ```bash
-GET /recommendations?symbols=AAPL&symbols=MSFT&symbols=TSLA
+GET /metrics
 ```
 
-Returns quick investment recommendations for specified stocks.
+Returns latency metrics, request counters, and cache hit rates for tuning and monitoring.
 
 #### 5. Health Check
 ```bash

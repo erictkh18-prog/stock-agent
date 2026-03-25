@@ -3,6 +3,8 @@ import os
 import re
 import subprocess
 import threading
+import time
+import asyncio
 from collections import defaultdict, deque
 from datetime import datetime
 from pathlib import Path
@@ -80,6 +82,17 @@ _rate_limit_lock = threading.Lock()
 TOP_PERFORMERS_CACHE_TTL_SECONDS = 300
 _top_performers_cache = {}
 _top_performers_cache_lock = threading.Lock()
+_top_performers_cache_hits = 0
+_top_performers_cache_misses = 0
+
+_request_metrics_lock = threading.Lock()
+_request_metrics = {
+    "total_requests": 0,
+    "total_duration_ms": 0.0,
+    "slow_requests": 0,
+    "status_counts": defaultdict(int),
+    "path_counts": defaultdict(int),
+}
 
 
 def _should_rate_limit(path: str) -> bool:
@@ -148,6 +161,32 @@ async def ip_rate_limit_middleware(request: Request, call_next):
         window.append(now)
 
     return await call_next(request)
+
+
+@app.middleware("http")
+async def request_timing_middleware(request: Request, call_next):
+    start_time = time.perf_counter()
+    response = await call_next(request)
+    duration_ms = (time.perf_counter() - start_time) * 1000
+
+    with _request_metrics_lock:
+        _request_metrics["total_requests"] += 1
+        _request_metrics["total_duration_ms"] += duration_ms
+        _request_metrics["path_counts"][request.url.path] += 1
+        _request_metrics["status_counts"][response.status_code] += 1
+        if duration_ms >= 1000:
+            _request_metrics["slow_requests"] += 1
+
+    if duration_ms >= 1500:
+        logger.warning(
+            "Slow request: %s %s completed in %.2f ms",
+            request.method,
+            request.url.path,
+            duration_ms,
+        )
+
+    response.headers["X-Response-Time-Ms"] = f"{duration_ms:.2f}"
+    return response
 
 @app.get("/")
 async def root():
@@ -221,6 +260,43 @@ async def screen_stocks(
         logger.error(f"Error screening stocks: {e}")
         raise HTTPException(status_code=500, detail=f"Error screening stocks: {e}")
 
+
+@app.post("/screen-async", response_model=ScreeningResult)
+async def screen_stocks_async(
+    symbols: List[str] = Query(..., description="List of stock symbols to screen"),
+    min_overall_score: Optional[float] = Query(60, ge=0, le=100),
+    max_pe_ratio: Optional[float] = Query(None),
+    min_dividend_yield: Optional[float] = Query(None),
+    max_debt_to_equity: Optional[float] = Query(None),
+    trend: Optional[str] = Query(None),
+    top_n: Optional[int] = Query(10, ge=1, le=100),
+):
+    """Async-friendly screening endpoint that offloads CPU/network work from event loop."""
+    try:
+        normalized_symbols = _normalize_symbols(symbols)
+        if not normalized_symbols:
+            raise HTTPException(status_code=400, detail="No valid symbols provided")
+
+        filters = ScreeningFilter(
+            min_overall_score=min_overall_score,
+            max_pe_ratio=max_pe_ratio,
+            min_dividend_yield=min_dividend_yield,
+            max_debt_to_equity=max_debt_to_equity,
+            trend=trend,
+        )
+
+        return await asyncio.to_thread(
+            screener.screen_stocks,
+            normalized_symbols,
+            filters,
+            top_n,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error screening stocks asynchronously: {e}")
+        raise HTTPException(status_code=500, detail=f"Error screening stocks: {e}")
+
 @app.get("/analyze-text/{symbol}")
 async def analyze_text(symbol: str):
     """Human-friendly text summary for one stock"""
@@ -277,6 +353,8 @@ async def screen_text(symbols: List[str] = Query(..., description="List of stock
 @app.get("/fetch-top-performers")
 async def fetch_top_performers(top_n: int = Query(10, ge=1, le=50)):
     """Analyze a curated list of popular stocks and return top picks."""
+    global _top_performers_cache_hits, _top_performers_cache_misses
+
     cache_key = f"top_n={top_n}"
     now = datetime.now()
     with _top_performers_cache_lock:
@@ -284,7 +362,10 @@ async def fetch_top_performers(top_n: int = Query(10, ge=1, le=50)):
         if cached:
             age_seconds = (now - cached["timestamp"]).total_seconds()
             if age_seconds <= TOP_PERFORMERS_CACHE_TTL_SECONDS:
+                _top_performers_cache_hits += 1
                 return cached["payload"]
+
+        _top_performers_cache_misses += 1
 
     symbols = [
         "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA",
@@ -309,6 +390,51 @@ async def fetch_top_performers(top_n: int = Query(10, ge=1, le=50)):
         }
 
     return payload
+
+
+@app.get("/metrics")
+async def metrics():
+    """Runtime metrics for request latency and cache effectiveness."""
+    with _request_metrics_lock:
+        total_requests = _request_metrics["total_requests"]
+        total_duration_ms = _request_metrics["total_duration_ms"]
+        slow_requests = _request_metrics["slow_requests"]
+        status_counts = dict(_request_metrics["status_counts"])
+        path_counts = dict(_request_metrics["path_counts"])
+
+    with _top_performers_cache_lock:
+        cache_hits = _top_performers_cache_hits
+        cache_misses = _top_performers_cache_misses
+        cache_size = len(_top_performers_cache)
+
+    top_cache_lookups = cache_hits + cache_misses
+    top_cache_hit_rate = (
+        round((cache_hits / top_cache_lookups) * 100, 2)
+        if top_cache_lookups
+        else 0.0
+    )
+
+    avg_response_ms = round(total_duration_ms / total_requests, 2) if total_requests else 0.0
+
+    return {
+        "service": "stock-agent",
+        "timestamp": datetime.now(),
+        "http": {
+            "total_requests": total_requests,
+            "avg_response_ms": avg_response_ms,
+            "slow_requests_over_1s": slow_requests,
+            "status_counts": status_counts,
+            "path_counts": path_counts,
+        },
+        "screener": screener.get_runtime_stats(),
+        "top_performers_cache": {
+            "ttl_seconds": TOP_PERFORMERS_CACHE_TTL_SECONDS,
+            "cache_hits": cache_hits,
+            "cache_misses": cache_misses,
+            "cache_hit_rate_pct": top_cache_hit_rate,
+            "cache_size": cache_size,
+        },
+    }
 
 if __name__ == "__main__":
     import uvicorn

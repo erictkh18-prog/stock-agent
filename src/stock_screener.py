@@ -29,6 +29,10 @@ class StockScreener:
         self.info_backoff_until = None
         self._cache_lock = threading.Lock()
         self._info_backoff_lock = threading.Lock()
+        self._stats_lock = threading.Lock()
+        self._cache_hits = 0
+        self._cache_misses = 0
+        self._analysis_requests = 0
     
     def analyze_stock(self, symbol: str) -> Optional[StockAnalysis]:
         """
@@ -41,9 +45,17 @@ class StockScreener:
             StockAnalysis object with all metrics
         """
         try:
+            with self._stats_lock:
+                self._analysis_requests += 1
+
             cached_analysis = self._get_cached_analysis(symbol)
             if cached_analysis:
+                with self._stats_lock:
+                    self._cache_hits += 1
                 return cached_analysis
+
+            with self._stats_lock:
+                self._cache_misses += 1
 
             # Fetch basic info
             stock = yf.Ticker(symbol)
@@ -303,3 +315,35 @@ class StockScreener:
             confidence = min(1.0, (50 - overall_score) / 50)
         
         return overall_score, recommendation, confidence
+
+    def get_runtime_stats(self) -> dict:
+        """Return runtime metrics useful for monitoring and tuning."""
+        with self._stats_lock:
+            cache_hits = self._cache_hits
+            cache_misses = self._cache_misses
+            analysis_requests = self._analysis_requests
+
+        total_cache_lookups = cache_hits + cache_misses
+        cache_hit_rate = (
+            round((cache_hits / total_cache_lookups) * 100, 2)
+            if total_cache_lookups
+            else 0.0
+        )
+
+        with self._cache_lock:
+            cache_size = len(self.analysis_cache)
+
+        with self._info_backoff_lock:
+            info_backoff_active = bool(
+                self.info_backoff_until and datetime.now() < self.info_backoff_until
+            )
+
+        return {
+            "analysis_requests": analysis_requests,
+            "cache_hits": cache_hits,
+            "cache_misses": cache_misses,
+            "cache_hit_rate_pct": cache_hit_rate,
+            "cache_size": cache_size,
+            "cache_ttl_seconds": self.cache_ttl_seconds,
+            "info_backoff_active": info_backoff_active,
+        }

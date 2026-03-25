@@ -176,7 +176,7 @@ async function screenStocks(buttonEl = null) {
         symbols.forEach(sym => params.append('symbols', sym));
         params.append('top_n', '20');
 
-        const response = await fetch(`${API_URL}/screen?${params}`);
+        const response = await fetch(`${API_URL}/screen-async?${params}`, { method: 'POST' });
         if (!response.ok) {
             const errorMessage = await parseApiError(response, 'Screening failed');
             throw new Error(errorMessage);
