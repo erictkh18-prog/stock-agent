@@ -68,10 +68,19 @@ class StockScreener:
                 self.logger.warning(f"Could not fetch price for {symbol}")
                 return None
             
-            # Run all analyses
-            fundamental = self.fundamental_analyzer.analyze(symbol, stock=stock, info=info)
-            technical = self.technical_analyzer.analyze(symbol)
-            sentiment_dict = self.sentiment_analyzer.analyze(symbol)
+            # Run all three analyses concurrently — they are independent I/O operations.
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                fundamental_future = executor.submit(
+                    self.fundamental_analyzer.analyze, symbol, stock, info
+                )
+                technical_future = executor.submit(
+                    self.technical_analyzer.analyze, symbol, 365, stock
+                )
+                sentiment_future = executor.submit(self.sentiment_analyzer.analyze, symbol)
+
+                fundamental = fundamental_future.result()
+                technical = technical_future.result()
+                sentiment_dict = sentiment_future.result()
             
             # Convert sentiment dict to SentimentAnalysis model
             sentiment = SentimentAnalysis(

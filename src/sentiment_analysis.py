@@ -2,6 +2,7 @@
 import requests
 import feedparser
 import logging
+import time
 from typing import Optional, List, Tuple
 from datetime import datetime, timedelta
 from textblob import TextBlob
@@ -94,7 +95,7 @@ class SentimentAnalyzer:
                     # Parse entry date if available
                     if hasattr(entry, 'published_parsed') and entry.published_parsed:
                         entry_date = datetime.fromtimestamp(
-                            entry.published_parsed[0:9].__hash__() % 2000000000
+                            time.mktime(entry.published_parsed)
                         )
                     else:
                         entry_date = datetime.now()

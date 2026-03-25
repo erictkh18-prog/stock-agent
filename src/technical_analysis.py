@@ -14,20 +14,22 @@ class TechnicalAnalyzer:
     def __init__(self):
         self.logger = logger
     
-    def analyze(self, symbol: str, lookback_days: int = 365) -> Optional[TechnicalAnalysis]:
+    def analyze(self, symbol: str, lookback_days: int = 365, stock: Optional[yf.Ticker] = None) -> Optional[TechnicalAnalysis]:
         """
         Analyze technical indicators for a stock
         
         Args:
             symbol: Stock ticker symbol
             lookback_days: Number of days of historical data to analyze
+            stock: Optional pre-created yf.Ticker instance to avoid redundant creation
         
         Returns:
             TechnicalAnalysis object with indicators
         """
         try:
             # Fetch historical data
-            stock = yf.Ticker(symbol)
+            if stock is None:
+                stock = yf.Ticker(symbol)
             end_date = datetime.now()
             start_date = end_date - timedelta(days=lookback_days)
             
