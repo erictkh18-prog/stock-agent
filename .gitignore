@@ -28,5 +28,5 @@ htmlcov/
 *.log
 .DS_Store
 .idea/
-.vscode/settings.json
+.vscode/
 instance/
