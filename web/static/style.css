@@ -78,10 +78,32 @@ body {
     transition: border-color 0.3s;
 }
 
-.input-group input:focus {
+.input-group select {
+    flex: 1;
+    padding: 12px 15px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 1em;
+    background: white;
+    transition: border-color 0.3s;
+}
+
+.input-group input:focus,
+.input-group select:focus {
     outline: none;
     border-color: #667eea;
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.field-labels {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(120px, 1fr));
+    gap: 10px;
+    margin-top: -8px;
+    margin-bottom: 12px;
+    color: #666;
+    font-size: 0.8em;
+    font-weight: 600;
 }
 
 .input-group button,

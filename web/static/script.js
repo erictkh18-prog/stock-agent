@@ -250,10 +250,13 @@ async function scanUsMarket(buttonEl = null) {
     const btn = buttonEl || document.getElementById('marketScanBtn');
     const universe = document.getElementById('marketUniverse')?.value || 'sp500';
     const sector = document.getElementById('marketSector')?.value || 'all';
-    const minScore = Number(document.getElementById('marketMinScore')?.value || 65);
-    const topN = Number(document.getElementById('marketTopN')?.value || 20);
-    const maxSymbolsInput = Number(document.getElementById('marketMaxSymbols')?.value || 80);
+    const minScoreInput = Number(document.getElementById('marketMinScore')?.value);
+    const topNInput = Number(document.getElementById('marketTopN')?.value);
+    const maxSymbolsInput = Number(document.getElementById('marketMaxSymbols')?.value);
+    const minScore = Number.isFinite(minScoreInput) ? Math.min(100, Math.max(0, minScoreInput)) : 65;
+    const topN = Number.isFinite(topNInput) ? Math.min(100, Math.max(1, Math.floor(topNInput))) : 20;
     const maxSymbols = Math.min(800, Math.max(25, Math.floor(maxSymbolsInput || 80)));
+    const progressEl = document.getElementById('marketScanMeta');
 
     try {
         setButtonState(btn, true, 'Scanning...', 'Scan US Market');
@@ -267,14 +270,17 @@ async function scanUsMarket(buttonEl = null) {
         params.append('top_n', String(topN));
         params.append('max_symbols', String(maxSymbols));
 
-        const progressEl = document.getElementById('marketScanMeta');
         const progressSector = sector === 'all' ? 'all sectors' : sector;
         if (progressEl) {
             progressEl.textContent = `Scanning up to ${maxSymbols} symbols from ${universe} (${progressSector}). This may take 10-60 seconds...`;
         }
         document.getElementById('marketScanResult')?.classList.remove('hidden');
 
-        const response = await fetch(`${API_URL}/scan-us-market?${params}`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 90000);
+        const response = await fetch(`${API_URL}/scan-us-market?${params}`, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
         if (!response.ok) {
             const errorMessage = await parseApiError(response, 'Could not scan US market');
             throw new Error(errorMessage);
@@ -297,7 +303,14 @@ async function scanUsMarket(buttonEl = null) {
         
         setButtonState(btn, false, 'Scanning...', 'Scan US Market');
     } catch (error) {
-        alert(`Error: ${error.message}`);
+        const message = error?.name === 'AbortError'
+            ? 'Scan timed out after 90 seconds. Try reducing Max Symbols.'
+            : `Error: ${error.message}`;
+
+        if (progressEl) {
+            progressEl.textContent = message;
+        }
+        alert(message);
         setButtonState(btn, false, 'Scanning...', 'Scan US Market');
     }
 }
@@ -306,6 +319,7 @@ async function scanUsMarket(buttonEl = null) {
 document.addEventListener('DOMContentLoaded', () => {
     const analyzeBtn = document.getElementById('analyzeBtn');
     const screenBtn = document.getElementById('screenBtn');
+    const marketScanBtn = document.getElementById('marketScanBtn');
 
     document.getElementById('singleSymbol')?.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') analyzeStock(analyzeBtn);
@@ -313,5 +327,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('multipleSymbols')?.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') screenStocks(screenBtn);
+    });
+
+    marketScanBtn?.addEventListener('click', () => {
+        scanUsMarket(marketScanBtn);
     });
 });

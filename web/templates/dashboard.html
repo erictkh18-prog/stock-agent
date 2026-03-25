@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stock Analysis Agent</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="../static/style.css">
+    <link rel="stylesheet" href="../static/style.css?v=20260325a">
 </head>
 <body>
     <div class="header">
@@ -129,7 +129,16 @@
                 <input type="number" id="marketMinScore" min="0" max="100" step="1" value="65" placeholder="Min score">
                 <input type="number" id="marketTopN" min="1" max="100" step="1" value="20" placeholder="Top N">
                 <input type="number" id="marketMaxSymbols" min="25" max="800" step="5" value="80" placeholder="Max symbols">
-                <button id="marketScanBtn" onclick="scanUsMarket(this)">Scan US Market</button>
+                <button id="marketScanBtn">Scan US Market</button>
+            </div>
+
+            <div class="field-labels" aria-hidden="true">
+                <span>Universe</span>
+                <span>Sector</span>
+                <span>Min Score</span>
+                <span>Top N</span>
+                <span>Max Symbols</span>
+                <span>Action</span>
             </div>
 
             <div id="marketScanResult" class="result hidden">
@@ -146,6 +155,6 @@
         <p>Data powered by Yahoo Finance • Updated in real-time</p>
     </div>
 
-    <script src="../static/script.js"></script>
+    <script src="../static/script.js?v=20260325a"></script>
 </body>
 </html>
