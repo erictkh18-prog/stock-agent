@@ -76,6 +76,10 @@ RATE_LIMIT_WINDOW_SECONDS = 60
 _request_windows = defaultdict(deque)
 _rate_limit_lock = threading.Lock()
 
+TOP_PERFORMERS_CACHE_TTL_SECONDS = 300
+_top_performers_cache = {}
+_top_performers_cache_lock = threading.Lock()
+
 
 def _should_rate_limit(path: str) -> bool:
     return path.startswith("/analyze") or path.startswith("/screen") or path.startswith("/fetch-top-performers")
@@ -224,6 +228,15 @@ async def screen_text(symbols: List[str] = Query(..., description="List of stock
 @app.get("/fetch-top-performers")
 async def fetch_top_performers(top_n: int = Query(10, ge=1, le=50)):
     """Analyze a curated list of popular stocks and return top picks."""
+    cache_key = f"top_n={top_n}"
+    now = datetime.now()
+    with _top_performers_cache_lock:
+        cached = _top_performers_cache.get(cache_key)
+        if cached:
+            age_seconds = (now - cached["timestamp"]).total_seconds()
+            if age_seconds <= TOP_PERFORMERS_CACHE_TTL_SECONDS:
+                return cached["payload"]
+
     symbols = [
         "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA",
         "META", "TSLA", "BRK-B", "JPM", "JNJ",
@@ -233,12 +246,20 @@ async def fetch_top_performers(top_n: int = Query(10, ge=1, le=50)):
     filters = ScreeningFilter(min_overall_score=0)
     result = screener.screen_stocks(symbols, filters, top_n=top_n)
 
-    return {
+    payload = {
         "results": result.top_picks,
         "total_candidates": result.total_candidates,
         "filtered_count": result.filtered_count,
         "screening_timestamp": result.screening_timestamp,
     }
+
+    with _top_performers_cache_lock:
+        _top_performers_cache[cache_key] = {
+            "timestamp": now,
+            "payload": payload,
+        }
+
+    return payload
 
 if __name__ == "__main__":
     import uvicorn

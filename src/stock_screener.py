@@ -1,8 +1,10 @@
 """Stock screener module for identifying suitable stocks"""
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 import logging
 from typing import List, Optional
 from datetime import datetime, timedelta
+import threading
 from src.config import config
 from src.models import (
     StockAnalysis, ScreeningFilter, ScreeningResult,
@@ -25,6 +27,8 @@ class StockScreener:
         self.cache_ttl_seconds = config.CACHE_TTL_SECONDS
         self.analysis_cache = {}
         self.info_backoff_until = None
+        self._cache_lock = threading.Lock()
+        self._info_backoff_lock = threading.Lock()
     
     def analyze_stock(self, symbol: str) -> Optional[StockAnalysis]:
         """
@@ -84,7 +88,8 @@ class StockScreener:
                 confidence=confidence
             )
 
-            self.analysis_cache[symbol] = analysis
+            with self._cache_lock:
+                self.analysis_cache[symbol] = analysis
             return analysis
         
         except Exception as e:
@@ -93,7 +98,8 @@ class StockScreener:
 
     def _get_cached_analysis(self, symbol: str) -> Optional[StockAnalysis]:
         """Return a recently cached analysis to reduce provider rate-limit pressure."""
-        cached = self.analysis_cache.get(symbol)
+        with self._cache_lock:
+            cached = self.analysis_cache.get(symbol)
         if not cached:
             return None
 
@@ -101,22 +107,36 @@ class StockScreener:
         if age_seconds <= self.cache_ttl_seconds:
             return cached
 
-        self.analysis_cache.pop(symbol, None)
+        with self._cache_lock:
+            self.analysis_cache.pop(symbol, None)
         return None
 
     def _safe_get_info(self, stock: yf.Ticker, symbol: str) -> dict:
         """Fetch quote info but degrade gracefully when Yahoo blocks the request."""
-        if self.info_backoff_until and datetime.now() < self.info_backoff_until:
-            return {}
+        with self._info_backoff_lock:
+            if self.info_backoff_until and datetime.now() < self.info_backoff_until:
+                return {}
 
         try:
             info = stock.info
             return info if isinstance(info, dict) else {}
         except Exception as exc:
             if "Too Many Requests" in str(exc):
-                self.info_backoff_until = datetime.now() + timedelta(minutes=5)
+                with self._info_backoff_lock:
+                    self.info_backoff_until = datetime.now() + timedelta(minutes=5)
             self.logger.warning(f"Falling back from info lookup for {symbol}: {exc}")
             return {}
+
+    def _analyze_symbol_for_screen(self, symbol: str, filters: ScreeningFilter) -> Optional[StockAnalysis]:
+        """Analyze one symbol and return it only if it passes filters."""
+        try:
+            analysis = self.analyze_stock(symbol)
+            if analysis and self._passes_filters(analysis, filters):
+                return analysis
+            return None
+        except Exception as e:
+            self.logger.error(f"Error screening {symbol}: {e}")
+            return None
 
     def _get_current_price(self, stock: yf.Ticker, info: dict, symbol: str) -> Optional[float]:
         """Resolve the best available current price using multiple Yahoo data paths."""
@@ -174,19 +194,17 @@ class StockScreener:
             filters = ScreeningFilter()
         
         results = []
-        
-        # Analyze each stock
-        for symbol in symbols:
-            try:
-                analysis = self.analyze_stock(symbol)
+
+        max_workers = min(8, max(1, len(symbols)))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(self._analyze_symbol_for_screen, symbol, filters)
+                for symbol in symbols
+            ]
+            for future in as_completed(futures):
+                analysis = future.result()
                 if analysis:
-                    # Apply filters
-                    if self._passes_filters(analysis, filters):
-                        results.append(analysis)
-            
-            except Exception as e:
-                self.logger.error(f"Error screening {symbol}: {e}")
-                continue
+                    results.append(analysis)
         
         # Sort by overall score (descending)
         results.sort(key=lambda x: x.overall_score, reverse=True)

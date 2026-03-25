@@ -83,6 +83,12 @@ Stock Agent/
 python -m uvicorn src.main:app --reload
 ```
 
+Windows one-click shortcut:
+
+```bash
+run-local.cmd
+```
+
 The API will be available at `http://localhost:8000`
 
 **Interactive API Documentation**: Visit `http://localhost:8000/docs` for Swagger UI
