@@ -361,6 +361,36 @@ tbody tr:last-child td {
     font-weight: 600;
 }
 
+/* STOCK SCANNER CTA */
+.stock-scanner-cta {
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+    border: 2px solid #667eea;
+    margin-bottom: 10px;
+}
+
+.stock-scanner-cta h2 {
+    color: #667eea;
+    margin-bottom: 8px;
+}
+
+.cta-button {
+    display: inline-block;
+    padding: 12px 25px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    text-decoration: none;
+    border-radius: 8px;
+    font-weight: 600;
+    transition: all 0.3s;
+    white-space: nowrap;
+    margin-left: 20px;
+}
+
+.cta-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+}
+
 /* RESPONSIVE */
 @media (max-width: 768px) {
     .header h1 {
