@@ -1,9 +1,10 @@
 """Sentiment analysis module for stocks"""
+import calendar
 import requests
 import feedparser
 import logging
 from typing import Optional, List, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from textblob import TextBlob
 
 logger = logging.getLogger(__name__)
@@ -87,17 +88,17 @@ class SentimentAnalyzer:
         
         try:
             feed = feedparser.parse(feed_url)
-            cutoff_date = datetime.now() - timedelta(days=lookback_days)
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=lookback_days)
             
             for entry in feed.entries[:20]:  # Limit to 20 entries
                 try:
                     # Parse entry date if available
                     if hasattr(entry, 'published_parsed') and entry.published_parsed:
                         entry_date = datetime.fromtimestamp(
-                            entry.published_parsed[0:9].__hash__() % 2000000000
+                            calendar.timegm(entry.published_parsed), tz=timezone.utc
                         )
                     else:
-                        entry_date = datetime.now()
+                        entry_date = datetime.now(timezone.utc)
                     
                     # Skip old entries
                     if entry_date < cutoff_date:

@@ -1,6 +1,7 @@
 """Stock screener module for identifying suitable stocks"""
 import yfinance as yf
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Optional
 from datetime import datetime, timedelta
 from src.config import config
@@ -68,7 +69,7 @@ class StockScreener:
             
             # Calculate overall score and recommendation
             overall_score, recommendation, confidence = self._calculate_recommendation(
-                fundamental, technical, sentiment_dict
+                fundamental, technical, sentiment
             )
             
             analysis = StockAnalysis(
@@ -174,19 +175,25 @@ class StockScreener:
             filters = ScreeningFilter()
         
         results = []
-        
-        # Analyze each stock
-        for symbol in symbols:
-            try:
-                analysis = self.analyze_stock(symbol)
-                if analysis:
-                    # Apply filters
-                    if self._passes_filters(analysis, filters):
+
+        # Analyze each stock concurrently to reduce wall-clock time
+        # Cap at 8 workers: most watchlists are ≤15 symbols and each analysis
+        # makes several network calls, so 8 threads balances throughput without
+        # overwhelming the Yahoo Finance rate-limits.
+        max_workers = min(8, len(symbols))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_symbol = {
+                executor.submit(self.analyze_stock, symbol): symbol
+                for symbol in symbols
+            }
+            for future in as_completed(future_to_symbol):
+                symbol = future_to_symbol[future]
+                try:
+                    analysis = future.result()
+                    if analysis and self._passes_filters(analysis, filters):
                         results.append(analysis)
-            
-            except Exception as e:
-                self.logger.error(f"Error screening {symbol}: {e}")
-                continue
+                except Exception as e:
+                    self.logger.error(f"Error screening {symbol}: {e}")
         
         # Sort by overall score (descending)
         results.sort(key=lambda x: x.overall_score, reverse=True)
@@ -263,8 +270,8 @@ class StockScreener:
             weights.append(0.35)
         
         # Sentiment score (25% weight)
-        if sentiment and sentiment.get('score'):
-            scores.append(sentiment['score'])
+        if sentiment and sentiment.score:
+            scores.append(sentiment.score)
             weights.append(0.25)
         
         # Calculate weighted average
