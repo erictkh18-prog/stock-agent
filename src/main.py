@@ -5,11 +5,13 @@ import subprocess
 import threading
 import time
 import asyncio
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict, deque
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 import pandas as pd
+import yfinance as yf
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -94,6 +96,11 @@ _market_scan_cache_hits = 0
 _market_scan_cache_misses = 0
 _market_universe_cache = {}
 _market_universe_cache_lock = threading.Lock()
+SYMBOL_SECTOR_CACHE_TTL_SECONDS = 86400
+_symbol_sector_cache = {}
+_symbol_sector_cache_lock = threading.Lock()
+_symbol_sector_cache_hits = 0
+_symbol_sector_cache_misses = 0
 
 FALLBACK_SP500_SYMBOLS = [
     "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "BRK-B", "JPM", "V",
@@ -221,6 +228,59 @@ def _normalize_symbols(symbols: List[str]) -> List[str]:
             seen.add(normalized)
             normalized_symbols.append(normalized)
     return normalized_symbols
+
+
+def _normalize_sector(sector: str) -> str:
+    return re.sub(r"\s+", " ", sector.strip().lower())
+
+
+def _resolve_symbol_sector(symbol: str) -> Optional[str]:
+    """Resolve sector for one ticker with TTL caching."""
+    global _symbol_sector_cache_hits, _symbol_sector_cache_misses
+
+    now = datetime.now()
+    with _symbol_sector_cache_lock:
+        cached = _symbol_sector_cache.get(symbol)
+        if cached:
+            age_seconds = (now - cached["timestamp"]).total_seconds()
+            if age_seconds <= SYMBOL_SECTOR_CACHE_TTL_SECONDS:
+                _symbol_sector_cache_hits += 1
+                return cached["sector"]
+
+    try:
+        info = yf.Ticker(symbol).info
+        sector = info.get("sector") if isinstance(info, dict) else None
+        sector = sector.strip() if isinstance(sector, str) else None
+    except Exception:
+        sector = None
+
+    with _symbol_sector_cache_lock:
+        _symbol_sector_cache_misses += 1
+        _symbol_sector_cache[symbol] = {
+            "timestamp": now,
+            "sector": sector,
+        }
+
+    return sector
+
+
+def _filter_symbols_by_sector(symbols: List[str], sector: str) -> List[str]:
+    """Filter symbols by sector name using cached Yahoo metadata."""
+    target_sector = _normalize_sector(sector)
+    if not target_sector or target_sector == "all":
+        return symbols
+
+    filtered = []
+    max_workers = min(12, max(1, len(symbols)))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_resolve_symbol_sector, symbol): symbol for symbol in symbols}
+        for future in as_completed(futures):
+            symbol = futures[future]
+            resolved_sector = future.result()
+            if resolved_sector and _normalize_sector(resolved_sector) == target_sector:
+                filtered.append(symbol)
+
+    return filtered
 
 
 @app.middleware("http")
@@ -489,6 +549,7 @@ async def fetch_top_performers(top_n: int = Query(10, ge=1, le=50)):
 @app.get("/scan-us-market")
 async def scan_us_market(
     universe: str = Query("sp500", pattern="^(sp500|nasdaq100|combined)$"),
+    sector: Optional[str] = Query(None),
     min_overall_score: float = Query(65, ge=0, le=100),
     top_n: int = Query(20, ge=1, le=100),
     max_symbols: int = Query(300, ge=25, le=800),
@@ -496,7 +557,8 @@ async def scan_us_market(
     """Scan a broad US market universe and return potential opportunities."""
     global _market_scan_cache_hits, _market_scan_cache_misses
 
-    cache_key = f"{universe}:{min_overall_score}:{top_n}:{max_symbols}"
+    normalized_sector = _normalize_sector(sector) if sector else "all"
+    cache_key = f"{universe}:{normalized_sector}:{min_overall_score}:{top_n}:{max_symbols}"
     now = datetime.now()
     with _market_scan_cache_lock:
         cached = _market_scan_cache.get(cache_key)
@@ -508,11 +570,26 @@ async def scan_us_market(
         _market_scan_cache_misses += 1
 
     symbols = _get_us_market_universe(universe)[:max_symbols]
+    if normalized_sector != "all":
+        symbols = await asyncio.to_thread(_filter_symbols_by_sector, symbols, normalized_sector)
+
+    if not symbols:
+        return {
+            "universe": universe,
+            "sector": normalized_sector,
+            "scanned_count": 0,
+            "results": [],
+            "total_candidates": 0,
+            "filtered_count": 0,
+            "screening_timestamp": datetime.now(),
+        }
+
     filters = ScreeningFilter(min_overall_score=min_overall_score)
     result = await asyncio.to_thread(screener.screen_stocks, symbols, filters, top_n)
 
     payload = {
         "universe": universe,
+        "sector": normalized_sector,
         "scanned_count": len(symbols),
         "results": result.top_picks,
         "total_candidates": result.total_candidates,
@@ -551,6 +628,11 @@ async def metrics():
 
     with _market_universe_cache_lock:
         market_universe_cache_size = len(_market_universe_cache)
+
+    with _symbol_sector_cache_lock:
+        symbol_sector_cache_size = len(_symbol_sector_cache)
+        symbol_sector_cache_hits = _symbol_sector_cache_hits
+        symbol_sector_cache_misses = _symbol_sector_cache_misses
 
     top_cache_lookups = cache_hits + cache_misses
     top_cache_hit_rate = (
@@ -591,6 +673,15 @@ async def metrics():
             ),
             "scan_cache_size": market_scan_cache_size,
             "universe_cache_size": market_universe_cache_size,
+            "symbol_sector_cache_ttl_seconds": SYMBOL_SECTOR_CACHE_TTL_SECONDS,
+            "symbol_sector_cache_size": symbol_sector_cache_size,
+            "symbol_sector_cache_hits": symbol_sector_cache_hits,
+            "symbol_sector_cache_misses": symbol_sector_cache_misses,
+            "symbol_sector_cache_hit_rate_pct": (
+                round((symbol_sector_cache_hits / (symbol_sector_cache_hits + symbol_sector_cache_misses)) * 100, 2)
+                if (symbol_sector_cache_hits + symbol_sector_cache_misses)
+                else 0.0
+            ),
         },
     }
 

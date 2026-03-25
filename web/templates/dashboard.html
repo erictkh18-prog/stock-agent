@@ -112,6 +112,20 @@
                     <option value="nasdaq100">Nasdaq-100</option>
                     <option value="combined">Combined (S&amp;P 500 + Nasdaq-100)</option>
                 </select>
+                <select id="marketSector">
+                    <option value="all" selected>All Sectors</option>
+                    <option value="technology">Technology</option>
+                    <option value="financial services">Financial Services</option>
+                    <option value="healthcare">Healthcare</option>
+                    <option value="consumer cyclical">Consumer Cyclical</option>
+                    <option value="consumer defensive">Consumer Defensive</option>
+                    <option value="industrials">Industrials</option>
+                    <option value="energy">Energy</option>
+                    <option value="communication services">Communication Services</option>
+                    <option value="real estate">Real Estate</option>
+                    <option value="basic materials">Basic Materials</option>
+                    <option value="utilities">Utilities</option>
+                </select>
                 <input type="number" id="marketMinScore" min="0" max="100" step="1" value="65" placeholder="Min score">
                 <input type="number" id="marketTopN" min="1" max="100" step="1" value="20" placeholder="Top N">
                 <button id="marketScanBtn" onclick="scanUsMarket(this)">Scan US Market</button>

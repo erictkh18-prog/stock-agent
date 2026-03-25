@@ -249,6 +249,7 @@ function displayScreenResults(results, tableContainerId = 'screenerTable', resul
 async function scanUsMarket(buttonEl = null) {
     const btn = buttonEl || document.getElementById('marketScanBtn');
     const universe = document.getElementById('marketUniverse')?.value || 'sp500';
+    const sector = document.getElementById('marketSector')?.value || 'all';
     const minScore = Number(document.getElementById('marketMinScore')?.value || 65);
     const topN = Number(document.getElementById('marketTopN')?.value || 20);
 
@@ -257,6 +258,9 @@ async function scanUsMarket(buttonEl = null) {
 
         const params = new URLSearchParams();
         params.append('universe', universe);
+        if (sector && sector !== 'all') {
+            params.append('sector', sector);
+        }
         params.append('min_overall_score', String(minScore));
         params.append('top_n', String(topN));
 
@@ -273,9 +277,10 @@ async function scanUsMarket(buttonEl = null) {
         const universeLabel = universe === 'sp500'
             ? 'S&P 500'
             : (universe === 'nasdaq100' ? 'Nasdaq-100' : 'Combined');
+        const selectedSector = data?.sector && data.sector !== 'all' ? data.sector : 'all sectors';
         const metaEl = document.getElementById('marketScanMeta');
         if (metaEl) {
-            metaEl.textContent = `Scanned ${scannedCount} symbols from ${universeLabel}; ${filteredCount} passed filters.`;
+            metaEl.textContent = `Scanned ${scannedCount} symbols from ${universeLabel} (${selectedSector}); ${filteredCount} passed filters.`;
         }
 
         displayScreenResults(data?.results || [], 'marketScanTable', 'marketScanResult');
