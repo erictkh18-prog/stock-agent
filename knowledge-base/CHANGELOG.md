@@ -6,4 +6,4 @@
 - Added chapter template and source ingestion templates.
 - Added foundational governance chapters.
 
-- [2026-03-26 15:50:52] Chapter status set to Rejected: /opt/render/project/src/knowledge-base/sections/02-trading-domain/topics/auto-what-are-the-factors-affecting-market-movement/chapters/20260326-152712-what-are-the-factors-affecting-market-movement.md
+- [2026-03-26 22:43:45] Ingested topic 'Macroeconomics basics' from https://en.wikipedia.org/wiki/Macroeconomics into C:/Users/erict/OneDrive/AI Projects/Stock Agent/knowledge-base/sections/02-trading-domain/topics/auto-macroeconomics-basics/chapters/20260326-224345-macroeconomics-basics.md
