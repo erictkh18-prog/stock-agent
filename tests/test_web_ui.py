@@ -200,6 +200,7 @@ def test_knowledge_base_viewer_has_markdown_and_filter_controls():
     assert "marked.min.js" in html
     assert "dompurify" in html.lower()
     assert "Open in Explorer" in html
+    assert "Open Topic Overview" in html
 
 
 # ──────────────────────────────────────────────

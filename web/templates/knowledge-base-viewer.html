@@ -170,6 +170,27 @@
             font-weight: 700;
         }
 
+        .topic-actions {
+            margin-bottom: 8px;
+        }
+
+        .topic-index-link {
+            border: 1px solid #dbe3f0;
+            background: #fff;
+            color: #334155;
+            border-radius: 8px;
+            padding: 6px 10px;
+            min-height: 36px;
+            cursor: pointer;
+            font-size: 0.82rem;
+            font-weight: 700;
+        }
+
+        .topic-index-link:hover {
+            border-color: #7dd3fc;
+            background: #f0f9ff;
+        }
+
         .chapter-list {
             list-style: none;
             margin: 0;
@@ -505,6 +526,19 @@
                         topicHeader.className = "topic-header";
                         topicHeader.textContent = `${topic.name} (${topic.chapter_count} chapters)`;
 
+                        const topicActions = document.createElement("div");
+                        topicActions.className = "topic-actions";
+                        if (topic.topic_index) {
+                            const topicIndexButton = document.createElement("button");
+                            topicIndexButton.type = "button";
+                            topicIndexButton.className = "topic-index-link";
+                            topicIndexButton.textContent = "Open Topic Overview";
+                            topicIndexButton.addEventListener("click", async () => {
+                                await loadChapter(topic.topic_index, null, `Topic: ${topic.name}`);
+                            });
+                            topicActions.appendChild(topicIndexButton);
+                        }
+
                         const chapterList = document.createElement("ul");
                         chapterList.className = "chapter-list";
                         let chapterMatches = 0;
@@ -556,6 +590,9 @@
                         const showTopic = !hasFilter || sectionMatch || topicMatch || chapterMatches > 0;
                         if (showTopic) {
                             topicBlock.appendChild(topicHeader);
+                            if (topicActions.childElementCount > 0) {
+                                topicBlock.appendChild(topicActions);
+                            }
                             topicBlock.appendChild(chapterList);
                             sectionItem.appendChild(topicBlock);
                             sectionVisible = true;
@@ -577,10 +614,12 @@
         function setActiveButton(button) {
             const allButtons = document.querySelectorAll(".chapter-link");
             allButtons.forEach((el) => el.classList.remove("active"));
-            button.classList.add("active");
+            if (button) {
+                button.classList.add("active");
+            }
         }
 
-        async function loadChapter(relativePath, button) {
+        async function loadChapter(relativePath, button, titleOverride) {
             statusEl.textContent = "Loading chapter...";
 
             try {
@@ -592,7 +631,7 @@
                 }
 
                 activeChapterPath = payload.path;
-                docTitleEl.textContent = payload.title;
+                docTitleEl.textContent = titleOverride || payload.title;
                 docMetaEl.textContent = `Path: ${payload.path} | Updated: ${new Date(payload.updated_at).toLocaleString()}`;
                 renderMarkdown(payload.content);
                 setActiveButton(button);
