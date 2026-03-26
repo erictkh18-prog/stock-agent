@@ -49,6 +49,9 @@ class StockAnalysis(BaseModel):
     overall_score: float = Field(description="Overall score 0-100")
     recommendation: str = Field(description="BUY, HOLD, SELL")
     confidence: float = Field(description="Confidence level 0-1")
+    reason: Optional[str] = Field(None, description="Plain-language summary of key ranking factors")
+    top_contributing_factors: Optional[List[str]] = Field(None, description="Top positive factors")
+    top_risk_factors: Optional[List[str]] = Field(None, description="Top risk factors")
 
 class ScreeningFilter(BaseModel):
     """Stock screening filters"""
