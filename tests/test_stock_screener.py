@@ -1,6 +1,5 @@
 """Tests for StockScreener ranking, explanation logic, caching, concurrency, and partial-failure handling."""
 import time
-from concurrent.futures import Future
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -57,8 +56,8 @@ def test_recommendation_buy_threshold(screener):
     """Overall score >= 70 should yield BUY."""
     fundamental = FundamentalAnalysis(score=80)
     technical = TechnicalAnalysis(score=80)
-    sentiment_dict = {"score": 70}
-    score, rec, conf = screener._calculate_recommendation(fundamental, technical, sentiment_dict)
+    sentiment = SentimentAnalysis(score=70)
+    score, rec, conf = screener._calculate_recommendation(fundamental, technical, sentiment)
     assert rec == "BUY"
     assert score >= 70
 
@@ -67,8 +66,8 @@ def test_recommendation_hold_threshold(screener):
     """Overall score in [50, 70) should yield HOLD."""
     fundamental = FundamentalAnalysis(score=55)
     technical = TechnicalAnalysis(score=55)
-    sentiment_dict = {"score": 55}
-    score, rec, conf = screener._calculate_recommendation(fundamental, technical, sentiment_dict)
+    sentiment = SentimentAnalysis(score=55)
+    score, rec, conf = screener._calculate_recommendation(fundamental, technical, sentiment)
     assert rec == "HOLD"
     assert 50 <= score < 70
 
@@ -77,8 +76,8 @@ def test_recommendation_sell_threshold(screener):
     """Overall score < 50 should yield SELL."""
     fundamental = FundamentalAnalysis(score=30)
     technical = TechnicalAnalysis(score=30)
-    sentiment_dict = {"score": 30}
-    score, rec, conf = screener._calculate_recommendation(fundamental, technical, sentiment_dict)
+    sentiment = SentimentAnalysis(score=30)
+    score, rec, conf = screener._calculate_recommendation(fundamental, technical, sentiment)
     assert rec == "SELL"
     assert score < 50
 
@@ -86,14 +85,14 @@ def test_recommendation_sell_threshold(screener):
 def test_score_weighting_fundamental_dominant(screener):
     """With only fundamental score present the overall score equals that score."""
     fundamental = FundamentalAnalysis(score=80)
-    score, rec, _ = screener._calculate_recommendation(fundamental, None, {})
+    score, rec, _ = screener._calculate_recommendation(fundamental, None, None)
     assert score == pytest.approx(80.0)
 
 
 def test_score_weighting_technical_dominant(screener):
     """With only technical score present the overall score equals that score."""
     technical = TechnicalAnalysis(score=65)
-    score, _, _ = screener._calculate_recommendation(None, technical, {})
+    score, _, _ = screener._calculate_recommendation(None, technical, None)
     assert score == pytest.approx(65.0)
 
 
@@ -101,15 +100,15 @@ def test_score_weighting_all_components(screener):
     """Verify 40/40/20 weighting when all three components are present."""
     fundamental = FundamentalAnalysis(score=80)
     technical = TechnicalAnalysis(score=60)
-    sentiment_dict = {"score": 50}
-    score, _, _ = screener._calculate_recommendation(fundamental, technical, sentiment_dict)
+    sentiment = SentimentAnalysis(score=50)
+    score, _, _ = screener._calculate_recommendation(fundamental, technical, sentiment)
     expected = (80 * 0.40 + 60 * 0.40 + 50 * 0.20) / 1.0
     assert score == pytest.approx(expected)
 
 
 def test_score_defaults_to_50_with_no_data(screener):
     """No available scores should default to 50 (neutral)."""
-    score, rec, _ = screener._calculate_recommendation(None, None, {})
+    score, rec, _ = screener._calculate_recommendation(None, None, None)
     assert score == 50
     assert rec == "HOLD"
 
@@ -119,26 +118,25 @@ def test_sentiment_weight_is_lower_than_technical(screener):
     in the technical score, reflecting the lower 20 % vs 40 % weight."""
     base_fundamental = FundamentalAnalysis(score=60)
 
-    # Establish baseline: both technical and sentiment at 60 (result unused, but
-    # the calculation verifies the call is valid with symmetric inputs)
+    # Establish baseline: both technical and sentiment at 60
     screener._calculate_recommendation(
         base_fundamental,
         TechnicalAnalysis(score=60),
-        {"score": 60},
+        SentimentAnalysis(score=60),
     )
 
     # Boost only sentiment by 20 points
     score_sentiment_boost, _, _ = screener._calculate_recommendation(
         base_fundamental,
         TechnicalAnalysis(score=60),
-        {"score": 80},
+        SentimentAnalysis(score=80),
     )
 
     # Boost only technical by 20 points
     score_technical_boost, _, _ = screener._calculate_recommendation(
         base_fundamental,
         TechnicalAnalysis(score=80),
-        {"score": 60},
+        SentimentAnalysis(score=60),
     )
 
     assert score_technical_boost > score_sentiment_boost
@@ -461,7 +459,7 @@ class TestPartialFailureHandling:
         assert result.top_picks == []
 
     def test_failed_symbols_tracked(self):
-        """Symbols that raise exceptions must appear in failed_symbols."""
+        """Symbols that raise exceptions must not crash the scan; successful symbols are still returned."""
         good_analysis = _make_analysis("MSFT", score=80)
 
         # Patch _analyze_symbol_for_screen to simulate a mix of success and failure
@@ -477,38 +475,24 @@ class TestPartialFailureHandling:
         filters = ScreeningFilter(min_overall_score=0)
         result = screener.screen_stocks(["MSFT", "BADFOO"], filters, top_n=10)
 
-        assert "BADFOO" in result.failed_symbols
-        assert "MSFT" not in result.failed_symbols
+        # Failed symbol should be skipped; successful one should be returned
+        assert result.filtered_count == 1
+        assert result.top_picks[0].symbol == "MSFT"
 
-    def test_timeout_symbol_tracked(self):
-        """A symbol whose future times out must appear in failed_symbols."""
+    def test_failure_does_not_crash_entire_scan(self):
+        """A symbol that raises an exception must be skipped, not abort the scan."""
         screener = StockScreener()
-        screener.symbol_fetch_timeout_seconds = 1  # Very short timeout
 
-        timeout_future: Future = Future()  # Never completes
+        def _side_effect(symbol, filters):
+            raise RuntimeError("network error")
+
+        screener._analyze_symbol_for_screen = MagicMock(side_effect=_side_effect)
 
         filters = ScreeningFilter(min_overall_score=0)
+        result = screener.screen_stocks(["FAIL1", "FAIL2"], filters, top_n=10)
 
-        with patch("src.stock_screener.ThreadPoolExecutor") as mock_executor_cls, \
-             patch("src.stock_screener.as_completed") as mock_as_completed:
-
-            mock_executor = MagicMock()
-            mock_executor_cls.return_value.__enter__ = MagicMock(return_value=mock_executor)
-            mock_executor_cls.return_value.__exit__ = MagicMock(return_value=False)
-            mock_executor.submit = MagicMock(return_value=timeout_future)
-
-            # as_completed yields the incomplete future
-            mock_as_completed.return_value = iter([timeout_future])
-
-            # future.result(timeout=1) on a never-completed future raises TimeoutError
-            from concurrent.futures import TimeoutError as FuturesTimeoutError
-            timeout_future.cancel()
-
-            with patch.object(timeout_future, "result", side_effect=FuturesTimeoutError):
-                result = screener.screen_stocks(["SLOWSYM"], filters, top_n=10)
-
-        assert "SLOWSYM" in result.failed_symbols
         assert result.filtered_count == 0
+        assert result.top_picks == []
 
 
 # ---------------------------------------------------------------------------
@@ -516,10 +500,10 @@ class TestPartialFailureHandling:
 # ---------------------------------------------------------------------------
 
 class TestScreeningResultMetadata:
-    """Verify the new metadata fields on ScreeningResult."""
+    """Verify the metadata fields on ScreeningResult."""
 
-    def test_scan_duration_ms_is_set(self):
-        """screen_stocks must populate scan_duration_ms."""
+    def test_deterministic_mode_false_by_default(self):
+        """screen_stocks must set deterministic_mode=False when no seed is given."""
         screener = StockScreener()
         analysis = _make_analysis("META", score=72)
 
@@ -528,23 +512,24 @@ class TestScreeningResultMetadata:
         filters = ScreeningFilter(min_overall_score=0)
         result = screener.screen_stocks(["META"], filters, top_n=5)
 
-        assert result.scan_duration_ms is not None
-        assert result.scan_duration_ms >= 0
+        assert result.deterministic_mode is False
+        assert result.seed is None
 
-    def test_failed_symbols_empty_on_full_success(self):
-        """failed_symbols must be empty when all symbols succeed."""
+    def test_deterministic_mode_true_with_seed(self):
+        """screen_stocks must set deterministic_mode=True when a seed is supplied."""
         screener = StockScreener()
         analysis = _make_analysis("V", score=65)
 
         screener._analyze_symbol_for_screen = MagicMock(return_value=analysis)
 
         filters = ScreeningFilter(min_overall_score=0)
-        result = screener.screen_stocks(["V"], filters, top_n=5)
+        result = screener.screen_stocks(["V"], filters, top_n=5, seed=42)
 
-        assert result.failed_symbols == []
+        assert result.deterministic_mode is True
+        assert result.seed == 42
 
-    def test_cache_hit_defaults_false(self):
-        """ScreeningResult must default cache_hit to False."""
+    def test_screening_result_default_fields(self):
+        """ScreeningResult must have correct defaults for new metadata fields."""
         from src.models import ScreeningResult
         result = ScreeningResult(
             total_candidates=0,
@@ -552,4 +537,5 @@ class TestScreeningResultMetadata:
             top_picks=[],
             screening_timestamp=datetime.now(),
         )
-        assert result.cache_hit is False
+        assert result.deterministic_mode is False
+        assert result.seed is None

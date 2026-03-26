@@ -243,14 +243,18 @@ class StockScreener:
 
         max_workers = min(20, max(1, len(work_symbols)))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [
-                executor.submit(self._analyze_symbol_for_screen, symbol, filters)
+            future_to_symbol = {
+                executor.submit(self._analyze_symbol_for_screen, symbol, filters): symbol
                 for symbol in work_symbols
-            ]
-            for future in as_completed(futures):
-                analysis = future.result()
-                if analysis:
-                    results.append(analysis)
+            }
+            for future in as_completed(future_to_symbol):
+                symbol = future_to_symbol[future]
+                try:
+                    analysis = future.result()
+                    if analysis:
+                        results.append(analysis)
+                except Exception as exc:
+                    self.logger.warning("Failed to fetch %s: %s; skipping", symbol, exc)
 
         # Sort by overall score descending.  A secondary key on the symbol name
         # ensures a fully deterministic, stable ordering whenever scores tie.
