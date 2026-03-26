@@ -12,9 +12,12 @@ from collections import defaultdict, deque
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
+from urllib.parse import urlparse
 import pandas as pd
 import requests
 import yfinance as yf
+from bs4 import BeautifulSoup
+from pydantic import BaseModel
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -144,6 +147,9 @@ _request_metrics = {
     "path_counts": defaultdict(int),
 }
 
+KB_ROOT = Path(__file__).parent.parent / "knowledge-base"
+KB_CHANGELOG_PATH = KB_ROOT / "CHANGELOG.md"
+
 
 def _should_rate_limit(path: str) -> bool:
     return (
@@ -152,6 +158,116 @@ def _should_rate_limit(path: str) -> bool:
         or path.startswith("/fetch-top-performers")
         or path.startswith("/scan-us-market")
     )
+
+
+def _slugify(value: str) -> str:
+    """Create filesystem-safe slug from user-provided topic text."""
+    slug = re.sub(r"[^a-z0-9]+", "-", value.strip().lower())
+    slug = slug.strip("-")
+    return slug or "topic"
+
+
+def _ensure_kb_changelog() -> None:
+    """Ensure changelog exists so ingestion can append audit entries."""
+    if KB_CHANGELOG_PATH.exists():
+        return
+    KB_CHANGELOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    KB_CHANGELOG_PATH.write_text("# Knowledge Base Changelog\n", encoding="utf-8")
+
+
+def _append_kb_changelog(entry: str) -> None:
+    """Append ingestion updates to changelog for traceability."""
+    _ensure_kb_changelog()
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with KB_CHANGELOG_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(f"\n- [{timestamp}] {entry}\n")
+
+
+def _extract_webpage_text(url: str) -> dict:
+    """Fetch webpage and return title plus paragraph snippets for ingestion."""
+    response = requests.get(url, headers=WIKIPEDIA_REQUEST_HEADERS, timeout=20)
+    response.raise_for_status()
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    for node in soup(["script", "style", "noscript"]):
+        node.decompose()
+
+    title = (soup.title.string or "").strip() if soup.title else ""
+    paragraphs = []
+    for paragraph in soup.find_all("p"):
+        text = paragraph.get_text(" ", strip=True)
+        if len(text) >= 60:
+            paragraphs.append(text)
+        if len(paragraphs) >= 8:
+            break
+
+    if not paragraphs:
+        body_text = soup.get_text(" ", strip=True)
+        body_text = re.sub(r"\s+", " ", body_text)
+        if body_text:
+            paragraphs = [body_text[:600]]
+
+    return {
+        "title": title or "Untitled source",
+        "paragraphs": paragraphs,
+    }
+
+
+def _validate_ingestion_url(url: str) -> None:
+    """Allow only HTTP(S) URLs for ingestion to prevent invalid schemes."""
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise HTTPException(status_code=400, detail="Please provide a valid HTTP/HTTPS URL")
+
+
+def _build_kb_topic_paths(topic: str) -> tuple[Path, Path]:
+    """Return topic directory and chapters directory under section/topic/chapter hierarchy."""
+    topic_slug = _slugify(topic)
+    topic_dir = KB_ROOT / "sections" / "02-trading-domain" / "topics" / f"auto-{topic_slug}"
+    chapters_dir = topic_dir / "chapters"
+    chapters_dir.mkdir(parents=True, exist_ok=True)
+    return topic_dir, chapters_dir
+
+
+def _write_topic_index_if_missing(topic_dir: Path, topic: str) -> Path:
+    """Create topic-level index file on first ingestion."""
+    topic_index = topic_dir / "TOPIC.md"
+    if topic_index.exists():
+        return topic_index
+
+    topic_index.write_text(
+        "\n".join(
+            [
+                f"# Topic: {topic}",
+                "",
+                "## Purpose",
+                "- Auto-created by knowledge-base builder submissions.",
+                "- Keep chapters in Draft until reviewed and promoted.",
+                "",
+                "## Chapter Folder",
+                "- chapters/",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return topic_index
+
+
+class KnowledgeIngestRequest(BaseModel):
+    topic: str
+    url: str
+
+
+class KnowledgeIngestResponse(BaseModel):
+    topic: str
+    url: str
+    source_title: str
+    created_chapter: str
+    created_topic_index: str
+    changelog_updated: str
+    status: str
+    summary: str
 
 
 def _fetch_symbols_from_wikipedia(url: str, candidate_columns: List[str]) -> List[str]:
@@ -440,6 +556,105 @@ async def stock_scanner():
     if scanner_path.exists():
         return FileResponse(str(scanner_path))
     return {"message": "Stock scanner not available"}
+
+
+@app.get("/knowledge-base-builder")
+async def knowledge_base_builder():
+    """Serve the 2-field knowledge-base ingestion UI."""
+    builder_path = templates_dir / "knowledge-base-builder.html"
+    if builder_path.exists():
+        return FileResponse(str(builder_path))
+    return {"message": "Knowledge-base builder UI not available"}
+
+
+@app.post("/knowledge-base/ingest", response_model=KnowledgeIngestResponse)
+async def knowledge_base_ingest(payload: KnowledgeIngestRequest):
+    """Ingest website content into section/topic/chapter structure (steps 2-5)."""
+    topic = payload.topic.strip()
+    source_url = payload.url.strip()
+    if not topic:
+        raise HTTPException(status_code=400, detail="Topic is required")
+
+    _validate_ingestion_url(source_url)
+
+    try:
+        extracted = await asyncio.to_thread(_extract_webpage_text, source_url)
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=400, detail=f"Could not fetch URL: {exc}") from exc
+
+    topic_dir, chapters_dir = _build_kb_topic_paths(topic)
+    topic_index = _write_topic_index_if_missing(topic_dir, topic)
+
+    timestamp = datetime.now()
+    chapter_name = f"{timestamp.strftime('%Y%m%d-%H%M%S')}-{_slugify(topic)}.md"
+    chapter_path = chapters_dir / chapter_name
+
+    paragraphs = extracted.get("paragraphs", [])
+    summary = paragraphs[0] if paragraphs else "No substantial text extracted from source."
+    claims = paragraphs[:5]
+
+    chapter_lines = [
+        "---",
+        f"chapter_id: CH-AUTO-{timestamp.strftime('%Y%m%d%H%M%S')}",
+        f"title: {topic}",
+        "status: Draft",
+        "owner: Eric + Copilot",
+        f"last_reviewed: {timestamp.strftime('%Y-%m-%d')}",
+        "confidence: Medium",
+        "sources:",
+        f"  - {source_url}",
+        "---",
+        "",
+        "# Objective",
+        f"- Capture source knowledge for topic: {topic}.",
+        "",
+        "# Core Concepts",
+        f"- Source title: {extracted.get('title', 'Untitled source')}",
+        "",
+        "# Extracted Claims",
+    ]
+
+    if claims:
+        for claim in claims:
+            chapter_lines.append(f"- {claim}")
+    else:
+        chapter_lines.append("- No claim extracted; manual review required.")
+
+    chapter_lines.extend(
+        [
+            "",
+            "# Actionable Rules Derived",
+            "- Draft only. Review and promote before production usage.",
+            "",
+            "# Constraints And Caveats",
+            "- Content is automatically extracted and may contain noise.",
+            "- Requires human review before status promotion.",
+            "",
+            "# Implementation Guidance",
+            "- This draft supports Step 2 (ingestion) and Step 3 (chapter placement).",
+            "- Step 4 applies after chapter is promoted to Approved.",
+            "",
+            "# References",
+            f"- {source_url}",
+        ]
+    )
+
+    chapter_path.write_text("\n".join(chapter_lines) + "\n", encoding="utf-8")
+
+    _append_kb_changelog(
+        f"Ingested topic '{topic}' from {source_url} into {chapter_path.as_posix()}"
+    )
+
+    return KnowledgeIngestResponse(
+        topic=topic,
+        url=source_url,
+        source_title=extracted.get("title", "Untitled source"),
+        created_chapter=chapter_path.as_posix(),
+        created_topic_index=topic_index.as_posix(),
+        changelog_updated=KB_CHANGELOG_PATH.as_posix(),
+        status="Draft chapter created and changelog updated",
+        summary=summary,
+    )
 
 @app.get("/health")
 async def health():

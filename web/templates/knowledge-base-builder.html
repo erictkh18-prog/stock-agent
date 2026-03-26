@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knowledge Base Builder</title>
+    <style>
+        :root {
+            --bg: #f6f8fa;
+            --panel: #ffffff;
+            --text: #111827;
+            --muted: #4b5563;
+            --accent: #0f766e;
+            --accent-dark: #115e59;
+            --border: #d1d5db;
+            --ok: #065f46;
+            --err: #991b1b;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            background: radial-gradient(circle at top left, #e0f2fe 0%, var(--bg) 45%);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 820px;
+            margin: 0 auto;
+            padding: 28px 16px 60px;
+        }
+
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            box-shadow: 0 10px 22px rgba(0, 0, 0, 0.08);
+            padding: 20px;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: 1.8rem;
+            letter-spacing: 0.2px;
+        }
+
+        .subtitle {
+            margin: 0 0 20px;
+            color: var(--muted);
+            line-height: 1.45;
+        }
+
+        .grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        label {
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+
+        input {
+            width: 100%;
+            padding: 11px 12px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            font-size: 1rem;
+        }
+
+        input:focus {
+            outline: 2px solid #99f6e4;
+            border-color: var(--accent);
+        }
+
+        button {
+            margin-top: 6px;
+            width: 100%;
+            border: 0;
+            border-radius: 10px;
+            background: var(--accent);
+            color: #fff;
+            padding: 12px;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: var(--accent-dark);
+        }
+
+        button:disabled {
+            opacity: 0.7;
+            cursor: wait;
+        }
+
+        .result {
+            margin-top: 16px;
+            padding: 14px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: #f9fafb;
+            display: none;
+        }
+
+        .result.ok {
+            display: block;
+            border-color: #86efac;
+            background: #ecfdf5;
+            color: var(--ok);
+        }
+
+        .result.err {
+            display: block;
+            border-color: #fca5a5;
+            background: #fef2f2;
+            color: var(--err);
+        }
+
+        .details {
+            margin-top: 10px;
+            color: var(--text);
+            font-size: 0.94rem;
+            line-height: 1.4;
+        }
+
+        .details strong { color: #1f2937; }
+
+        .steps {
+            margin-top: 18px;
+            font-size: 0.92rem;
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        @media (max-width: 640px) {
+            h1 { font-size: 1.45rem; }
+            .container { padding-top: 18px; }
+        }
+    </style>
+</head>
+<body>
+    <main class="container">
+        <section class="card">
+            <h1>Knowledge Base Builder</h1>
+            <p class="subtitle">Enter a topic and website URL. On submit, the app performs Step 2 to Step 5 automatically: ingest source, create chapter in section/topic/chapter format, update changelog, and keep status as Draft pending approval.</p>
+
+            <form id="kbForm" class="grid">
+                <div>
+                    <label for="topic">Topic</label>
+                    <input id="topic" name="topic" type="text" placeholder="Example: RSI Buy Signals" required>
+                </div>
+
+                <div>
+                    <label for="url">Website URL</label>
+                    <input id="url" name="url" type="url" placeholder="https://example.com/article" required>
+                </div>
+
+                <button id="submitBtn" type="submit">Submit</button>
+            </form>
+
+            <div id="result" class="result"></div>
+
+            <div class="steps">
+                <strong>Automated flow:</strong><br>
+                Step 2: Source ingestion from URL<br>
+                Step 3: Draft chapter creation under section/topic/chapter<br>
+                Step 4: Decision policy note (Draft until approved)<br>
+                Step 5: Changelog update for audit trail
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const form = document.getElementById("kbForm");
+        const resultEl = document.getElementById("result");
+        const submitBtn = document.getElementById("submitBtn");
+
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            resultEl.className = "result";
+            resultEl.style.display = "none";
+            submitBtn.disabled = true;
+            submitBtn.textContent = "Submitting...";
+
+            const topic = document.getElementById("topic").value.trim();
+            const url = document.getElementById("url").value.trim();
+
+            try {
+                const response = await fetch("/knowledge-base/ingest", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ topic, url })
+                });
+
+                const payload = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(payload.detail || "Request failed");
+                }
+
+                resultEl.className = "result ok";
+                resultEl.innerHTML = `
+                    <strong>Success:</strong> ${payload.status}
+                    <div class="details">
+                        <div><strong>Topic:</strong> ${payload.topic}</div>
+                        <div><strong>Source title:</strong> ${payload.source_title}</div>
+                        <div><strong>Created chapter:</strong> ${payload.created_chapter}</div>
+                        <div><strong>Topic index:</strong> ${payload.created_topic_index}</div>
+                        <div><strong>Changelog:</strong> ${payload.changelog_updated}</div>
+                        <div><strong>Summary:</strong> ${payload.summary}</div>
+                    </div>
+                `;
+            } catch (error) {
+                resultEl.className = "result err";
+                resultEl.textContent = `Error: ${error.message}`;
+            } finally {
+                resultEl.style.display = "block";
+                submitBtn.disabled = false;
+                submitBtn.textContent = "Submit";
+            }
+        });
+    </script>
+</body>
+</html>
