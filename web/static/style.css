@@ -9,6 +9,7 @@ body {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     min-height: 100vh;
     padding: 20px;
+    -webkit-text-size-adjust: 100%;
 }
 
 .header {
@@ -67,25 +68,31 @@ body {
     display: flex;
     gap: 10px;
     margin-bottom: 20px;
+    flex-wrap: wrap;
 }
 
 .input-group input {
     flex: 1;
+    min-width: 0;
     padding: 12px 15px;
     border: 2px solid #e0e0e0;
     border-radius: 8px;
     font-size: 1em;
     transition: border-color 0.3s;
+    /* Minimum touch target height */
+    min-height: 44px;
 }
 
 .input-group select {
     flex: 1;
+    min-width: 0;
     padding: 12px 15px;
     border: 2px solid #e0e0e0;
     border-radius: 8px;
     font-size: 1em;
     background: white;
     transition: border-color 0.3s;
+    min-height: 44px;
 }
 
 .input-group input:focus,
@@ -97,7 +104,7 @@ body {
 
 .field-labels {
     display: grid;
-    grid-template-columns: repeat(6, minmax(120px, 1fr));
+    grid-template-columns: repeat(6, minmax(100px, 1fr));
     gap: 10px;
     margin-top: -8px;
     margin-bottom: 12px;
@@ -117,6 +124,8 @@ body {
     font-weight: 600;
     font-size: 1em;
     transition: all 0.3s;
+    min-height: 44px;
+    white-space: nowrap;
 }
 
 .btn-large {
@@ -363,14 +372,27 @@ tbody tr:last-child td {
 
 /* STOCK SCANNER CTA */
 .stock-scanner-cta {
-    background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+    background: #f4f3ff;
     border: 2px solid #667eea;
     margin-bottom: 10px;
 }
 
 .stock-scanner-cta h2 {
-    color: #667eea;
+    color: #5a4fcf;
     margin-bottom: 8px;
+}
+
+.cta-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.cta-row > div {
+    flex: 1;
+    min-width: 0;
 }
 
 .cta-button {
@@ -383,7 +405,9 @@ tbody tr:last-child td {
     font-weight: 600;
     transition: all 0.3s;
     white-space: nowrap;
-    margin-left: 20px;
+    min-height: 44px;
+    line-height: 20px;
+    flex-shrink: 0;
 }
 
 .cta-button:hover {
@@ -392,25 +416,84 @@ tbody tr:last-child td {
 }
 
 /* RESPONSIVE */
+@media (max-width: 1024px) {
+    .input-group {
+        flex-wrap: wrap;
+    }
+
+    .input-group select,
+    .input-group input[type="number"] {
+        flex: 1 1 calc(33% - 10px);
+        min-width: 90px;
+    }
+
+    .field-labels {
+        grid-template-columns: repeat(3, 1fr);
+    }
+
+    .field-labels span:nth-child(n+4) {
+        display: none;
+    }
+}
+
 @media (max-width: 768px) {
+    body {
+        padding: 12px;
+    }
+
+    .header {
+        margin-bottom: 24px;
+        padding: 12px;
+    }
+
     .header h1 {
-        font-size: 1.8em;
+        font-size: 1.6em;
+    }
+
+    .header p {
+        font-size: 0.95em;
     }
 
     .container {
-        gap: 20px;
+        gap: 16px;
     }
 
     .card {
-        padding: 20px;
+        padding: 16px;
+    }
+
+    .card h2 {
+        font-size: 1.4em;
+    }
+
+    .cta-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .cta-button {
+        display: block;
+        text-align: center;
+        margin-left: 0;
+        margin-top: 12px;
     }
 
     .input-group {
         flex-direction: column;
     }
 
+    .input-group select,
+    .input-group input {
+        width: 100%;
+        flex: none;
+    }
+
     .input-group button {
         width: 100%;
+    }
+
+    .field-labels {
+        display: none;
     }
 
     .stock-header {
@@ -425,5 +508,66 @@ tbody tr:last-child td {
 
     .metrics-grid {
         grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+    }
+
+    .metric span {
+        font-size: 1.2em;
+    }
+
+    th, td {
+        padding: 8px 6px;
+        font-size: 0.85em;
+    }
+
+    .footer {
+        margin-top: 30px;
+        font-size: 0.85em;
+    }
+}
+
+@media (max-width: 480px) {
+    body {
+        padding: 8px;
+    }
+
+    .header h1 {
+        font-size: 1.3em;
+    }
+
+    .card {
+        padding: 14px;
+        border-radius: 10px;
+    }
+
+    .card h2 {
+        font-size: 1.2em;
+    }
+
+    .metrics-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+    }
+
+    .metric {
+        padding: 10px;
+    }
+
+    .score-gauge canvas {
+        max-width: 160px;
+        max-height: 160px;
+    }
+
+    .stock-header h3 {
+        font-size: 1.3em;
+    }
+
+    .price {
+        font-size: 1.5em;
+    }
+
+    th, td {
+        padding: 6px 4px;
+        font-size: 0.8em;
     }
 }

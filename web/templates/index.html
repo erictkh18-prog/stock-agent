@@ -5,76 +5,263 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stock Analysis Agent</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 24px; }
-        .box { border: 1px solid #ccc; padding: 16px; border-radius: 8px; margin-bottom: 16px; }
-        .success { color: #0c6; }
-        .danger { color: #c00; }
-        input, button, textarea { font-size: 1rem; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            -webkit-text-size-adjust: 100%;
+        }
+        .wrapper {
+            max-width: 700px;
+            margin: 0 auto;
+        }
+        .page-header {
+            text-align: center;
+            color: white;
+            margin-bottom: 28px;
+            padding: 20px 10px 0;
+        }
+        .page-header h1 {
+            font-size: clamp(1.5rem, 5vw, 2.2rem);
+            margin-bottom: 8px;
+            text-shadow: 1px 1px 3px rgba(0,0,0,0.2);
+        }
+        .page-header p {
+            font-size: 0.95rem;
+            opacity: 0.9;
+            line-height: 1.5;
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+            margin-bottom: 16px;
+        }
+        .card h3 {
+            color: #333;
+            font-size: 1rem;
+            margin-bottom: 16px;
+        }
+        .form-group {
+            margin-bottom: 16px;
+        }
+        .form-group label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 6px;
+        }
+        .form-group input {
+            display: block;
+            width: 100%;
+            padding: 12px 14px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.2s;
+            min-height: 44px;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+        }
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+        }
+        .submit-btn {
+            display: block;
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            min-height: 48px;
+            margin-top: 4px;
+        }
+        .submit-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(102,126,234,0.4); }
+        .submit-btn:active { transform: none; }
+        .alert {
+            border-radius: 8px;
+            padding: 14px 16px;
+            margin-bottom: 16px;
+            font-size: 0.9rem;
+        }
+        .alert-danger { background: #fdf0f0; color: #c0392b; border: 1px solid #f5c6c6; }
+        .result-card { border-left: 4px solid #667eea; }
+        .result-card h2 { font-size: 1.3rem; color: #333; margin-bottom: 12px; }
+        .stat-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 0.92rem; }
+        .stat-row:last-child { border-bottom: none; }
+        .stat-label { color: #666; }
+        .stat-value { font-weight: 600; color: #333; }
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 700;
+        }
+        .badge-buy { background: #d4edda; color: #155724; }
+        .badge-hold { background: #fff3cd; color: #856404; }
+        .badge-sell { background: #f8d7da; color: #721c24; }
+        .picks-list { list-style: none; padding: 0; }
+        .picks-list li {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 0.9rem;
+        }
+        .picks-list li:last-child { border-bottom: none; }
+        .rank { width: 24px; text-align: center; font-weight: 700; color: #667eea; }
+        .ticker { font-weight: 700; color: #333; min-width: 60px; }
+        .name { color: #666; flex: 1; }
+        .score-text { font-weight: 600; color: #555; white-space: nowrap; }
+        .help-list { list-style: none; padding: 0; }
+        .help-list li { padding: 6px 0; color: #555; font-size: 0.9rem; border-bottom: 1px solid #f5f5f5; }
+        .help-list li:last-child { border-bottom: none; }
+        .help-list li::before { content: "▸  "; color: #667eea; }
+        .screen-heading { font-size: 1.2rem; color: #333; margin-bottom: 12px; }
+        .screen-meta { font-size: 0.85rem; color: #666; margin-bottom: 14px; }
+        .conf-label { font-size: 0.8rem; color: #888; }
+        .no-results { color: #888; font-size: 0.9rem; }
+            text-align: center;
+            color: rgba(255,255,255,0.8);
+            font-size: 0.8rem;
+            padding: 16px 0 4px;
+        }
+        .dashboard-link {
+            display: block;
+            text-align: center;
+            padding: 13px;
+            background: rgba(255,255,255,0.15);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            margin-bottom: 16px;
+            border: 1px solid rgba(255,255,255,0.3);
+            transition: background 0.2s;
+        }
+        .dashboard-link:hover { background: rgba(255,255,255,0.25); }
+        @media (max-width: 480px) {
+            body { padding: 12px; }
+            .card { padding: 18px; }
+            .form-row { grid-template-columns: 1fr; gap: 0; }
+            .picks-list li { flex-direction: column; align-items: flex-start; gap: 4px; }
+        }
     </style>
 </head>
 <body>
-    <h1>Stock Analysis Agent</h1>
-    <p>Enter one stock symbol to analyze, or multiple symbols separated by commas for screening.</p>
+    <div class="wrapper">
+        <div class="page-header">
+            <h1>📊 Stock Analysis Agent</h1>
+            <p>Smart investing with AI-powered analysis</p>
+        </div>
 
-    <div class="box">
-        <form action="/ui" method="post">
-            <label for="symbols">Stock Symbol(s):</label><br>
-            <input id="symbols" name="symbols" style="width: 400px;" value="AAPL" required><br><br>
+        <a href="/" class="dashboard-link">← Back to Full Dashboard</a>
 
-            <label for="min_overall_score">Minimum overall score:</label>
-            <input id="min_overall_score" name="min_overall_score" type="number" min="0" max="100" step="1" value="60"><br><br>
+        <div class="card">
+            <form action="/ui" method="post">
+                <div class="form-group">
+                    <label for="symbols">Stock Symbol(s)</label>
+                    <input id="symbols" name="symbols" placeholder="e.g. AAPL or AAPL, MSFT, GOOGL" value="AAPL" required autocomplete="off" autocapitalize="characters" spellcheck="false">
+                </div>
 
-            <label for="top_n">Top results to show:</label>
-            <input id="top_n" name="top_n" type="number" min="1" max="20" value="5"><br><br>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="min_overall_score">Minimum Score (0–100)</label>
+                        <input id="min_overall_score" name="min_overall_score" type="number" min="0" max="100" step="1" value="60">
+                    </div>
+                    <div class="form-group">
+                        <label for="top_n">Top Results to Show</label>
+                        <input id="top_n" name="top_n" type="number" min="1" max="20" value="5">
+                    </div>
+                </div>
 
-            <button type="submit">Analyze / Screen</button>
-        </form>
-    </div>
+                <button type="submit" class="submit-btn">Analyze / Screen →</button>
+            </form>
+        </div>
 
-    {% if error %}
-    <div class="box danger">Error: {{ error }}</div>
-    {% endif %}
-
-    {% if analysis %}
-    <div class="box">
-        <h2>Single Stock Analysis: {{ analysis.symbol }}</h2>
-        <p><strong>{{ analysis.name }}</strong></p>
-        <p>Current Price: ${{ "%.2f"|format(analysis.current_price) }}</p>
-        <p>Overall Score: {{ "%.1f"|format(analysis.overall_score) }} / 100</p>
-        <p>Recommendation: <strong>{{ analysis.recommendation }}</strong></p>
-        <p>Confidence: {{ "%.1f"|format(analysis.confidence * 100) }}%</p>
-    </div>
-    {% endif %}
-
-    {% if screen_result %}
-    <div class="box">
-        <h2>Screen Results</h2>
-        <p>Analyzed: {{ screen_result.total_candidates }}, Passed: {{ screen_result.filtered_count }}</p>
-
-        {% if screen_result.top_picks|length > 0 %}
-        <ol>
-            {% for stock in screen_result.top_picks %}
-            <li>
-                <strong>{{ stock.symbol }}</strong> ({{ stock.name }}): {{ "%.1f"|format(stock.overall_score) }} / 100,
-                {{ stock.recommendation }} ({{ "%.1f"|format(stock.confidence * 100) }}%)
-            </li>
-            {% endfor %}
-        </ol>
-        {% else %}
-        <p>No symbols passed the filter.</p>
+        {% if error %}
+        <div class="alert alert-danger">⚠ {{ error }}</div>
         {% endif %}
-    </div>
-    {% endif %}
 
-    <div class="box">
-        <h3>Quick Help</h3>
-        <ul>
-            <li>Single: AAPL</li>
-            <li>Multiple: AAPL, MSFT, GOOGL, NVDA</li>
-            <li>Min score = 70 to focus on stronger picks</li>
-        </ul>
-    </div>
+        {% if analysis %}
+        <div class="card result-card">
+            <h2>{{ analysis.symbol }} — {{ analysis.name }}</h2>
+            <div class="stat-row">
+                <span class="stat-label">Current Price</span>
+                <span class="stat-value">${{ "%.2f"|format(analysis.current_price) }}</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Overall Score</span>
+                <span class="stat-value">{{ "%.1f"|format(analysis.overall_score) }} / 100</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Recommendation</span>
+                <span class="stat-value">
+                    <span class="badge badge-{{ analysis.recommendation | lower }}">{{ analysis.recommendation }}</span>
+                </span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Confidence</span>
+                <span class="stat-value">{{ "%.1f"|format(analysis.confidence * 100) }}%</span>
+            </div>
+        </div>
+        {% endif %}
 
-    <p>Remember: This is research assistance, not financial advice.</p>
+        {% if screen_result %}
+        <div class="card">
+            <h2 class="screen-heading">Screen Results</h2>
+            <p class="screen-meta">
+                Analyzed: <strong>{{ screen_result.total_candidates }}</strong> &nbsp;|&nbsp;
+                Passed filter: <strong>{{ screen_result.filtered_count }}</strong>
+            </p>
+
+            {% if screen_result.top_picks|length > 0 %}
+            <ol class="picks-list">
+                {% for stock in screen_result.top_picks %}
+                <li>
+                    <span class="rank">{{ loop.index }}</span>
+                    <span class="ticker">{{ stock.symbol }}</span>
+                    <span class="name">{{ stock.name }}</span>
+                    <span class="score-text">{{ "%.1f"|format(stock.overall_score) }}/100</span>
+                    <span class="badge badge-{{ stock.recommendation | lower }}">{{ stock.recommendation }}</span>
+                    <span class="conf-label">{{ "%.1f"|format(stock.confidence * 100) }}%</span>
+                </li>
+                {% endfor %}
+            </ol>
+            {% else %}
+            <p class="no-results">No symbols passed the filter. Try lowering the minimum score.</p>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <div class="card">
+            <h3>💡 Quick Help</h3>
+            <ul class="help-list">
+                <li>Single symbol: <strong>AAPL</strong></li>
+                <li>Multiple symbols: <strong>AAPL, MSFT, GOOGL, NVDA</strong></li>
+                <li>Set Min Score ≥ 70 to focus on stronger picks</li>
+            </ul>
+        </div>
+
+        <div class="footer-note">Research assistance only — not financial advice.</div>
+    </div>
 </body>
 </html>
