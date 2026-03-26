@@ -27,4 +27,8 @@ class Config:
     # Cache Settings
     CACHE_TTL_SECONDS: int = 3600  # 1 hour
 
+    # Concurrency & Timeout Settings
+    MAX_CONCURRENT_FETCHES: int = int(os.getenv("MAX_CONCURRENT_FETCHES", "10"))
+    SYMBOL_FETCH_TIMEOUT_SECONDS: int = int(os.getenv("SYMBOL_FETCH_TIMEOUT_SECONDS", "30"))
+
 config = Config()

@@ -1,7 +1,8 @@
 """Stock screener module for identifying suitable stocks"""
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 import yfinance as yf
 import logging
+import time
 from typing import List, Optional
 from datetime import datetime, timedelta
 import threading
@@ -29,6 +30,8 @@ class StockScreener:
         self.sentiment_analyzer = SentimentAnalyzer()
         self.logger = logger
         self.cache_ttl_seconds = config.CACHE_TTL_SECONDS
+        self.max_concurrent_fetches = config.MAX_CONCURRENT_FETCHES
+        self.symbol_fetch_timeout_seconds = config.SYMBOL_FETCH_TIMEOUT_SECONDS
         self.analysis_cache = {}
         self.info_backoff_until = None
         self._cache_lock = threading.Lock()
@@ -72,10 +75,19 @@ class StockScreener:
                 self.logger.warning(f"Could not fetch price for {symbol}")
                 return None
             
-            # Run all analyses
-            fundamental = self.fundamental_analyzer.analyze(symbol, stock=stock, info=info)
-            technical = self.technical_analyzer.analyze(symbol)
-            sentiment_dict = self.sentiment_analyzer.analyze(symbol)
+            # Run all three analyses concurrently — they are independent I/O operations.
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                fundamental_future = executor.submit(
+                    self.fundamental_analyzer.analyze, symbol, stock, info
+                )
+                technical_future = executor.submit(
+                    self.technical_analyzer.analyze, symbol, 365, stock
+                )
+                sentiment_future = executor.submit(self.sentiment_analyzer.analyze, symbol)
+
+                fundamental = fundamental_future.result()
+                technical = technical_future.result()
+                sentiment_dict = sentiment_future.result()
             
             # Convert sentiment dict to SentimentAnalysis model
             sentiment = SentimentAnalysis(
@@ -218,18 +230,34 @@ class StockScreener:
             filters = ScreeningFilter()
         
         results = []
+        failed_symbols: List[str] = []
+        start_time = time.perf_counter()
 
-        max_workers = min(8, max(1, len(symbols)))
+        max_workers = min(self.max_concurrent_fetches, max(1, len(symbols)))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [
-                executor.submit(self._analyze_symbol_for_screen, symbol, filters)
+            future_to_symbol = {
+                executor.submit(self._analyze_symbol_for_screen, symbol, filters): symbol
                 for symbol in symbols
-            ]
-            for future in as_completed(futures):
-                analysis = future.result()
-                if analysis:
-                    results.append(analysis)
+            }
+            for future in as_completed(future_to_symbol):
+                symbol = future_to_symbol[future]
+                try:
+                    analysis = future.result(timeout=self.symbol_fetch_timeout_seconds)
+                    if analysis:
+                        results.append(analysis)
+                except FuturesTimeoutError:
+                    self.logger.warning(
+                        "Timeout fetching %s (limit %s seconds); skipping",
+                        symbol,
+                        self.symbol_fetch_timeout_seconds,
+                    )
+                    failed_symbols.append(symbol)
+                except Exception as exc:
+                    self.logger.warning("Failed to fetch %s: %s; skipping", symbol, exc)
+                    failed_symbols.append(symbol)
         
+        scan_duration_ms = (time.perf_counter() - start_time) * 1000
+
         # Sort by overall score (descending)
         results.sort(key=lambda x: x.overall_score, reverse=True)
         
@@ -240,7 +268,9 @@ class StockScreener:
             total_candidates=len(symbols),
             filtered_count=len(results),
             top_picks=top_picks,
-            screening_timestamp=datetime.now()
+            screening_timestamp=datetime.now(),
+            scan_duration_ms=round(scan_duration_ms, 2),
+            failed_symbols=failed_symbols,
         )
     
     def _passes_filters(self, analysis: StockAnalysis, filters: ScreeningFilter) -> bool:
@@ -471,5 +501,7 @@ class StockScreener:
             "cache_hit_rate_pct": cache_hit_rate,
             "cache_size": cache_size,
             "cache_ttl_seconds": self.cache_ttl_seconds,
+            "max_concurrent_fetches": self.max_concurrent_fetches,
+            "symbol_fetch_timeout_seconds": self.symbol_fetch_timeout_seconds,
             "info_backoff_active": info_backoff_active,
         }
