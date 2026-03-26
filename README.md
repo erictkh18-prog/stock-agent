@@ -89,6 +89,18 @@ Windows one-click shortcut:
 run-local.cmd
 ```
 
+Knowledge base one-click launcher:
+
+```bash
+run-kb-builder.cmd
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8000/knowledge-base-builder
+```
+
 The API will be available at `http://localhost:8000`
 
 **Interactive API Documentation**: Visit `http://localhost:8000/docs` for Swagger UI
