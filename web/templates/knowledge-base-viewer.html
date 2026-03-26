@@ -122,6 +122,31 @@
             font-weight: 700;
         }
 
+        .quick-filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .quick-filter-btn {
+            min-height: 36px;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            background: #fff;
+            color: #0f172a;
+            padding: 0 12px;
+            cursor: pointer;
+            font-weight: 700;
+            font-size: 0.82rem;
+        }
+
+        .quick-filter-btn.active {
+            border-color: #0284c7;
+            background: #e0f2fe;
+            color: #0c4a6e;
+        }
+
         .chip {
             background: var(--chip);
             color: #0c4a6e;
@@ -425,6 +450,12 @@
                     <input id="treeFilter" type="text" placeholder="Search sections, topics, or chapters..." aria-label="Search knowledge-base tree">
                     <button id="clearFilterBtn" type="button">Clear</button>
                 </div>
+                <div class="quick-filters" id="quickFilters" aria-label="Quick status filters">
+                    <button class="quick-filter-btn active" type="button" data-status="all">All</button>
+                    <button class="quick-filter-btn" type="button" data-status="draft">Draft</button>
+                    <button class="quick-filter-btn" type="button" data-status="approved">Approved</button>
+                    <button class="quick-filter-btn" type="button" data-status="rejected">Rejected</button>
+                </div>
                 <ul class="tree" id="tree"></ul>
             </section>
 
@@ -455,12 +486,14 @@
         const openBuilderBtn = document.getElementById("openBuilderBtn");
         const treeFilterInput = document.getElementById("treeFilter");
         const clearFilterBtn = document.getElementById("clearFilterBtn");
+        const quickFilters = document.getElementById("quickFilters");
         const openSelectedExplorerBtn = document.getElementById("openSelectedExplorerBtn");
         const approveChapterBtn = document.getElementById("approveChapterBtn");
         const rejectChapterBtn = document.getElementById("rejectChapterBtn");
 
         let activeChapterPath = "";
         let fullSections = [];
+        let activeStatusFilter = "all";
 
         openBuilderBtn.addEventListener("click", () => {
             window.location.href = "/knowledge-base-builder";
@@ -472,11 +505,26 @@
 
         clearFilterBtn.addEventListener("click", () => {
             treeFilterInput.value = "";
-            renderTree(fullSections, "");
+            renderTree(fullSections, "", activeStatusFilter);
         });
 
         treeFilterInput.addEventListener("input", () => {
-            renderTree(fullSections, treeFilterInput.value.trim().toLowerCase());
+            renderTree(fullSections, treeFilterInput.value.trim().toLowerCase(), activeStatusFilter);
+        });
+
+        quickFilters.addEventListener("click", (event) => {
+            const target = event.target.closest(".quick-filter-btn");
+            if (!target) {
+                return;
+            }
+
+            activeStatusFilter = (target.dataset.status || "all").toLowerCase();
+            const buttons = quickFilters.querySelectorAll(".quick-filter-btn");
+            buttons.forEach((button) => {
+                button.classList.toggle("active", button === target);
+            });
+
+            renderTree(fullSections, treeFilterInput.value.trim().toLowerCase(), activeStatusFilter);
         });
 
         openSelectedExplorerBtn.addEventListener("click", async () => {
@@ -523,7 +571,7 @@
 
                 fullSections = payload.sections || [];
                 renderStats(payload);
-                renderTree(fullSections, treeFilterInput.value.trim().toLowerCase());
+                renderTree(fullSections, treeFilterInput.value.trim().toLowerCase(), activeStatusFilter);
 
                 statusEl.textContent = "Knowledge-base tree loaded.";
             } catch (error) {
@@ -543,13 +591,14 @@
             statsEl.innerHTML = chips.map((text) => `<span class="chip">${text}</span>`).join("");
         }
 
-        function renderTree(sections, filterText) {
+        function renderTree(sections, filterText, statusFilter = "all") {
             if (!sections.length) {
                 treeEl.innerHTML = '<li class="empty">No sections found in knowledge-base.</li>';
                 return;
             }
 
             const normalizedFilter = (filterText || "").toLowerCase();
+            const normalizedStatus = (statusFilter || "all").toLowerCase();
             const hasFilter = normalizedFilter.length > 0;
             treeEl.innerHTML = "";
             let matchedSections = 0;
@@ -611,6 +660,13 @@
                             for (const chapter of topic.chapters) {
                                 const chapterMatch = chapter.name.toLowerCase().includes(normalizedFilter)
                                     || chapter.relative_path.toLowerCase().includes(normalizedFilter);
+                                const chapterStatus = (chapter.status || "Draft").toLowerCase();
+                                const statusMatch = normalizedStatus === "all" || chapterStatus === normalizedStatus;
+
+                                if (!statusMatch) {
+                                    continue;
+                                }
+
                                 if (hasFilter && !sectionMatch && !topicMatch && !chapterMatch) {
                                     continue;
                                 }
@@ -626,7 +682,6 @@
                                 const chapterName = document.createElement("span");
                                 chapterName.textContent = chapter.name;
 
-                                const chapterStatus = (chapter.status || "Draft").toLowerCase();
                                 const chapterStatusBadge = document.createElement("span");
                                 chapterStatusBadge.className = `chapter-status-badge ${chapterStatus}`;
                                 chapterStatusBadge.textContent = chapter.status || "Draft";
