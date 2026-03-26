@@ -360,7 +360,11 @@ async function scanStockRecommendations(buttonEl = null) {
 
         const data = await response.json();
         if (progressEl) {
-            progressEl.textContent = data?.summary || 'Recommendation scan complete.';
+            const learning = data?.learning || {};
+            const learningText = learning.total_tracked_outcomes
+                ? ` Learning: ${learning.total_tracked_outcomes} tracked outcomes | win rate ${Number(learning.win_rate_pct || 0).toFixed(1)}% | avg return ${Number(learning.average_return_pct || 0).toFixed(2)}%.`
+                : '';
+            progressEl.textContent = (data?.summary || 'Recommendation scan complete.') + learningText;
         }
 
         displayRecommendationResults(data?.results || []);
@@ -392,6 +396,7 @@ function displayRecommendationResults(results) {
                     <th>Symbol</th>
                     <th>Price</th>
                     <th>Projected Upside</th>
+                    <th>Learning Adj</th>
                     <th>Target Price</th>
                     <th>Stop Loss</th>
                     <th>Why Recommended</th>
@@ -405,7 +410,8 @@ function displayRecommendationResults(results) {
             <tr>
                 <td class="symbol">${stock.symbol}</td>
                 <td>$${Number(stock.current_price || 0).toFixed(2)}</td>
-                <td>${Number(stock.expected_upside_pct || 0).toFixed(2)}%</td>
+                <td>${Number(stock.adjusted_upside_pct ?? stock.expected_upside_pct ?? 0).toFixed(2)}%</td>
+                <td>${Number(stock.learning_adjustment || 0).toFixed(2)}%</td>
                 <td>$${Number(stock.target_price || 0).toFixed(2)}</td>
                 <td>$${Number(stock.stop_loss_price || 0).toFixed(2)} (${Number(stock.stop_loss_pct || 0).toFixed(1)}%)</td>
                     <td>${escapeHtml(stock.reason || 'Model indicates this stock has favorable risk/reward for your target.')}</td>
@@ -420,6 +426,127 @@ function displayRecommendationResults(results) {
 
     tableDiv.innerHTML = html;
     resultDiv.classList.remove('hidden');
+}
+
+// ============ TRADE OUTCOME TRACKER ============
+async function logTradeOutcome(buttonEl = null) {
+    const btn = buttonEl || document.getElementById('logOutcomeBtn');
+    const symbol = (document.getElementById('outcomeSymbol')?.value || '').trim().toUpperCase();
+    const outcome = document.getElementById('outcomeType')?.value || 'manual_close';
+    const entryPrice = Number(document.getElementById('outcomeEntryPrice')?.value);
+    const exitPriceRaw = document.getElementById('outcomeExitPrice')?.value;
+    const targetPriceRaw = document.getElementById('outcomeTargetPrice')?.value;
+    const stopPriceRaw = document.getElementById('outcomeStopPrice')?.value;
+
+    if (!symbol) {
+        alert('Please enter a symbol.');
+        return;
+    }
+    if (!Number.isFinite(entryPrice) || entryPrice <= 0) {
+        alert('Please provide a valid entry price.');
+        return;
+    }
+
+    const payload = {
+        symbol,
+        outcome,
+        entry_price: entryPrice,
+        exit_price: exitPriceRaw ? Number(exitPriceRaw) : null,
+        target_price: targetPriceRaw ? Number(targetPriceRaw) : null,
+        stop_loss_price: stopPriceRaw ? Number(stopPriceRaw) : null,
+    };
+
+    try {
+        setButtonState(btn, true, 'Logging...', 'Log Outcome');
+        const response = await fetch(`${API_URL}/trade-outcomes`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+            const errorMessage = await parseApiError(response, 'Could not log trade outcome');
+            throw new Error(errorMessage);
+        }
+
+        const result = await response.json();
+        const meta = document.getElementById('outcomeTrackerMeta');
+        if (meta) {
+            meta.textContent = `Logged ${result.record.symbol} (${result.record.outcome}) with return ${Number(result.record.return_pct || 0).toFixed(2)}%.`;
+        }
+        await loadTradeOutcomeHistory();
+
+        document.getElementById('outcomeSymbol').value = '';
+        document.getElementById('outcomeEntryPrice').value = '';
+        document.getElementById('outcomeExitPrice').value = '';
+        document.getElementById('outcomeTargetPrice').value = '';
+        document.getElementById('outcomeStopPrice').value = '';
+    } catch (error) {
+        alert(`Error: ${error.message}`);
+    } finally {
+        setButtonState(btn, false, 'Logging...', 'Log Outcome');
+    }
+}
+
+async function loadTradeOutcomeHistory() {
+    const resultDiv = document.getElementById('outcomeResult');
+    const tableDiv = document.getElementById('outcomeTable');
+    const meta = document.getElementById('outcomeTrackerMeta');
+    if (!resultDiv || !tableDiv || !meta) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_URL}/trade-outcomes?limit=50`);
+        if (!response.ok) {
+            throw new Error('Could not load trade outcomes');
+        }
+
+        const data = await response.json();
+        const summary = data.summary || {};
+        meta.textContent = `Tracked: ${summary.total || 0} trades | Win rate: ${Number(summary.win_rate_pct || 0).toFixed(1)}% | Avg return: ${Number(summary.average_return_pct || 0).toFixed(2)}%`;
+
+        const records = data.records || [];
+        if (!records.length) {
+            tableDiv.innerHTML = '<p>No outcomes logged yet.</p>';
+            resultDiv.classList.remove('hidden');
+            return;
+        }
+
+        let html = `
+            <table>
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Symbol</th>
+                        <th>Outcome</th>
+                        <th>Entry</th>
+                        <th>Exit</th>
+                        <th>Return</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        records.forEach((record) => {
+            html += `
+                <tr>
+                    <td>${escapeHtml((record.recorded_at || '').replace('T', ' ').slice(0, 19))}</td>
+                    <td class="symbol">${escapeHtml(record.symbol || '')}</td>
+                    <td>${escapeHtml(record.outcome || '')}</td>
+                    <td>$${Number(record.entry_price || 0).toFixed(2)}</td>
+                    <td>${record.exit_price != null ? `$${Number(record.exit_price).toFixed(2)}` : '—'}</td>
+                    <td>${Number(record.return_pct || 0).toFixed(2)}%</td>
+                </tr>
+            `;
+        });
+
+        html += `</tbody></table>`;
+        tableDiv.innerHTML = html;
+        resultDiv.classList.remove('hidden');
+    } catch (error) {
+        meta.textContent = `Error loading outcomes: ${error.message}`;
+    }
 }
 
     function escapeHtml(value) {
@@ -437,6 +564,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const screenBtn = document.getElementById('screenBtn');
     const marketScanBtn = document.getElementById('marketScanBtn');
     const recommendScanBtn = document.getElementById('recommendScanBtn');
+    const logOutcomeBtn = document.getElementById('logOutcomeBtn');
 
     document.getElementById('singleSymbol')?.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') analyzeStock(analyzeBtn);
@@ -453,4 +581,10 @@ document.addEventListener('DOMContentLoaded', () => {
     recommendScanBtn?.addEventListener('click', () => {
         scanStockRecommendations(recommendScanBtn);
     });
+
+    logOutcomeBtn?.addEventListener('click', () => {
+        logTradeOutcome(logOutcomeBtn);
+    });
+
+    loadTradeOutcomeHistory();
 });

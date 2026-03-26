@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stock Analysis Agent</title>
     <link rel="preconnect" href="https://cdn.jsdelivr.net">
-    <link rel="stylesheet" href="../static/style.css?v=20260326b">
+    <link rel="stylesheet" href="../static/style.css?v=20260327a">
     <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
 </head>
 <body>
@@ -216,6 +216,35 @@
                 </div>
             </div>
         </div>
+
+        <!-- SECTION 5: Trade Outcome Tracker -->
+        <div class="card">
+            <h2>🧠 Trade Outcome Tracker</h2>
+            <p class="description">Log completed trade outcomes so the recommendation model can learn from real results</p>
+
+            <div class="input-group">
+                <input type="text" id="outcomeSymbol" placeholder="Symbol (e.g., AAPL)" maxlength="10" aria-label="Outcome symbol">
+                <select id="outcomeType" aria-label="Outcome type">
+                    <option value="target_hit">Target Hit</option>
+                    <option value="stop_hit">Stop Hit</option>
+                    <option value="timeout">Timeout</option>
+                    <option value="manual_close">Manual Close</option>
+                </select>
+                <input type="number" id="outcomeEntryPrice" min="0" step="0.01" placeholder="Entry Price" aria-label="Entry price">
+                <input type="number" id="outcomeExitPrice" min="0" step="0.01" placeholder="Exit Price (optional)" aria-label="Exit price">
+                <input type="number" id="outcomeTargetPrice" min="0" step="0.01" placeholder="Target Price (optional)" aria-label="Target price">
+                <input type="number" id="outcomeStopPrice" min="0" step="0.01" placeholder="Stop Loss Price (optional)" aria-label="Stop loss price">
+                <button id="logOutcomeBtn">Log Outcome</button>
+            </div>
+
+            <div id="outcomeTrackerMeta" class="description">No outcomes logged yet.</div>
+
+            <div id="outcomeResult" class="result hidden">
+                <div id="outcomeTable" class="table-container">
+                    <!-- Outcome history table -->
+                </div>
+            </div>
+        </div>
     </div>
 
     <div class="footer">
@@ -223,6 +252,6 @@
         <p>Data powered by Yahoo Finance • Updated in real-time</p>
     </div>
 
-    <script src="../static/script.js?v=20260326b" defer></script>
+    <script src="../static/script.js?v=20260327a" defer></script>
 </body>
 </html>
