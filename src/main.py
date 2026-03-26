@@ -182,6 +182,7 @@ def _should_rate_limit(path: str) -> bool:
         or path.startswith("/screen")
         or path.startswith("/fetch-top-performers")
         or path.startswith("/scan-us-market")
+        or path.startswith("/recommend-stocks")
     )
 
 
@@ -1757,6 +1758,141 @@ async def scan_us_market(
         }
 
     return payload
+
+
+def _build_recommendation_text(stock, target_pct: float, duration_days: int) -> str:
+    """Build a plain-language recommendation explanation for a stock."""
+    parts = []
+
+    # Opening sentence
+    parts.append(
+        f"{stock.symbol} is recommended as a potential {target_pct:.0f}% gainer "
+        f"within {duration_days} day{'s' if duration_days != 1 else ''}."
+    )
+
+    # Use pre-built reason from screener if available
+    if stock.reason:
+        parts.append(stock.reason.capitalize() + ".")
+
+    # Contributing factors
+    factors = stock.top_contributing_factors or []
+    if factors:
+        factor_str = ", ".join(factors)
+        parts.append(f"Key strengths: {factor_str}.")
+
+    # Risk factors
+    risks = stock.top_risk_factors or []
+    if risks:
+        risk_str = ", ".join(risks)
+        parts.append(f"Key risks to watch: {risk_str}.")
+
+    # Technical context
+    if stock.technical:
+        trend = stock.technical.trend
+        rsi = stock.technical.rsi
+        if trend == "uptrend":
+            parts.append("The stock is currently in an uptrend, supporting near-term momentum.")
+        elif trend == "downtrend":
+            parts.append("The stock is in a downtrend — confirm reversal before entry.")
+        if rsi is not None:
+            if rsi < 35:
+                parts.append(f"RSI of {rsi:.0f} indicates oversold conditions — a potential rebound opportunity.")
+            elif rsi > 65:
+                parts.append(f"RSI of {rsi:.0f} suggests the stock may be overbought; consider waiting for a pullback.")
+
+    return " ".join(parts)
+
+
+@app.get("/recommend-stocks")
+async def recommend_stocks(
+    universe: str = Query("sp500", pattern="^(sp500|nasdaq100|combined)$"),
+    sector: Optional[str] = Query(None),
+    max_symbols: int = Query(80, ge=10, le=800),
+    top_n: int = Query(10, ge=1, le=50),
+    duration_days: int = Query(30, ge=1, le=365),
+    target_pct: float = Query(10.0, ge=0.1, le=100.0),
+    min_overall_score: float = Query(60, ge=0, le=100),
+):
+    """Scan the US market and return stock recommendations with target price and stop loss.
+
+    Each result includes:
+    - ``target_price``: the price that represents the desired ``target_pct`` gain
+    - ``stop_loss``: a protective exit price (uses technical support when available,
+      otherwise ``target_pct / 2`` below current price)
+    - ``why_recommended``: a plain-language explanation of why this stock was chosen
+    """
+    normalized_sector = _normalize_sector(sector) if sector else "all"
+    symbols = _get_us_market_universe(universe)[:max_symbols]
+
+    if normalized_sector != "all":
+        symbols = await asyncio.to_thread(_filter_symbols_by_sector, symbols, normalized_sector)
+
+    if not symbols:
+        return {
+            "universe": universe,
+            "sector": normalized_sector,
+            "duration_days": duration_days,
+            "target_pct": target_pct,
+            "scanned_count": 0,
+            "results": [],
+            "screening_timestamp": datetime.now().isoformat(),
+        }
+
+    filters = ScreeningFilter(min_overall_score=min_overall_score)
+    result = await asyncio.to_thread(
+        screener.screen_stocks,
+        symbols,
+        filters,
+        top_n,
+        None,
+        True,
+    )
+
+    recommendations = []
+    for stock in result.top_picks:
+        price = stock.current_price
+        target_price = round(price * (1 + target_pct / 100), 2)
+
+        # Stop loss: use technical support when it sits between 50%–99% of current price;
+        # otherwise fall back to half the expected gain as the maximum loss budget.
+        stop_loss_fallback = round(price * (1 - (target_pct / 2) / 100), 2)
+        support = stock.technical.support_level if stock.technical else None
+        if support is not None and price * 0.50 < support < price:
+            stop_loss = round(support, 2)
+        else:
+            stop_loss = stop_loss_fallback
+
+        recommendations.append({
+            "symbol": stock.symbol,
+            "name": stock.name,
+            "current_price": price,
+            "target_price": target_price,
+            "stop_loss": stop_loss,
+            "expected_gain_pct": target_pct,
+            "duration_days": duration_days,
+            "overall_score": round(stock.overall_score, 1),
+            "recommendation": stock.recommendation,
+            "confidence": round(stock.confidence, 2),
+            "why_recommended": _build_recommendation_text(stock, target_pct, duration_days),
+            "contributing_factors": stock.top_contributing_factors or [],
+            "risk_factors": stock.top_risk_factors or [],
+            "technical_trend": stock.technical.trend if stock.technical else None,
+            "rsi": round(stock.technical.rsi, 1) if (stock.technical and stock.technical.rsi is not None) else None,
+            "pe_ratio": stock.fundamental.pe_ratio if stock.fundamental else None,
+            "revenue_growth": stock.fundamental.revenue_growth if stock.fundamental else None,
+        })
+
+    return {
+        "universe": universe,
+        "sector": normalized_sector,
+        "duration_days": duration_days,
+        "target_pct": target_pct,
+        "scanned_count": len(symbols),
+        "total_candidates": result.total_candidates,
+        "filtered_count": result.filtered_count,
+        "results": recommendations,
+        "screening_timestamp": result.screening_timestamp.isoformat(),
+    }
 
 
 @app.get("/metrics")

@@ -147,6 +147,23 @@
     .metric-value { font-size: 11px; }
     .disclaimer { font-size: 10px; }
   }
+  /* ── SECTION DIVIDER ── */
+  .section-divider { display: flex; align-items: center; gap: 16px; margin: 48px 0 0; }
+  .section-divider::before, .section-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+  .section-divider-label { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 13px; letter-spacing: 2px; text-transform: uppercase; color: var(--accent); white-space: nowrap; }
+
+  /* ── RECOMMENDATION CARD EXTRAS ── */
+  .exit-strategy { background: var(--surface2); border-radius: 4px; padding: 12px 14px; margin-top: 12px; }
+  .exit-strategy-title { font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+  .exit-row { display: flex; justify-content: space-between; gap: 10px; }
+  .exit-item { flex: 1; text-align: center; }
+  .exit-label { font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 3px; }
+  .exit-value { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 500; }
+  .target-price { color: var(--accent); }
+  .stop-loss { color: var(--red); }
+  .why-section { font-size: 12px; line-height: 1.7; color: #a0b8b4; font-style: italic; border-left: 2px solid var(--blue); padding-left: 12px; margin-top: 10px; }
+  .risk-tags { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 8px; }
+  .risk-tag { font-family: 'IBM Plex Mono', monospace; font-size: 9px; padding: 2px 7px; border-radius: 2px; background: rgba(255,77,106,0.1); color: var(--red); }
 </style>
 </head>
 <body>
@@ -268,6 +285,101 @@
       <div class="results-count" id="resultsCount"></div>
     </div>
     <div class="stocks-grid" id="stocksGrid"></div>
+  </div>
+
+  <div class="disclaimer">⚠ DISCLAIMER: For informational and educational purposes only. Not financial advice. Always conduct your own research and consult a qualified financial advisor before making any investment decisions.</div>
+
+  <!-- ── STOCK RECOMMENDATION SECTION ── -->
+  <div class="section-divider">
+    <span class="section-divider-label">Stock Recommendation</span>
+  </div>
+
+  <div class="hero" style="padding:30px 0 20px;">
+    <div class="hero-tag">AI-Powered Price Target Analysis</div>
+    <h1 style="font-size:clamp(22px,4vw,40px);">Find Stocks That Can<br><span>Hit Your Target</span></h1>
+    <p class="hero-desc">Set your desired gain percentage and time horizon. Our AI screens the US market and surfaces the best candidates — complete with target price, stop loss, and plain-English rationale.</p>
+  </div>
+
+  <div class="scanner-panel" id="recPanel">
+    <div class="panel-title">// Configure Your Recommendation Scan</div>
+    <div class="filters">
+      <div class="filter-group">
+        <label>Universe</label>
+        <select id="recUniverse">
+          <option value="sp500">S&amp;P 500</option>
+          <option value="nasdaq100">Nasdaq 100</option>
+          <option value="combined">Combined</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Sector</label>
+        <select id="recSector">
+          <option value="">All Sectors</option>
+          <option value="technology">Technology</option>
+          <option value="healthcare">Healthcare</option>
+          <option value="financial services">Financial Services</option>
+          <option value="consumer cyclical">Consumer Cyclical</option>
+          <option value="energy">Energy</option>
+          <option value="industrials">Industrials</option>
+          <option value="utilities">Utilities</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Max Symbols to Scan</label>
+        <select id="recMaxSymbols">
+          <option value="10" selected>10 (Fast)</option>
+          <option value="25">25</option>
+          <option value="50">50 (Thorough)</option>
+          <option value="80">80 (Full)</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Duration (in days)</label>
+        <select id="recDuration">
+          <option value="7">7 days</option>
+          <option value="14">14 days</option>
+          <option value="30" selected>30 days</option>
+          <option value="60">60 days</option>
+          <option value="90">90 days</option>
+          <option value="180">180 days</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Target % Gain</label>
+        <select id="recTargetPct">
+          <option value="5">5%</option>
+          <option value="10" selected>10%</option>
+          <option value="15">15%</option>
+          <option value="20">20%</option>
+          <option value="30">30%</option>
+          <option value="50">50%</option>
+        </select>
+      </div>
+    </div>
+    <button class="scan-btn" id="recScanBtn">⟳ Scan US Market</button>
+  </div>
+
+  <div class="error-msg" id="recErrorMsg"></div>
+
+  <div class="loading-state" id="recLoadingState">
+    <div class="spinner"></div>
+    <div class="loading-text" id="recLoadingText">Initializing recommendation engine...</div>
+    <div class="loading-steps">
+      <div class="loading-step" id="rstep1">→ Building stock universe</div>
+      <div class="loading-step" id="rstep2">→ Running fundamental analysis</div>
+      <div class="loading-step" id="rstep3">→ Running technical analysis</div>
+      <div class="loading-step" id="rstep4">→ Scoring and ranking candidates</div>
+      <div class="loading-step" id="rstep5">→ Generating price targets &amp; exit strategies</div>
+    </div>
+    <div class="progress-bar-wrap"><div class="progress-bar" id="recProgressBar"></div></div>
+  </div>
+
+  <div class="results-section" id="recResultsSection">
+    <div class="results-header">
+      <div class="results-title">Recommended Stocks</div>
+      <div class="results-count" id="recResultsCount"></div>
+    </div>
+    <div class="stocks-grid" id="recStocksGrid"></div>
   </div>
 
   <div class="disclaimer">⚠ DISCLAIMER: For informational and educational purposes only. Not financial advice. Always conduct your own research and consult a qualified financial advisor before making any investment decisions.</div>
@@ -541,6 +653,164 @@ function showError(msg) {
   el.classList.add('visible');
 }
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── STOCK RECOMMENDATION SECTION ──
+
+function setRecStep(n) {
+  document.getElementById('recProgressBar').style.width = [0,10,35,60,80,100][n] + '%';
+  for (let i = 1; i <= 5; i++) {
+    document.getElementById('rstep' + i).className = 'loading-step' + (i < n ? ' done' : i === n ? ' active' : '');
+  }
+}
+
+document.getElementById('recScanBtn').addEventListener('click', runRecommendationScan);
+
+async function runRecommendationScan() {
+  const btn = document.getElementById('recScanBtn');
+  const loading = document.getElementById('recLoadingState');
+  const results = document.getElementById('recResultsSection');
+  const errDiv = document.getElementById('recErrorMsg');
+
+  btn.disabled = true;
+  errDiv.classList.remove('visible');
+  results.classList.remove('visible');
+  loading.classList.add('visible');
+
+  const universe = document.getElementById('recUniverse').value;
+  const sector = document.getElementById('recSector').value;
+  const maxSymbols = document.getElementById('recMaxSymbols').value;
+  const duration = document.getElementById('recDuration').value;
+  const targetPct = document.getElementById('recTargetPct').value;
+
+  setRecStep(1);
+  safeText(document.getElementById('recLoadingText'), 'Scanning ' + maxSymbols + ' symbols from ' + universe.toUpperCase() + '...');
+
+  try {
+    let url = '/recommend-stocks?universe=' + encodeURIComponent(universe)
+      + '&max_symbols=' + encodeURIComponent(maxSymbols)
+      + '&duration_days=' + encodeURIComponent(duration)
+      + '&target_pct=' + encodeURIComponent(targetPct);
+    if (sector) url += '&sector=' + encodeURIComponent(sector);
+
+    setRecStep(2);
+    await sleep(400);
+    setRecStep(3);
+
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      const body = await resp.text();
+      throw new Error('Server error ' + resp.status + ': ' + body.slice(0, 200));
+    }
+    const data = await resp.json();
+
+    setRecStep(4);
+    await sleep(200);
+    setRecStep(5);
+    await sleep(200);
+
+    loading.classList.remove('visible');
+
+    if (!data.results || data.results.length === 0) {
+      showRecError('No qualifying stocks found. Try lowering the target % or expanding the universe.');
+      btn.disabled = false;
+      return;
+    }
+
+    const grid = document.getElementById('recStocksGrid');
+    grid.innerHTML = '';
+
+    data.results.forEach((s, i) => {
+      const scC = s.overall_score >= 75 ? 'score-high' : s.overall_score >= 60 ? 'score-mid' : 'score-low';
+      const chSign = s.technical_trend === 'uptrend' ? '↑ Uptrend' : s.technical_trend === 'downtrend' ? '↓ Downtrend' : '→ Sideways';
+      const rsiText = s.rsi != null ? 'RSI ' + s.rsi : 'RSI N/A';
+
+      const card = document.createElement('div');
+      card.className = 'stock-card';
+      card.style.animationDelay = (i * 0.07) + 's';
+
+      // Card top: ticker + score
+      const cardTop = document.createElement('div'); cardTop.className = 'card-top';
+      const tickerDiv = document.createElement('div');
+      const tickerEl = document.createElement('div'); tickerEl.className = 'stock-ticker'; safeText(tickerEl, s.symbol);
+      const nameEl = document.createElement('div'); nameEl.className = 'stock-name'; nameEl.title = s.name; safeText(nameEl, s.name);
+      tickerDiv.appendChild(tickerEl); tickerDiv.appendChild(nameEl);
+      const scoreBadge = document.createElement('div'); scoreBadge.className = 'score-badge';
+      const scoreLabel = document.createElement('div'); scoreLabel.className = 'score-label'; safeText(scoreLabel, 'AI Score');
+      const scoreVal = document.createElement('div'); scoreVal.className = 'score-value ' + scC; safeText(scoreVal, s.overall_score);
+      scoreBadge.appendChild(scoreLabel); scoreBadge.appendChild(scoreVal);
+      cardTop.appendChild(tickerDiv); cardTop.appendChild(scoreBadge);
+
+      // Metrics row: current price, trend, RSI
+      const metricsRow = document.createElement('div'); metricsRow.className = 'metrics-row';
+      [
+        ['Current', '$' + Number(s.current_price).toFixed(2), ''],
+        ['Trend', chSign, s.technical_trend === 'uptrend' ? 'up' : s.technical_trend === 'downtrend' ? 'down' : ''],
+        [rsiText, s.recommendation, s.recommendation === 'BUY' ? 'up' : s.recommendation === 'SELL' ? 'down' : ''],
+        ['P/E', s.pe_ratio ? Number(s.pe_ratio).toFixed(1) + 'x' : 'N/A', ''],
+        ['Rev Growth', s.revenue_growth != null ? (s.revenue_growth >= 0 ? '+' : '') + (s.revenue_growth * 100).toFixed(1) + '%' : 'N/A', ''],
+        ['Confidence', Math.round(s.confidence * 100) + '%', '']
+      ].forEach(([label, val, cls]) => {
+        const m = document.createElement('div'); m.className = 'metric';
+        const ml = document.createElement('div'); ml.className = 'metric-label'; safeText(ml, label);
+        const mv = document.createElement('div'); mv.className = 'metric-value' + (cls ? ' ' + cls : ''); safeText(mv, val);
+        m.appendChild(ml); m.appendChild(mv); metricsRow.appendChild(m);
+      });
+
+      // Exit strategy block
+      const exitDiv = document.createElement('div'); exitDiv.className = 'exit-strategy';
+      const exitTitle = document.createElement('div'); exitTitle.className = 'exit-strategy-title';
+      safeText(exitTitle, '🎯 Exit Strategy — ' + s.duration_days + '-day target');
+      const exitRow = document.createElement('div'); exitRow.className = 'exit-row';
+      [
+        ['Target Price', '$' + Number(s.target_price).toFixed(2), 'exit-value target-price'],
+        ['Stop Loss', '$' + Number(s.stop_loss).toFixed(2), 'exit-value stop-loss'],
+        ['Upside', '+' + Number(s.expected_gain_pct).toFixed(1) + '%', 'exit-value up']
+      ].forEach(([label, val, cls]) => {
+        const item = document.createElement('div'); item.className = 'exit-item';
+        const lbl = document.createElement('div'); lbl.className = 'exit-label'; safeText(lbl, label);
+        const v = document.createElement('div'); v.className = cls; safeText(v, val);
+        item.appendChild(lbl); item.appendChild(v); exitRow.appendChild(item);
+      });
+      exitDiv.appendChild(exitTitle); exitDiv.appendChild(exitRow);
+
+      // Why recommended
+      const whyEl = document.createElement('div'); whyEl.className = 'why-section';
+      safeText(whyEl, s.why_recommended || 'Meets AI screening criteria for your target parameters.');
+
+      // Risk tags
+      let riskTagsDiv = null;
+      if (s.risk_factors && s.risk_factors.length) {
+        riskTagsDiv = document.createElement('div'); riskTagsDiv.className = 'risk-tags';
+        s.risk_factors.forEach(r => {
+          const sp = document.createElement('span'); sp.className = 'risk-tag';
+          safeText(sp, '⚠ ' + r); riskTagsDiv.appendChild(sp);
+        });
+      }
+
+      card.appendChild(cardTop);
+      card.appendChild(metricsRow);
+      card.appendChild(exitDiv);
+      card.appendChild(whyEl);
+      if (riskTagsDiv) card.appendChild(riskTagsDiv);
+      grid.appendChild(card);
+    });
+
+    const scannedInfo = 'Top ' + data.results.length + ' picks from ' + (data.scanned_count || '?') + ' scanned · ' + data.duration_days + '-day / +' + data.target_pct + '% target';
+    safeText(document.getElementById('recResultsCount'), scannedInfo);
+    results.classList.add('visible');
+
+  } catch(err) {
+    loading.classList.remove('visible');
+    showRecError(err.message || 'Something went wrong. Please try again.');
+  }
+  btn.disabled = false;
+}
+
+function showRecError(msg) {
+  const el = document.getElementById('recErrorMsg');
+  safeText(el, '⚠ ' + msg);
+  el.classList.add('visible');
+}
 </script>
 </body>
 </html>
