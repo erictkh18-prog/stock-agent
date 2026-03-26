@@ -525,7 +525,7 @@ async def fetch_top_performers(top_n: int = Query(10, ge=1, le=50)):
             age_seconds = (now - cached["timestamp"]).total_seconds()
             if age_seconds <= TOP_PERFORMERS_CACHE_TTL_SECONDS:
                 _top_performers_cache_hits += 1
-                return cached["payload"]
+                return {**cached["payload"], "cache_hit": True}
 
         _top_performers_cache_misses += 1
 
@@ -543,6 +543,9 @@ async def fetch_top_performers(top_n: int = Query(10, ge=1, le=50)):
         "total_candidates": result.total_candidates,
         "filtered_count": result.filtered_count,
         "screening_timestamp": result.screening_timestamp,
+        "scan_duration_ms": result.scan_duration_ms,
+        "failed_symbols": result.failed_symbols,
+        "cache_hit": False,
     }
 
     with _top_performers_cache_lock:
@@ -574,7 +577,7 @@ async def scan_us_market(
             age_seconds = (now - cached["timestamp"]).total_seconds()
             if age_seconds <= MARKET_SCAN_CACHE_TTL_SECONDS:
                 _market_scan_cache_hits += 1
-                return cached["payload"]
+                return {**cached["payload"], "cache_hit": True}
         _market_scan_cache_misses += 1
 
     symbols = _get_us_market_universe(universe)[:max_symbols]
@@ -590,6 +593,9 @@ async def scan_us_market(
             "total_candidates": 0,
             "filtered_count": 0,
             "screening_timestamp": datetime.now(),
+            "scan_duration_ms": None,
+            "failed_symbols": [],
+            "cache_hit": False,
         }
 
     filters = ScreeningFilter(min_overall_score=min_overall_score)
@@ -603,6 +609,9 @@ async def scan_us_market(
         "total_candidates": result.total_candidates,
         "filtered_count": result.filtered_count,
         "screening_timestamp": result.screening_timestamp,
+        "scan_duration_ms": result.scan_duration_ms,
+        "failed_symbols": result.failed_symbols,
+        "cache_hit": False,
     }
 
     with _market_scan_cache_lock:
