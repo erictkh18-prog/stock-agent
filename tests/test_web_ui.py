@@ -71,12 +71,47 @@ def test_stock_scanner_returns_html():
     assert "text/html" in resp.headers["content-type"]
 
 
+def test_knowledge_base_builder_returns_html():
+    resp = client.get("/knowledge-base-builder")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+
+
+def test_knowledge_base_viewer_returns_html():
+    resp = client.get("/knowledge-base")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+
+
+def test_knowledge_base_index_returns_tree_payload():
+    resp = client.get("/knowledge-base/index")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "sections" in body
+    assert "total_topics" in body
+    assert "total_chapters" in body
+
+
+def test_knowledge_base_chapter_rejects_invalid_path_traversal():
+    resp = client.get("/knowledge-base/chapter", params={"path": "../README.md"})
+    assert resp.status_code == 400
+
+
 # ──────────────────────────────────────────────
 # Mobile responsiveness: viewport meta tag
 # ──────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("template", ["dashboard.html", "stock-scanner.html", "index.html"])
+@pytest.mark.parametrize(
+    "template",
+    [
+        "dashboard.html",
+        "stock-scanner.html",
+        "index.html",
+        "knowledge-base-builder.html",
+        "knowledge-base-viewer.html",
+    ],
+)
 def test_template_has_viewport_meta(template):
     """Every page must declare width=device-width so mobile browsers scale correctly."""
     html = _read_template(template)

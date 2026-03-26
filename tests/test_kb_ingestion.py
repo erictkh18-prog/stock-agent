@@ -4,8 +4,12 @@ from unittest.mock import MagicMock
 
 import pytest
 import requests
+from fastapi.testclient import TestClient
 
-from src.main import _extract_webpage_text
+from src.main import _extract_webpage_text, app
+
+
+client = TestClient(app, raise_server_exceptions=True)
 
 
 def test_extract_webpage_text_falls_back_to_mirror_on_402(monkeypatch):
@@ -68,3 +72,17 @@ def test_extract_webpage_text_returns_placeholder_when_all_mirrors_fail(monkeypa
 
     assert result["title"] == "Blocked source (manual review required)"
     assert "Automated extraction was blocked" in result["paragraphs"][0]
+
+
+def test_knowledge_base_chapter_returns_markdown_for_existing_file():
+    """Knowledge-base chapter endpoint should return markdown content safely."""
+
+    response = client.get(
+        "/knowledge-base/chapter",
+        params={"path": "INDEX.md"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["path"] == "INDEX.md"
+    assert "Knowledge Base Index" in payload["content"]

@@ -312,6 +312,94 @@ class KnowledgeIngestResponse(BaseModel):
     summary: str
 
 
+def _safe_rel_path(path: Path, root: Path) -> str:
+    """Return POSIX relative path from root for API payloads."""
+    return path.relative_to(root).as_posix()
+
+
+def _validate_kb_relative_path(relative_path: str) -> Path:
+    """Resolve and validate a chapter path inside knowledge-base root."""
+    candidate = (KB_ROOT / relative_path).resolve()
+    kb_root_resolved = KB_ROOT.resolve()
+    if kb_root_resolved not in candidate.parents and candidate != kb_root_resolved:
+        raise HTTPException(status_code=400, detail="Invalid chapter path")
+    if not candidate.exists() or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Chapter not found")
+    if candidate.suffix.lower() != ".md":
+        raise HTTPException(status_code=400, detail="Only markdown chapter files are supported")
+    return candidate
+
+
+def _build_kb_tree() -> dict:
+    """Build section/topic/chapter tree for knowledge-base viewer."""
+    sections_dir = KB_ROOT / "sections"
+    sections = []
+
+    if not sections_dir.exists():
+        return {
+            "kb_root": KB_ROOT.as_posix(),
+            "sections": sections,
+            "total_topics": 0,
+            "total_chapters": 0,
+        }
+
+    total_topics = 0
+    total_chapters = 0
+
+    for section_dir in sorted([p for p in sections_dir.iterdir() if p.is_dir()]):
+        topics_root = section_dir / "topics"
+        topics = []
+
+        if topics_root.exists():
+            for topic_dir in sorted([p for p in topics_root.iterdir() if p.is_dir()]):
+                chapter_dir = topic_dir / "chapters"
+                topic_index_path = topic_dir / "TOPIC.md"
+
+                chapters = []
+                if chapter_dir.exists():
+                    for chapter_path in sorted(
+                        [p for p in chapter_dir.iterdir() if p.is_file() and p.suffix.lower() == ".md"],
+                        reverse=True,
+                    ):
+                        chapters.append(
+                            {
+                                "name": chapter_path.stem,
+                                "relative_path": _safe_rel_path(chapter_path, KB_ROOT),
+                                "updated_at": datetime.fromtimestamp(chapter_path.stat().st_mtime).isoformat(),
+                            }
+                        )
+
+                topics.append(
+                    {
+                        "name": topic_dir.name,
+                        "relative_path": _safe_rel_path(topic_dir, KB_ROOT),
+                        "topic_index": _safe_rel_path(topic_index_path, KB_ROOT)
+                        if topic_index_path.exists()
+                        else None,
+                        "chapter_count": len(chapters),
+                        "chapters": chapters,
+                    }
+                )
+
+        total_topics += len(topics)
+        total_chapters += sum(topic["chapter_count"] for topic in topics)
+        sections.append(
+            {
+                "name": section_dir.name,
+                "relative_path": _safe_rel_path(section_dir, KB_ROOT),
+                "topic_count": len(topics),
+                "topics": topics,
+            }
+        )
+
+    return {
+        "kb_root": KB_ROOT.as_posix(),
+        "sections": sections,
+        "total_topics": total_topics,
+        "total_chapters": total_chapters,
+    }
+
+
 def _fetch_symbols_from_wikipedia(url: str, candidate_columns: List[str]) -> List[str]:
     """Fetch ticker symbols from a Wikipedia table."""
     response = requests.get(url, headers=WIKIPEDIA_REQUEST_HEADERS, timeout=10)
@@ -607,6 +695,40 @@ async def knowledge_base_builder():
     if builder_path.exists():
         return FileResponse(str(builder_path))
     return {"message": "Knowledge-base builder UI not available"}
+
+
+@app.get("/knowledge-base")
+async def knowledge_base_viewer():
+    """Serve knowledge-base viewer UI."""
+    viewer_path = templates_dir / "knowledge-base-viewer.html"
+    if viewer_path.exists():
+        return FileResponse(str(viewer_path))
+    return {"message": "Knowledge-base viewer UI not available"}
+
+
+@app.get("/knowledge-base/index")
+async def knowledge_base_index():
+    """Return section/topic/chapter tree for knowledge-base browsing."""
+    if not KB_ROOT.exists():
+        raise HTTPException(status_code=404, detail="Knowledge base root not found")
+    return _build_kb_tree()
+
+
+@app.get("/knowledge-base/chapter")
+async def knowledge_base_chapter(path: str = Query(..., description="Knowledge-base relative markdown path")):
+    """Return chapter markdown content and metadata for viewer rendering."""
+    if not path.strip():
+        raise HTTPException(status_code=400, detail="Chapter path is required")
+
+    chapter_path = _validate_kb_relative_path(path.strip())
+    content = chapter_path.read_text(encoding="utf-8")
+
+    return {
+        "path": _safe_rel_path(chapter_path, KB_ROOT),
+        "title": chapter_path.stem,
+        "updated_at": datetime.fromtimestamp(chapter_path.stat().st_mtime).isoformat(),
+        "content": content,
+    }
 
 
 @app.post("/knowledge-base/ingest", response_model=KnowledgeIngestResponse)

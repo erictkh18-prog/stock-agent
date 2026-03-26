@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knowledge Base Viewer</title>
+    <style>
+        :root {
+            --bg: #f4f6fb;
+            --panel: #ffffff;
+            --text: #0f172a;
+            --muted: #475569;
+            --line: #cbd5e1;
+            --accent: #0369a1;
+            --accent-strong: #0c4a6e;
+            --ok: #14532d;
+            --chip: #e0f2fe;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            background: radial-gradient(circle at top right, #dbeafe 0%, var(--bg) 50%);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        .shell {
+            max-width: 1300px;
+            margin: 0 auto;
+            padding: 18px 12px 24px;
+        }
+
+        .topbar {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .topbar h1 {
+            margin: 0;
+            font-size: 1.35rem;
+        }
+
+        .topbar p {
+            margin: 2px 0 0;
+            color: var(--muted);
+            font-size: 0.92rem;
+        }
+
+        .topbar-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .button {
+            border: 0;
+            border-radius: 10px;
+            background: var(--accent);
+            color: #fff;
+            padding: 10px 12px;
+            font-weight: 700;
+            cursor: pointer;
+            min-height: 44px;
+        }
+
+        .button:hover { background: var(--accent-strong); }
+
+        .layout {
+            margin-top: 14px;
+            display: grid;
+            grid-template-columns: 360px 1fr;
+            gap: 12px;
+        }
+
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 12px;
+            min-height: 74vh;
+        }
+
+        .stats {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .chip {
+            background: var(--chip);
+            color: #0c4a6e;
+            border: 1px solid #bae6fd;
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 0.82rem;
+            font-weight: 600;
+        }
+
+        .tree {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            display: grid;
+            gap: 8px;
+        }
+
+        .section {
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 10px;
+        }
+
+        .section h2 {
+            margin: 0 0 8px;
+            font-size: 1rem;
+        }
+
+        .topic {
+            border-top: 1px dashed #dbe3f0;
+            padding-top: 8px;
+            margin-top: 8px;
+        }
+
+        .topic:first-child {
+            border-top: 0;
+            margin-top: 0;
+            padding-top: 0;
+        }
+
+        .topic-header {
+            margin: 0 0 6px;
+            color: #0f172a;
+            font-size: 0.9rem;
+            font-weight: 700;
+        }
+
+        .chapter-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            display: grid;
+            gap: 6px;
+        }
+
+        .chapter-link {
+            width: 100%;
+            text-align: left;
+            border: 1px solid #dbe3f0;
+            background: #f8fafc;
+            color: #0f172a;
+            border-radius: 8px;
+            padding: 8px 9px;
+            font-size: 0.86rem;
+            cursor: pointer;
+        }
+
+        .chapter-link:hover {
+            border-color: #7dd3fc;
+            background: #f0f9ff;
+        }
+
+        .chapter-link.active {
+            border-color: #0284c7;
+            background: #e0f2fe;
+        }
+
+        .empty {
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+
+        .doc-meta {
+            color: var(--muted);
+            font-size: 0.85rem;
+            margin-bottom: 10px;
+        }
+
+        pre {
+            margin: 0;
+            padding: 14px;
+            border-radius: 10px;
+            border: 1px solid #dbe3f0;
+            background: #f8fafc;
+            color: #1e293b;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-family: Consolas, "Courier New", monospace;
+            line-height: 1.45;
+            min-height: 56vh;
+        }
+
+        .status {
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: var(--ok);
+        }
+
+        @media (max-width: 960px) {
+            .layout {
+                grid-template-columns: 1fr;
+            }
+
+            .card {
+                min-height: auto;
+            }
+
+            pre {
+                min-height: 40vh;
+            }
+        }
+
+        @media (max-width: 520px) {
+            .topbar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .topbar-actions {
+                width: 100%;
+            }
+
+            .button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="shell">
+        <header class="topbar">
+            <div>
+                <h1>Knowledge Base Viewer</h1>
+                <p>Browse sections, topics, and chapters generated by your ingestion workflow.</p>
+            </div>
+            <div class="topbar-actions">
+                <button class="button" id="refreshBtn" type="button">Refresh Tree</button>
+                <button class="button" id="openBuilderBtn" type="button">Open Builder</button>
+            </div>
+        </header>
+
+        <main class="layout">
+            <section class="card" aria-label="Knowledge-base navigation">
+                <div class="stats" id="stats"></div>
+                <ul class="tree" id="tree"></ul>
+            </section>
+
+            <section class="card" aria-label="Chapter preview">
+                <h2 id="docTitle">Select a chapter</h2>
+                <div class="doc-meta" id="docMeta">Choose a chapter from the left panel to view its content.</div>
+                <pre id="docBody">No chapter selected yet.</pre>
+                <div class="status" id="status"></div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        const treeEl = document.getElementById("tree");
+        const statsEl = document.getElementById("stats");
+        const docTitleEl = document.getElementById("docTitle");
+        const docMetaEl = document.getElementById("docMeta");
+        const docBodyEl = document.getElementById("docBody");
+        const statusEl = document.getElementById("status");
+        const refreshBtn = document.getElementById("refreshBtn");
+        const openBuilderBtn = document.getElementById("openBuilderBtn");
+
+        let activeChapterPath = "";
+
+        openBuilderBtn.addEventListener("click", () => {
+            window.location.href = "/knowledge-base-builder";
+        });
+
+        refreshBtn.addEventListener("click", () => {
+            void loadTree();
+        });
+
+        async function loadTree() {
+            statusEl.textContent = "Loading knowledge-base tree...";
+            treeEl.innerHTML = "";
+            statsEl.innerHTML = "";
+
+            try {
+                const response = await fetch("/knowledge-base/index");
+                const payload = await response.json();
+                if (!response.ok) {
+                    throw new Error(payload.detail || "Could not load knowledge base");
+                }
+
+                renderStats(payload);
+                renderTree(payload.sections || []);
+
+                statusEl.textContent = "Knowledge-base tree loaded.";
+            } catch (error) {
+                statusEl.textContent = `Error: ${error.message}`;
+                treeEl.innerHTML = '<li class="empty">Unable to load knowledge-base tree.</li>';
+            }
+        }
+
+        function renderStats(payload) {
+            const chips = [
+                `Sections: ${(payload.sections || []).length}`,
+                `Topics: ${payload.total_topics || 0}`,
+                `Chapters: ${payload.total_chapters || 0}`,
+                `Root: ${payload.kb_root || "knowledge-base"}`,
+            ];
+
+            statsEl.innerHTML = chips.map((text) => `<span class="chip">${text}</span>`).join("");
+        }
+
+        function renderTree(sections) {
+            if (!sections.length) {
+                treeEl.innerHTML = '<li class="empty">No sections found in knowledge-base.</li>';
+                return;
+            }
+
+            for (const section of sections) {
+                const sectionItem = document.createElement("li");
+                sectionItem.className = "section";
+
+                const sectionTitle = document.createElement("h2");
+                sectionTitle.textContent = `${section.name} (${section.topic_count} topics)`;
+                sectionItem.appendChild(sectionTitle);
+
+                if (!section.topics || !section.topics.length) {
+                    const emptyTopic = document.createElement("p");
+                    emptyTopic.className = "empty";
+                    emptyTopic.textContent = "No topics in this section yet.";
+                    sectionItem.appendChild(emptyTopic);
+                } else {
+                    for (const topic of section.topics) {
+                        const topicBlock = document.createElement("div");
+                        topicBlock.className = "topic";
+
+                        const topicHeader = document.createElement("p");
+                        topicHeader.className = "topic-header";
+                        topicHeader.textContent = `${topic.name} (${topic.chapter_count} chapters)`;
+                        topicBlock.appendChild(topicHeader);
+
+                        const chapterList = document.createElement("ul");
+                        chapterList.className = "chapter-list";
+
+                        if (!topic.chapters || !topic.chapters.length) {
+                            const emptyChapter = document.createElement("li");
+                            emptyChapter.className = "empty";
+                            emptyChapter.textContent = "No chapters yet.";
+                            chapterList.appendChild(emptyChapter);
+                        } else {
+                            for (const chapter of topic.chapters) {
+                                const chapterItem = document.createElement("li");
+                                const button = document.createElement("button");
+                                button.type = "button";
+                                button.className = "chapter-link";
+                                button.textContent = chapter.name;
+                                button.dataset.path = chapter.relative_path;
+                                button.addEventListener("click", async () => {
+                                    await loadChapter(chapter.relative_path, button);
+                                });
+                                chapterItem.appendChild(button);
+                                chapterList.appendChild(chapterItem);
+                            }
+                        }
+
+                        topicBlock.appendChild(chapterList);
+                        sectionItem.appendChild(topicBlock);
+                    }
+                }
+
+                treeEl.appendChild(sectionItem);
+            }
+        }
+
+        function setActiveButton(button) {
+            const allButtons = document.querySelectorAll(".chapter-link");
+            allButtons.forEach((el) => el.classList.remove("active"));
+            button.classList.add("active");
+        }
+
+        async function loadChapter(relativePath, button) {
+            statusEl.textContent = "Loading chapter...";
+
+            try {
+                const query = encodeURIComponent(relativePath);
+                const response = await fetch(`/knowledge-base/chapter?path=${query}`);
+                const payload = await response.json();
+                if (!response.ok) {
+                    throw new Error(payload.detail || "Could not load chapter");
+                }
+
+                activeChapterPath = payload.path;
+                docTitleEl.textContent = payload.title;
+                docMetaEl.textContent = `Path: ${payload.path} | Updated: ${new Date(payload.updated_at).toLocaleString()}`;
+                docBodyEl.textContent = payload.content;
+                setActiveButton(button);
+                statusEl.textContent = "Chapter loaded.";
+            } catch (error) {
+                statusEl.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        void loadTree();
+    </script>
+</body>
+</html>

@@ -99,6 +99,7 @@ Then open:
 
 ```text
 http://127.0.0.1:8000/knowledge-base-builder
+http://127.0.0.1:8000/knowledge-base
 ```
 
 The API will be available at `http://localhost:8000`
