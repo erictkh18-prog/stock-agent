@@ -1,8 +1,7 @@
 """Stock screener module for identifying suitable stocks"""
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 import logging
-import time
 from typing import List, Optional
 from datetime import datetime, timedelta
 import threading
@@ -17,6 +16,10 @@ from src.sentiment_analysis import SentimentAnalyzer
 
 logger = logging.getLogger(__name__)
 
+# Sentiment score thresholds used in explanation building
+_NEWS_SENTIMENT_POSITIVE_THRESHOLD = 0.2
+_NEWS_SENTIMENT_NEGATIVE_THRESHOLD = -0.2
+
 class StockScreener:
     """Screen and analyze stocks for investment"""
     
@@ -26,8 +29,6 @@ class StockScreener:
         self.sentiment_analyzer = SentimentAnalyzer()
         self.logger = logger
         self.cache_ttl_seconds = config.CACHE_TTL_SECONDS
-        self.max_concurrent_fetches = config.MAX_CONCURRENT_FETCHES
-        self.symbol_fetch_timeout_seconds = config.SYMBOL_FETCH_TIMEOUT_SECONDS
         self.analysis_cache = {}
         self.info_backoff_until = None
         self._cache_lock = threading.Lock()
@@ -71,19 +72,20 @@ class StockScreener:
                 self.logger.warning(f"Could not fetch price for {symbol}")
                 return None
             
-            # Run all three analyses concurrently — they are independent I/O operations.
-            with ThreadPoolExecutor(max_workers=3) as executor:
-                fundamental_future = executor.submit(
-                    self.fundamental_analyzer.analyze, symbol, stock, info
+            # Run all three analyses concurrently — each makes independent I/O calls
+            with ThreadPoolExecutor(max_workers=3) as analysis_executor:
+                future_fundamental = analysis_executor.submit(
+                    self.fundamental_analyzer.analyze, symbol, stock=stock, info=info
                 )
-                technical_future = executor.submit(
-                    self.technical_analyzer.analyze, symbol, 365, stock
+                future_technical = analysis_executor.submit(
+                    self.technical_analyzer.analyze, symbol
                 )
-                sentiment_future = executor.submit(self.sentiment_analyzer.analyze, symbol)
-
-                fundamental = fundamental_future.result()
-                technical = technical_future.result()
-                sentiment_dict = sentiment_future.result()
+                future_sentiment = analysis_executor.submit(
+                    self.sentiment_analyzer.analyze, symbol
+                )
+                fundamental = future_fundamental.result()
+                technical = future_technical.result()
+                sentiment_dict = future_sentiment.result()
             
             # Convert sentiment dict to SentimentAnalysis model
             sentiment = SentimentAnalysis(
@@ -96,7 +98,12 @@ class StockScreener:
             
             # Calculate overall score and recommendation
             overall_score, recommendation, confidence = self._calculate_recommendation(
-                fundamental, technical, sentiment_dict
+                fundamental, technical, sentiment
+            )
+
+            # Build plain-language explanation
+            reason, contributing_factors, risk_factors = self._build_explanation(
+                fundamental, technical, sentiment
             )
             
             analysis = StockAnalysis(
@@ -109,7 +116,10 @@ class StockScreener:
                 sentiment=sentiment,
                 overall_score=overall_score,
                 recommendation=recommendation,
-                confidence=confidence
+                confidence=confidence,
+                reason=reason,
+                top_contributing_factors=contributing_factors,
+                top_risk_factors=risk_factors,
             )
 
             with self._cache_lock:
@@ -201,64 +211,63 @@ class StockScreener:
     
     def screen_stocks(
         self, symbols: List[str], filters: Optional[ScreeningFilter] = None,
-        top_n: int = 10
+        top_n: int = 10, seed: Optional[int] = None
     ) -> ScreeningResult:
         """
-        Screen multiple stocks and return top picks
-        
+        Screen multiple stocks and return top picks.
+
         Args:
             symbols: List of stock symbols to analyze
             filters: Screening filters to apply
             top_n: Number of top picks to return
-        
+            seed: When provided, enables deterministic mode.  Input symbols are
+                  sorted alphabetically before processing and results are ranked
+                  with a stable secondary key (symbol name) so that identical
+                  inputs always produce the same ordering.
+
         Returns:
             ScreeningResult with filtered stocks
         """
         if filters is None:
             filters = ScreeningFilter()
-        
-        results = []
-        failed_symbols: List[str] = []
-        start_time = time.perf_counter()
 
-        max_workers = min(self.max_concurrent_fetches, max(1, len(symbols)))
+        deterministic_mode = seed is not None
+
+        # In deterministic mode sort the candidate list so that the slice taken
+        # by max_symbols (applied upstream) and the parallel work queue are
+        # always consistent across runs.
+        work_symbols = sorted(symbols) if deterministic_mode else symbols
+
+        results = []
+
+        max_workers = min(20, max(1, len(work_symbols)))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_symbol = {
                 executor.submit(self._analyze_symbol_for_screen, symbol, filters): symbol
-                for symbol in symbols
+                for symbol in work_symbols
             }
             for future in as_completed(future_to_symbol):
                 symbol = future_to_symbol[future]
                 try:
-                    analysis = future.result(timeout=self.symbol_fetch_timeout_seconds)
+                    analysis = future.result()
                     if analysis:
                         results.append(analysis)
-                except FuturesTimeoutError:
-                    self.logger.warning(
-                        "Timeout fetching %s (limit %s seconds); skipping",
-                        symbol,
-                        self.symbol_fetch_timeout_seconds,
-                    )
-                    failed_symbols.append(symbol)
                 except Exception as exc:
                     self.logger.warning("Failed to fetch %s: %s; skipping", symbol, exc)
-                    failed_symbols.append(symbol)
-        
-        scan_duration_ms = (time.perf_counter() - start_time) * 1000
 
-        # Sort by overall score (descending)
-        results.sort(key=lambda x: x.overall_score, reverse=True)
-        
+        # Sort by overall score descending.  A secondary key on the symbol name
+        # ensures a fully deterministic, stable ordering whenever scores tie.
+        results.sort(key=lambda x: (-x.overall_score, x.symbol))
         # Get top picks
         top_picks = results[:top_n]
-        
+
         return ScreeningResult(
-            total_candidates=len(symbols),
+            total_candidates=len(work_symbols),
             filtered_count=len(results),
             top_picks=top_picks,
             screening_timestamp=datetime.now(),
-            scan_duration_ms=round(scan_duration_ms, 2),
-            failed_symbols=failed_symbols,
+            deterministic_mode=deterministic_mode,
+            seed=seed,
         )
     
     def _passes_filters(self, analysis: StockAnalysis, filters: ScreeningFilter) -> bool:
@@ -304,35 +313,39 @@ class StockScreener:
         sentiment: Optional[SentimentAnalysis]
     ) -> tuple:
         """
-        Calculate overall recommendation based on all analyses
-        
+        Calculate overall recommendation based on all analyses.
+
+        Weights: fundamental 40%, technical 40%, sentiment 20%.
+        Sentiment from free RSS feeds is noisy, so it receives a lower weight
+        while fundamentals and technicals share equal importance.
+
         Returns:
             Tuple of (overall_score, recommendation, confidence)
         """
         scores = []
         weights = []
-        
+
         # Fundamental score (40% weight)
         if fundamental and fundamental.score:
             scores.append(fundamental.score)
             weights.append(0.40)
-        
-        # Technical score (35% weight)
+
+        # Technical score (40% weight)
         if technical and technical.score:
             scores.append(technical.score)
-            weights.append(0.35)
-        
-        # Sentiment score (25% weight)
-        if sentiment and sentiment.get('score'):
-            scores.append(sentiment['score'])
-            weights.append(0.25)
-        
+            weights.append(0.40)
+
+        # Sentiment score (20% weight)
+        if sentiment and sentiment.score:
+            scores.append(sentiment.score)
+            weights.append(0.20)
+
         # Calculate weighted average
         if scores:
             overall_score = sum(s * w for s, w in zip(scores, weights)) / sum(weights)
         else:
             overall_score = 50
-        
+
         # Determine recommendation
         if overall_score >= 70:
             recommendation = "BUY"
@@ -343,8 +356,118 @@ class StockScreener:
         else:
             recommendation = "SELL"
             confidence = min(1.0, (50 - overall_score) / 50)
-        
+
         return overall_score, recommendation, confidence
+
+    def _build_explanation(
+        self,
+        fundamental: Optional[FundamentalAnalysis],
+        technical: Optional[TechnicalAnalysis],
+        sentiment: Optional[SentimentAnalysis],
+    ) -> tuple:
+        """
+        Build a plain-language explanation for the stock ranking.
+
+        Returns:
+            Tuple of (reason: str, contributing_factors: List[str], risk_factors: List[str])
+        """
+        contributing: list = []
+        risks: list = []
+
+        # --- Fundamental factors ---
+        if fundamental:
+            pe = fundamental.pe_ratio
+            eps = fundamental.eps
+            revenue_growth = fundamental.revenue_growth
+            roe = fundamental.roe
+            debt_to_equity = fundamental.debt_to_equity
+            current_ratio = fundamental.current_ratio
+
+            if eps is not None:
+                if eps > 0:
+                    contributing.append("positive earnings")
+                else:
+                    risks.append("negative earnings")
+
+            if pe is not None:
+                if 10 <= pe <= 25:
+                    contributing.append("reasonable valuation")
+                elif pe < 10:
+                    contributing.append("low valuation")
+                elif pe > 35:
+                    risks.append("elevated valuation")
+
+            if revenue_growth is not None:
+                if revenue_growth > 0.15:
+                    contributing.append("strong revenue growth")
+                elif revenue_growth > 0.05:
+                    contributing.append("steady revenue growth")
+                elif revenue_growth < 0:
+                    risks.append("declining revenue")
+
+            if roe is not None and roe > 0.15:
+                contributing.append("strong return on equity")
+
+            if debt_to_equity is not None:
+                if debt_to_equity < 0.5:
+                    contributing.append("low debt")
+                elif debt_to_equity > 2:
+                    risks.append("high debt load")
+
+            if current_ratio is not None and current_ratio < 1.0:
+                risks.append("tight liquidity")
+
+        # --- Technical factors ---
+        if technical:
+            trend = technical.trend
+            rsi = technical.rsi
+            macd = technical.macd
+
+            if trend == "uptrend":
+                contributing.append("positive price momentum")
+            elif trend == "downtrend":
+                risks.append("price in downtrend")
+
+            if rsi is not None:
+                if rsi > 70:
+                    risks.append("overbought conditions")
+                elif rsi < 30:
+                    contributing.append("oversold — potential reversal")
+
+            if macd is not None:
+                histogram = macd.get("histogram", 0) or 0
+                if histogram > 0:
+                    contributing.append("bullish MACD signal")
+                elif histogram < 0:
+                    risks.append("bearish MACD signal")
+
+        # --- Sentiment factors ---
+        if sentiment:
+            analyst = sentiment.analyst_sentiment
+            news_val = sentiment.news_sentiment
+
+            if analyst == "bullish" or (news_val is not None and news_val > _NEWS_SENTIMENT_POSITIVE_THRESHOLD):
+                contributing.append("positive news sentiment")
+            elif analyst == "bearish" or (news_val is not None and news_val < _NEWS_SENTIMENT_NEGATIVE_THRESHOLD):
+                risks.append("negative news sentiment")
+
+        # --- Build reason string ---
+        top_contributing = contributing[:3]
+        top_risks = risks[:3]
+
+        if top_contributing and top_risks:
+            reason = (
+                f"{', '.join(top_contributing).capitalize()}; "
+                f"watch for {top_risks[0]}"
+            )
+        elif top_contributing:
+            reason = ', '.join(top_contributing).capitalize()
+        elif top_risks:
+            reason = f"Notable risks: {', '.join(top_risks)}"
+        else:
+            reason = "Insufficient data for detailed analysis"
+
+        return reason, top_contributing, top_risks
 
     def get_runtime_stats(self) -> dict:
         """Return runtime metrics useful for monitoring and tuning."""
@@ -375,7 +498,5 @@ class StockScreener:
             "cache_hit_rate_pct": cache_hit_rate,
             "cache_size": cache_size,
             "cache_ttl_seconds": self.cache_ttl_seconds,
-            "max_concurrent_fetches": self.max_concurrent_fetches,
-            "symbol_fetch_timeout_seconds": self.symbol_fetch_timeout_seconds,
             "info_backoff_active": info_backoff_active,
         }

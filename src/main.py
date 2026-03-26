@@ -15,6 +15,7 @@ import yfinance as yf
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import logging
@@ -66,6 +67,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 # Setup static files and templates
 static_dir = Path(__file__).parent.parent / "web" / "static"
@@ -525,7 +527,7 @@ async def fetch_top_performers(top_n: int = Query(10, ge=1, le=50)):
             age_seconds = (now - cached["timestamp"]).total_seconds()
             if age_seconds <= TOP_PERFORMERS_CACHE_TTL_SECONDS:
                 _top_performers_cache_hits += 1
-                return {**cached["payload"], "cache_hit": True}
+                return cached["payload"]
 
         _top_performers_cache_misses += 1
 
@@ -543,9 +545,6 @@ async def fetch_top_performers(top_n: int = Query(10, ge=1, le=50)):
         "total_candidates": result.total_candidates,
         "filtered_count": result.filtered_count,
         "screening_timestamp": result.screening_timestamp,
-        "scan_duration_ms": result.scan_duration_ms,
-        "failed_symbols": result.failed_symbols,
-        "cache_hit": False,
     }
 
     with _top_performers_cache_lock:
@@ -564,12 +563,22 @@ async def scan_us_market(
     min_overall_score: float = Query(65, ge=0, le=100),
     top_n: int = Query(20, ge=1, le=100),
     max_symbols: int = Query(80, ge=25, le=800),
+    seed: Optional[int] = Query(None, description="Supply an integer seed to enable deterministic mode. Same inputs + same seed will produce stable top results."),
 ):
-    """Scan a broad US market universe and return potential opportunities."""
+    """Scan a broad US market universe and return potential opportunities.
+
+    Pass ``seed`` (any integer) to activate deterministic mode: candidate
+    symbols are sorted alphabetically before scoring and results are ranked
+    with a tie-breaking secondary key so that repeated scans with identical
+    parameters and seed return the same top picks.  When ``seed`` is omitted
+    the endpoint behaves as before (dynamic/fresh results on every scan).
+    """
     global _market_scan_cache_hits, _market_scan_cache_misses
 
     normalized_sector = _normalize_sector(sector) if sector else "all"
-    cache_key = f"{universe}:{normalized_sector}:{min_overall_score}:{top_n}:{max_symbols}"
+    # Include the seed in the cache key so deterministic and non-deterministic
+    # requests are cached independently and existing clients are not affected.
+    cache_key = f"{universe}:{normalized_sector}:{min_overall_score}:{top_n}:{max_symbols}:{seed}"
     now = datetime.now()
     with _market_scan_cache_lock:
         cached = _market_scan_cache.get(cache_key)
@@ -577,7 +586,7 @@ async def scan_us_market(
             age_seconds = (now - cached["timestamp"]).total_seconds()
             if age_seconds <= MARKET_SCAN_CACHE_TTL_SECONDS:
                 _market_scan_cache_hits += 1
-                return {**cached["payload"], "cache_hit": True}
+                return cached["payload"]
         _market_scan_cache_misses += 1
 
     symbols = _get_us_market_universe(universe)[:max_symbols]
@@ -593,13 +602,12 @@ async def scan_us_market(
             "total_candidates": 0,
             "filtered_count": 0,
             "screening_timestamp": datetime.now(),
-            "scan_duration_ms": None,
-            "failed_symbols": [],
-            "cache_hit": False,
+            "deterministic_mode": seed is not None,
+            "seed": seed,
         }
 
     filters = ScreeningFilter(min_overall_score=min_overall_score)
-    result = await asyncio.to_thread(screener.screen_stocks, symbols, filters, top_n)
+    result = await asyncio.to_thread(screener.screen_stocks, symbols, filters, top_n, seed)
 
     payload = {
         "universe": universe,
@@ -609,9 +617,8 @@ async def scan_us_market(
         "total_candidates": result.total_candidates,
         "filtered_count": result.filtered_count,
         "screening_timestamp": result.screening_timestamp,
-        "scan_duration_ms": result.scan_duration_ms,
-        "failed_symbols": result.failed_symbols,
-        "cache_hit": False,
+        "deterministic_mode": result.deterministic_mode,
+        "seed": result.seed,
     }
 
     with _market_scan_cache_lock:
