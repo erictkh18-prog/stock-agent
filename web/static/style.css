@@ -355,6 +355,42 @@ tbody tr:last-child td {
     color: #667eea;
 }
 
+.quick-outcome-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.mini-btn {
+    border: none;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 0.78em;
+    font-weight: 700;
+    cursor: pointer;
+    min-height: 32px;
+}
+
+.mini-btn:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+.mini-btn-target {
+    background: #d4edda;
+    color: #155724;
+}
+
+.mini-btn-stop {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.mini-btn-timeout {
+    background: #fff3cd;
+    color: #856404;
+}
+
 /* FOOTER */
 .footer {
     text-align: center;
