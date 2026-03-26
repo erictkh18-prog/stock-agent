@@ -40,7 +40,7 @@ class StockScreener:
         self._cache_misses = 0
         self._analysis_requests = 0
     
-    def analyze_stock(self, symbol: str) -> Optional[StockAnalysis]:
+    def analyze_stock(self, symbol: str, fast_mode: bool = False) -> Optional[StockAnalysis]:
         """
         Perform complete analysis on a stock
         
@@ -74,20 +74,36 @@ class StockScreener:
                 self.logger.warning(f"Could not fetch price for {symbol}")
                 return None
             
-            # Run all three analyses concurrently — each makes independent I/O calls
-            with ThreadPoolExecutor(max_workers=3) as analysis_executor:
+            # In fast_mode, skip live sentiment feed calls to reduce broad-scan latency.
+            analysis_workers = 2 if fast_mode else 3
+            with ThreadPoolExecutor(max_workers=analysis_workers) as analysis_executor:
                 future_fundamental = analysis_executor.submit(
-                    self.fundamental_analyzer.analyze, symbol, stock=stock, info=info
+                    self.fundamental_analyzer.analyze,
+                    symbol,
+                    stock=stock,
+                    info=info,
+                    enable_web_fallback=not fast_mode,
                 )
                 future_technical = analysis_executor.submit(
                     self.technical_analyzer.analyze, symbol
                 )
-                future_sentiment = analysis_executor.submit(
-                    self.sentiment_analyzer.analyze, symbol
-                )
+                future_sentiment = None
+                if not fast_mode:
+                    future_sentiment = analysis_executor.submit(
+                        self.sentiment_analyzer.analyze, symbol
+                    )
                 fundamental = future_fundamental.result()
                 technical = future_technical.result()
-                sentiment_dict = future_sentiment.result()
+                if future_sentiment is not None:
+                    sentiment_dict = future_sentiment.result()
+                else:
+                    sentiment_dict = {
+                        "news_sentiment": 0.0,
+                        "news_count": 0,
+                        "analyst_sentiment": "neutral",
+                        "institutional_ownership": None,
+                        "score": 50.0,
+                    }
             
             # Convert sentiment dict to SentimentAnalysis model
             sentiment = SentimentAnalysis(
@@ -163,10 +179,15 @@ class StockScreener:
             self.logger.warning(f"Falling back from info lookup for {symbol}: {exc}")
             return {}
 
-    def _analyze_symbol_for_screen(self, symbol: str, filters: ScreeningFilter) -> Optional[StockAnalysis]:
+    def _analyze_symbol_for_screen(
+        self,
+        symbol: str,
+        filters: ScreeningFilter,
+        fast_mode: bool = False,
+    ) -> Optional[StockAnalysis]:
         """Analyze one symbol and return it only if it passes filters."""
         try:
-            analysis = self.analyze_stock(symbol)
+            analysis = self.analyze_stock(symbol, fast_mode=fast_mode)
             if analysis and self._passes_filters(analysis, filters):
                 return analysis
             return None
@@ -250,7 +271,7 @@ class StockScreener:
     
     def screen_stocks(
         self, symbols: List[str], filters: Optional[ScreeningFilter] = None,
-        top_n: int = 10, seed: Optional[int] = None
+        top_n: int = 10, seed: Optional[int] = None, fast_mode: bool = False
     ) -> ScreeningResult:
         """
         Screen multiple stocks and return top picks.
@@ -263,6 +284,8 @@ class StockScreener:
                 sorted alphabetically before processing and tied scores are
                 broken with a stable seed-derived key so identical inputs plus
                 the same seed produce the same ordering.
+            fast_mode: When True, disable expensive web-fundamental fallback
+                     calls to improve broad-market scan latency.
 
         Returns:
             ScreeningResult with filtered stocks
@@ -282,7 +305,7 @@ class StockScreener:
         max_workers = min(20, max(1, len(work_symbols)))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_symbol = {
-                executor.submit(self._analyze_symbol_for_screen, symbol, filters): symbol
+                executor.submit(self._analyze_symbol_for_screen, symbol, filters, fast_mode): symbol
                 for symbol in work_symbols
             }
             for future in as_completed(future_to_symbol):

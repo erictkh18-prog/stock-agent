@@ -40,7 +40,7 @@ def _build_screener_with_fixed_analyses(analyses: list[StockAnalysis]) -> StockS
     """
     lookup = {a.symbol: a for a in analyses}
     screener = StockScreener()
-    screener.analyze_stock = lambda sym: lookup.get(sym)
+    screener.analyze_stock = lambda sym, fast_mode=False: lookup.get(sym)
     return screener
 
 

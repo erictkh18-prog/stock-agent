@@ -141,7 +141,13 @@ class FundamentalAnalyzer:
             self.logger.warning(f"Web fallback failed for {symbol}: {exc}")
             return {}
     
-    def analyze(self, symbol: str, stock=None, info: Optional[dict] = None) -> Optional[FundamentalAnalysis]:
+    def analyze(
+        self,
+        symbol: str,
+        stock=None,
+        info: Optional[dict] = None,
+        enable_web_fallback: bool = True,
+    ) -> Optional[FundamentalAnalysis]:
         """
         Analyze fundamental metrics for a stock
         
@@ -173,7 +179,7 @@ class FundamentalAnalyzer:
                 self._is_missing_value(info, 'trailingPE')
                 or self._is_missing_value(info, 'trailingEps')
             )
-            needs_web = (
+            needs_web = enable_web_fallback and (
                 self._is_missing_value(info, 'trailingPE')
                 or self._is_missing_value(info, 'trailingEps')
                 or self._is_missing_value(info, 'dividendYield')

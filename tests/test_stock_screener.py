@@ -428,7 +428,7 @@ class TestPartialFailureHandling:
         """
         screener = StockScreener()
 
-        def _analyze(symbol):
+        def _analyze(symbol, fast_mode=False):
             value = symbol_map.get(symbol)
             if isinstance(value, Exception):
                 raise value
@@ -477,7 +477,7 @@ class TestPartialFailureHandling:
         # Patch _analyze_symbol_for_screen to simulate a mix of success and failure
         screener = StockScreener()
 
-        def _side_effect(symbol, filters):
+        def _side_effect(symbol, filters, fast_mode=False):
             if symbol == "MSFT":
                 return good_analysis
             raise RuntimeError("simulated error")
@@ -495,7 +495,7 @@ class TestPartialFailureHandling:
         """A symbol that raises an exception must be skipped, not abort the scan."""
         screener = StockScreener()
 
-        def _side_effect(symbol, filters):
+        def _side_effect(symbol, filters, fast_mode=False):
             raise RuntimeError("network error")
 
         screener._analyze_symbol_for_screen = MagicMock(side_effect=_side_effect)
@@ -551,3 +551,32 @@ class TestScreeningResultMetadata:
         )
         assert result.deterministic_mode is False
         assert result.seed is None
+
+    def test_fast_mode_flag_propagates_to_symbol_analysis(self):
+        """screen_stocks should pass fast_mode through to per-symbol analysis."""
+        screener = StockScreener()
+        screener._analyze_symbol_for_screen = MagicMock(return_value=None)
+
+        filters = ScreeningFilter(min_overall_score=0)
+        screener.screen_stocks(["AAPL"], filters, top_n=1, fast_mode=True)
+
+        assert screener._analyze_symbol_for_screen.call_count == 1
+        assert screener._analyze_symbol_for_screen.call_args[0][2] is True
+
+
+def test_analyze_stock_fast_mode_skips_live_sentiment_lookup():
+    """analyze_stock(fast_mode=True) should not call the live sentiment analyzer."""
+    screener = StockScreener()
+
+    screener._safe_get_info = MagicMock(return_value={"longName": "Apple Inc."})
+    screener._get_current_price = MagicMock(return_value=100.0)
+    screener.fundamental_analyzer.analyze = MagicMock(return_value=FundamentalAnalysis(score=70))
+    screener.technical_analyzer.analyze = MagicMock(return_value=TechnicalAnalysis(score=60))
+    screener.sentiment_analyzer.analyze = MagicMock(side_effect=AssertionError("should not be called"))
+
+    analysis = screener.analyze_stock("AAPL", fast_mode=True)
+
+    assert analysis is not None
+    assert analysis.sentiment is not None
+    assert analysis.sentiment.analyst_sentiment == "neutral"
+    assert analysis.sentiment.score == 50.0

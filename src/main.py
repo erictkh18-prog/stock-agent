@@ -1,5 +1,6 @@
 """Main FastAPI application for Stock Analysis Agent"""
 from io import StringIO
+import json
 import os
 import re
 import subprocess
@@ -103,12 +104,15 @@ _top_performers_cache_misses = 0
 
 MARKET_SCAN_CACHE_TTL_SECONDS = 900
 MARKET_UNIVERSE_CACHE_TTL_SECONDS = 21600
+MARKET_UNIVERSE_MIN_SP500_COUNT = 400
+MARKET_UNIVERSE_MIN_NASDAQ100_COUNT = 80
 _market_scan_cache = {}
 _market_scan_cache_lock = threading.Lock()
 _market_scan_cache_hits = 0
 _market_scan_cache_misses = 0
 _market_universe_cache = {}
 _market_universe_cache_lock = threading.Lock()
+_market_universe_snapshot_path = Path(__file__).parent.parent / "data" / "market_universe_snapshot.json"
 SYMBOL_SECTOR_CACHE_TTL_SECONDS = 86400
 _symbol_sector_cache = {}
 _symbol_sector_cache_lock = threading.Lock()
@@ -169,6 +173,46 @@ def _fetch_symbols_from_wikipedia(url: str, candidate_columns: List[str]) -> Lis
     return []
 
 
+def _is_valid_universe_size(symbols: List[str], expected_minimum: int) -> bool:
+    """Return True when the fetched symbol set looks structurally valid."""
+    return len(symbols) >= expected_minimum
+
+
+def _load_market_universe_snapshot() -> tuple[List[str], List[str]]:
+    """Load disk-backed universe snapshot to survive upstream source regressions."""
+    def _normalize_snapshot_symbols(values: List[str]) -> List[str]:
+        converted = [str(value).replace(".", "-") for value in values]
+        return _normalize_symbols(converted)
+
+    try:
+        if not _market_universe_snapshot_path.exists():
+            return [], []
+        payload = json.loads(_market_universe_snapshot_path.read_text(encoding="utf-8"))
+        sp500_symbols = _normalize_snapshot_symbols(payload.get("sp500", []))
+        nasdaq100_symbols = _normalize_snapshot_symbols(payload.get("nasdaq100", []))
+        return sp500_symbols, nasdaq100_symbols
+    except Exception as exc:
+        logger.warning("Could not load market universe snapshot: %s", exc)
+        return [], []
+
+
+def _save_market_universe_snapshot(sp500_symbols: List[str], nasdaq100_symbols: List[str]) -> None:
+    """Persist a known-good universe snapshot for future fallback use."""
+    try:
+        _market_universe_snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "timestamp": datetime.now().isoformat(),
+            "sp500": _normalize_symbols(sp500_symbols),
+            "nasdaq100": _normalize_symbols(nasdaq100_symbols),
+        }
+        _market_universe_snapshot_path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        logger.warning("Could not persist market universe snapshot: %s", exc)
+
+
 def _get_us_market_universe(universe: str) -> List[str]:
     """Build a broad US stock universe with caching and safe fallbacks."""
     universe_key = (universe or "sp500").lower()
@@ -188,7 +232,7 @@ def _get_us_market_universe(universe: str) -> List[str]:
         )
     except Exception as exc:
         logger.warning("Could not fetch S&P 500 symbols from Wikipedia: %s", exc)
-        sp500_symbols = FALLBACK_SP500_SYMBOLS
+        sp500_symbols = []
 
     try:
         nasdaq100_symbols = _fetch_symbols_from_wikipedia(
@@ -197,12 +241,31 @@ def _get_us_market_universe(universe: str) -> List[str]:
         )
     except Exception as exc:
         logger.warning("Could not fetch Nasdaq-100 symbols from Wikipedia: %s", exc)
-        nasdaq100_symbols = FALLBACK_NASDAQ100_SYMBOLS
+        nasdaq100_symbols = []
 
-    if not sp500_symbols:
-        sp500_symbols = FALLBACK_SP500_SYMBOLS
-    if not nasdaq100_symbols:
-        nasdaq100_symbols = FALLBACK_NASDAQ100_SYMBOLS
+    snapshot_sp500, snapshot_nasdaq100 = _load_market_universe_snapshot()
+
+    if not _is_valid_universe_size(sp500_symbols, MARKET_UNIVERSE_MIN_SP500_COUNT):
+        if sp500_symbols:
+            logger.warning(
+                "S&P 500 fetch returned %s symbols; falling back to snapshot/static source",
+                len(sp500_symbols),
+            )
+        sp500_symbols = snapshot_sp500 or FALLBACK_SP500_SYMBOLS
+
+    if not _is_valid_universe_size(nasdaq100_symbols, MARKET_UNIVERSE_MIN_NASDAQ100_COUNT):
+        if nasdaq100_symbols:
+            logger.warning(
+                "Nasdaq-100 fetch returned %s symbols; falling back to snapshot/static source",
+                len(nasdaq100_symbols),
+            )
+        nasdaq100_symbols = snapshot_nasdaq100 or FALLBACK_NASDAQ100_SYMBOLS
+
+    if _is_valid_universe_size(sp500_symbols, MARKET_UNIVERSE_MIN_SP500_COUNT) and _is_valid_universe_size(
+        nasdaq100_symbols,
+        MARKET_UNIVERSE_MIN_NASDAQ100_COUNT,
+    ):
+        _save_market_universe_snapshot(sp500_symbols, nasdaq100_symbols)
 
     if universe_key == "nasdaq100":
         selected = nasdaq100_symbols
@@ -627,7 +690,14 @@ async def scan_us_market(
         }
 
     filters = ScreeningFilter(min_overall_score=min_overall_score)
-    result = await asyncio.to_thread(screener.screen_stocks, symbols, filters, top_n, seed)
+    result = await asyncio.to_thread(
+        screener.screen_stocks,
+        symbols,
+        filters,
+        top_n,
+        seed,
+        True,
+    )
 
     payload = {
         "universe": universe,
