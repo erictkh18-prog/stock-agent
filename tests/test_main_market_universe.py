@@ -1,10 +1,38 @@
 """Tests for market-universe symbol fetching helpers in the FastAPI app."""
 import json
+from datetime import datetime
 from unittest.mock import MagicMock
 
 import pandas as pd
+from fastapi.testclient import TestClient
 
-from src.main import _fetch_symbols_from_wikipedia, _get_us_market_universe, _market_universe_cache
+from src.main import app, _fetch_symbols_from_wikipedia, _get_us_market_universe, _market_universe_cache
+from src.models import (
+    ScreeningResult,
+    StockAnalysis,
+    FundamentalAnalysis,
+    TechnicalAnalysis,
+    SentimentAnalysis,
+)
+
+
+client = TestClient(app, raise_server_exceptions=True)
+
+
+def _make_analysis(symbol: str, score: float, trend: str, sentiment_score: float = 50.0) -> StockAnalysis:
+    return StockAnalysis(
+        symbol=symbol,
+        name=f"{symbol} Inc.",
+        current_price=100.0,
+        timestamp=datetime.now(),
+        fundamental=FundamentalAnalysis(score=score),
+        technical=TechnicalAnalysis(score=score, trend=trend),
+        sentiment=SentimentAnalysis(score=sentiment_score),
+        overall_score=score,
+        recommendation="BUY" if score >= 70 else "HOLD",
+        confidence=0.8,
+        top_contributing_factors=["strong earnings momentum and healthy balance sheet"],
+    )
 
 
 def test_fetch_symbols_from_wikipedia_uses_explicit_http_request(monkeypatch):
@@ -65,3 +93,77 @@ def test_get_us_market_universe_uses_snapshot_when_wikipedia_fails(monkeypatch, 
     symbols = _get_us_market_universe("sp500")
 
     assert symbols[:3] == ["AAPL", "MSFT", "BRK-B"]
+
+
+def test_scan_us_market_defaults_to_10_symbols(monkeypatch):
+    """Default scan-us-market should only scan 10 symbols unless overridden."""
+    import src.main as main_module
+
+    main_module._market_scan_cache.clear()
+    monkeypatch.setattr(main_module, "_get_us_market_universe", lambda universe: [f"SYM{i}" for i in range(30)])
+
+    captured = {"count": 0}
+
+    def fake_screen_stocks(symbols, filters, top_n, seed=None, fast_mode=False):
+        captured["count"] = len(symbols)
+        return ScreeningResult(
+            total_candidates=len(symbols),
+            filtered_count=0,
+            top_picks=[],
+            screening_timestamp=datetime.now(),
+            deterministic_mode=False,
+            seed=seed,
+        )
+
+    monkeypatch.setattr(main_module.screener, "screen_stocks", fake_screen_stocks)
+
+    response = client.get("/scan-us-market", params={"universe": "sp500"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["scanned_count"] == 10
+    assert captured["count"] == 10
+
+
+def test_stock_recommendations_returns_reason_and_exit_strategy(monkeypatch):
+    """Recommendation endpoint should return simple reason plus stop-loss/target prices."""
+    import src.main as main_module
+
+    monkeypatch.setattr(main_module, "_get_us_market_universe", lambda universe: ["AAPL", "MSFT"])
+
+    analyses = [
+        _make_analysis("AAPL", 88.0, "uptrend", 70.0),
+        _make_analysis("MSFT", 60.0, "sideways", 50.0),
+    ]
+
+    def fake_screen_stocks(symbols, filters, top_n, seed=None, fast_mode=False):
+        return ScreeningResult(
+            total_candidates=len(symbols),
+            filtered_count=len(analyses),
+            top_picks=analyses,
+            screening_timestamp=datetime.now(),
+            deterministic_mode=False,
+            seed=seed,
+        )
+
+    monkeypatch.setattr(main_module.screener, "screen_stocks", fake_screen_stocks)
+
+    response = client.get(
+        "/stock-recommendations",
+        params={
+            "universe": "sp500",
+            "max_symbols": 10,
+            "top_n": 5,
+            "duration_days": 30,
+            "target_percentage": 8,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["recommended_count"] >= 1
+    first = payload["results"][0]
+    assert first["symbol"] == "AAPL"
+    assert "recommended because" in first["reason"].lower()
+    assert first["target_price"] > first["current_price"]
+    assert first["stop_loss_price"] < first["current_price"]

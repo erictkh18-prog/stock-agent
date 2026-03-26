@@ -88,10 +88,10 @@ function displaySingleResult(data) {
     const recommendation = data.recommendation.toLowerCase();
     const confidence = (data.confidence * 100).toFixed(0);
     recBox.className = `recommendation ${recommendation}`;
-    recBox.innerHTML = `<span style="font-size: 1.5em; margin-right: 10px;">
+        recBox.innerHTML = `<span style="font-size: 1.5em; margin-right: 10px;">
         ${recommendation === 'buy' ? '✅' : recommendation === 'hold' ? '⏸️' : '❌'}
     </span>
-    ${data.recommendation} | Confidence: ${confidence}%`;
+        ${escapeHtml(data.recommendation)} | Confidence: ${confidence}%`;
     
     resultDiv.classList.remove('hidden');
 }
@@ -255,7 +255,7 @@ async function scanUsMarket(buttonEl = null) {
     const maxSymbolsInput = Number(document.getElementById('marketMaxSymbols')?.value);
     const minScore = Number.isFinite(minScoreInput) ? Math.min(100, Math.max(0, minScoreInput)) : 65;
     const topN = Number.isFinite(topNInput) ? Math.min(100, Math.max(1, Math.floor(topNInput))) : 20;
-    const maxSymbols = Math.min(800, Math.max(25, Math.floor(maxSymbolsInput || 80)));
+    const maxSymbols = Math.min(800, Math.max(5, Math.floor(maxSymbolsInput || 10)));
     const progressEl = document.getElementById('marketScanMeta');
 
     try {
@@ -315,11 +315,128 @@ async function scanUsMarket(buttonEl = null) {
     }
 }
 
+// ============ STOCK RECOMMENDATION ============
+async function scanStockRecommendations(buttonEl = null) {
+    const btn = buttonEl || document.getElementById('recommendScanBtn');
+    const universe = document.getElementById('recommendUniverse')?.value || 'sp500';
+    const sector = document.getElementById('recommendSector')?.value || 'all';
+    const minScoreInput = Number(document.getElementById('recommendMinScore')?.value);
+    const topNInput = Number(document.getElementById('recommendTopN')?.value);
+    const maxSymbolsInput = Number(document.getElementById('recommendMaxSymbols')?.value);
+    const durationInput = Number(document.getElementById('recommendDurationDays')?.value);
+    const targetPctInput = Number(document.getElementById('recommendTargetPct')?.value);
+
+    const minScore = Number.isFinite(minScoreInput) ? Math.min(100, Math.max(0, minScoreInput)) : 65;
+    const topN = Number.isFinite(topNInput) ? Math.min(50, Math.max(1, Math.floor(topNInput))) : 10;
+    const maxSymbols = Math.min(800, Math.max(5, Math.floor(maxSymbolsInput || 10)));
+    const durationDays = Number.isFinite(durationInput) ? Math.min(365, Math.max(1, Math.floor(durationInput))) : 30;
+    const targetPercentage = Number.isFinite(targetPctInput) ? Math.min(100, Math.max(1, targetPctInput)) : 8;
+    const progressEl = document.getElementById('recommendMeta');
+
+    try {
+        setButtonState(btn, true, 'Scanning...', 'Scan US Market');
+
+        const params = new URLSearchParams();
+        params.append('universe', universe);
+        if (sector && sector !== 'all') {
+            params.append('sector', sector);
+        }
+        params.append('min_overall_score', String(minScore));
+        params.append('top_n', String(topN));
+        params.append('max_symbols', String(maxSymbols));
+        params.append('duration_days', String(durationDays));
+        params.append('target_percentage', String(targetPercentage));
+
+        if (progressEl) {
+            progressEl.textContent = `Scanning up to ${maxSymbols} symbols to find stocks targeting ${targetPercentage}% upside in ${durationDays} days...`;
+        }
+        document.getElementById('recommendResult')?.classList.remove('hidden');
+
+        const response = await fetch(`${API_URL}/stock-recommendations?${params}`);
+        if (!response.ok) {
+            const errorMessage = await parseApiError(response, 'Could not fetch stock recommendations');
+            throw new Error(errorMessage);
+        }
+
+        const data = await response.json();
+        if (progressEl) {
+            progressEl.textContent = data?.summary || 'Recommendation scan complete.';
+        }
+
+        displayRecommendationResults(data?.results || []);
+        setButtonState(btn, false, 'Scanning...', 'Scan US Market');
+    } catch (error) {
+        const message = `Error: ${error.message}`;
+        if (progressEl) {
+            progressEl.textContent = message;
+        }
+        alert(message);
+        setButtonState(btn, false, 'Scanning...', 'Scan US Market');
+    }
+}
+
+function displayRecommendationResults(results) {
+    const resultDiv = document.getElementById('recommendResult');
+    const tableDiv = document.getElementById('recommendTable');
+
+    if (!Array.isArray(results) || !results.length) {
+        tableDiv.innerHTML = '<p>No recommendations matched your target. Try lower % target or longer duration.</p>';
+        resultDiv.classList.remove('hidden');
+        return;
+    }
+
+    let html = `
+        <table>
+            <thead>
+                <tr>
+                    <th>Symbol</th>
+                    <th>Price</th>
+                    <th>Projected Upside</th>
+                    <th>Target Price</th>
+                    <th>Stop Loss</th>
+                    <th>Why Recommended</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    results.forEach((stock) => {
+        html += `
+            <tr>
+                <td class="symbol">${stock.symbol}</td>
+                <td>$${Number(stock.current_price || 0).toFixed(2)}</td>
+                <td>${Number(stock.expected_upside_pct || 0).toFixed(2)}%</td>
+                <td>$${Number(stock.target_price || 0).toFixed(2)}</td>
+                <td>$${Number(stock.stop_loss_price || 0).toFixed(2)} (${Number(stock.stop_loss_pct || 0).toFixed(1)}%)</td>
+                    <td>${escapeHtml(stock.reason || 'Model indicates this stock has favorable risk/reward for your target.')}</td>
+            </tr>
+        `;
+    });
+
+    html += `
+            </tbody>
+        </table>
+    `;
+
+    tableDiv.innerHTML = html;
+    resultDiv.classList.remove('hidden');
+}
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
 // ============ ENTER KEY SUPPORT ============
 document.addEventListener('DOMContentLoaded', () => {
     const analyzeBtn = document.getElementById('analyzeBtn');
     const screenBtn = document.getElementById('screenBtn');
     const marketScanBtn = document.getElementById('marketScanBtn');
+    const recommendScanBtn = document.getElementById('recommendScanBtn');
 
     document.getElementById('singleSymbol')?.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') analyzeStock(analyzeBtn);
@@ -331,5 +448,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     marketScanBtn?.addEventListener('click', () => {
         scanUsMarket(marketScanBtn);
+    });
+
+    recommendScanBtn?.addEventListener('click', () => {
+        scanStockRecommendations(recommendScanBtn);
     });
 });

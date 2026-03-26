@@ -1634,6 +1634,79 @@ async def screen_text(symbols: List[str] = Query(..., description="List of stock
         ],
     }
 
+
+def _estimate_upside_percent(analysis: StockAnalysis, duration_days: int) -> float:
+    """Estimate upside potential from score quality, trend, sentiment, and horizon."""
+    base = max(0.0, analysis.overall_score - 50.0) * 0.25
+
+    trend = (getattr(analysis.technical, "trend", "") or "").lower()
+    if trend == "uptrend":
+        trend_bonus = 2.0
+    elif trend == "sideways":
+        trend_bonus = 0.5
+    elif trend == "downtrend":
+        trend_bonus = -2.0
+    else:
+        trend_bonus = 0.0
+
+    sentiment_score = float(getattr(analysis.sentiment, "score", 50.0) or 50.0)
+    sentiment_bonus = max(-3.0, min(3.0, (sentiment_score - 50.0) / 10.0))
+
+    rsi = getattr(analysis.technical, "rsi", None)
+    rsi_penalty = 1.0 if (rsi is not None and rsi > 75) else 0.0
+
+    horizon_scale = max(0.6, min(1.6, duration_days / 30.0))
+    projected = (base + trend_bonus + sentiment_bonus - rsi_penalty) * horizon_scale
+    return round(max(1.0, min(35.0, projected)), 2)
+
+
+def _build_simple_reason(analysis: StockAnalysis, duration_days: int, target_percentage: float) -> str:
+    """Explain recommendation in non-technical language."""
+    factors = analysis.top_contributing_factors or []
+    trend = (getattr(analysis.technical, "trend", "") or "no clear trend").lower()
+    lead_factor = factors[0] if factors else "its overall quality score is stronger than many peers"
+    return (
+        f"{analysis.symbol} is recommended because {lead_factor}. "
+        f"Trend is currently {trend}, and the model projects a realistic chance of roughly "
+        f"{target_percentage:.1f}% upside within {duration_days} days."
+    )
+
+
+def _build_exit_strategy(current_price: float, target_percentage: float) -> dict:
+    """Build practical target and stop-loss values for risk control."""
+    target_price = round(current_price * (1 + (target_percentage / 100.0)), 2)
+    stop_loss_pct = max(4.0, min(12.0, target_percentage * 0.6))
+    stop_loss_price = round(current_price * (1 - (stop_loss_pct / 100.0)), 2)
+    return {
+        "target_price": target_price,
+        "stop_loss_price": stop_loss_price,
+        "stop_loss_pct": round(stop_loss_pct, 2),
+    }
+
+
+def _build_recommendation_candidate(
+    analysis: StockAnalysis,
+    duration_days: int,
+    target_percentage: float,
+) -> dict:
+    """Convert analysis into a recommendation payload for the dashboard table."""
+    expected_upside = _estimate_upside_percent(analysis, duration_days)
+    exit_strategy = _build_exit_strategy(analysis.current_price, target_percentage)
+
+    return {
+        "symbol": analysis.symbol,
+        "name": analysis.name,
+        "current_price": round(analysis.current_price, 2),
+        "overall_score": round(analysis.overall_score, 2),
+        "recommendation": analysis.recommendation,
+        "confidence": round(analysis.confidence, 3),
+        "expected_upside_pct": expected_upside,
+        "target_price": exit_strategy["target_price"],
+        "stop_loss_price": exit_strategy["stop_loss_price"],
+        "stop_loss_pct": exit_strategy["stop_loss_pct"],
+        "reason": _build_simple_reason(analysis, duration_days, target_percentage),
+    }
+
 @app.get("/fetch-top-performers")
 async def fetch_top_performers(top_n: int = Query(10, ge=1, le=50)):
     """Analyze a curated list of popular stocks and return top picks."""
@@ -1682,7 +1755,7 @@ async def scan_us_market(
     sector: Optional[str] = Query(None),
     min_overall_score: float = Query(65, ge=0, le=100),
     top_n: int = Query(20, ge=1, le=100),
-    max_symbols: int = Query(80, ge=25, le=800),
+    max_symbols: int = Query(10, ge=5, le=800),
     seed: Optional[int] = Query(None, description="Supply an integer seed to enable deterministic mode. Same inputs plus the same seed produce stable ordering, and different seeds can change the order of tied scores."),
 ):
     """Scan a broad US market universe and return potential opportunities.
@@ -1757,6 +1830,86 @@ async def scan_us_market(
         }
 
     return payload
+
+
+@app.get("/stock-recommendations")
+async def stock_recommendations(
+    universe: str = Query("sp500", pattern="^(sp500|nasdaq100|combined)$"),
+    sector: Optional[str] = Query(None),
+    min_overall_score: float = Query(65, ge=0, le=100),
+    top_n: int = Query(10, ge=1, le=50),
+    max_symbols: int = Query(10, ge=5, le=800),
+    duration_days: int = Query(30, ge=1, le=365),
+    target_percentage: float = Query(8.0, ge=1, le=100),
+    seed: Optional[int] = Query(None),
+):
+    """Recommend stocks with projected upside target within user-selected duration."""
+    normalized_sector = _normalize_sector(sector) if sector else "all"
+    symbols = _get_us_market_universe(universe)[:max_symbols]
+
+    if normalized_sector != "all":
+        symbols = await asyncio.to_thread(_filter_symbols_by_sector, symbols, normalized_sector)
+
+    if not symbols:
+        return {
+            "universe": universe,
+            "sector": normalized_sector,
+            "duration_days": duration_days,
+            "target_percentage": target_percentage,
+            "scanned_count": 0,
+            "recommended_count": 0,
+            "results": [],
+            "summary": "No symbols available for the selected universe and sector.",
+        }
+
+    filters = ScreeningFilter(min_overall_score=min_overall_score)
+    screen_result = await asyncio.to_thread(
+        screener.screen_stocks,
+        symbols,
+        filters,
+        max(top_n * 3, top_n),
+        seed,
+        True,
+    )
+
+    candidates = [
+        _build_recommendation_candidate(analysis, duration_days, target_percentage)
+        for analysis in screen_result.top_picks
+    ]
+
+    qualified = [
+        candidate
+        for candidate in candidates
+        if candidate["expected_upside_pct"] >= target_percentage
+    ]
+
+    ranked = sorted(
+        qualified,
+        key=lambda item: (item["expected_upside_pct"], item["overall_score"], item["confidence"]),
+        reverse=True,
+    )[:top_n]
+
+    if ranked:
+        summary = (
+            f"Found {len(ranked)} stocks with projected upside >= {target_percentage:.1f}% "
+            f"within {duration_days} days."
+        )
+    else:
+        summary = (
+            "No stocks currently meet your requested upside and duration target. "
+            "Try lowering target percentage, increasing duration, or broadening the universe."
+        )
+
+    return {
+        "universe": universe,
+        "sector": normalized_sector,
+        "duration_days": duration_days,
+        "target_percentage": target_percentage,
+        "scanned_count": len(symbols),
+        "recommended_count": len(ranked),
+        "results": ranked,
+        "summary": summary,
+    }
 
 
 @app.get("/metrics")

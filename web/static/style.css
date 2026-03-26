@@ -113,6 +113,10 @@ body {
     font-weight: 600;
 }
 
+.recommendation-field-labels {
+    grid-template-columns: repeat(8, minmax(100px, 1fr));
+}
+
 .input-group button,
 .btn-large {
     padding: 12px 25px;
