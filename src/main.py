@@ -377,6 +377,27 @@ def _validate_kb_relative_path(relative_path: str) -> Path:
     return candidate
 
 
+def _extract_chapter_status(chapter_path: Path) -> str:
+    """Read chapter status from markdown frontmatter; default to Draft."""
+    try:
+        with chapter_path.open("r", encoding="utf-8") as handle:
+            lines = [handle.readline().strip() for _ in range(40)]
+    except OSError:
+        return "Draft"
+
+    if not lines or lines[0] != "---":
+        return "Draft"
+
+    for line in lines[1:]:
+        if line == "---":
+            break
+        if line.startswith("status:"):
+            value = line.split(":", 1)[1].strip()
+            return value or "Draft"
+
+    return "Draft"
+
+
 def _build_kb_tree() -> dict:
     """Build section/topic/chapter tree for knowledge-base viewer."""
     sections_dir = KB_ROOT / "sections"
@@ -408,11 +429,13 @@ def _build_kb_tree() -> dict:
                         [p for p in chapter_dir.iterdir() if p.is_file() and p.suffix.lower() == ".md"],
                         reverse=True,
                     ):
+                        chapter_status = _extract_chapter_status(chapter_path)
                         chapters.append(
                             {
                                 "name": chapter_path.stem,
                                 "relative_path": _safe_rel_path(chapter_path, KB_ROOT),
                                 "updated_at": datetime.fromtimestamp(chapter_path.stat().st_mtime).isoformat(),
+                                "status": chapter_status,
                             }
                         )
 

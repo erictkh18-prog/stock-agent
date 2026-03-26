@@ -215,6 +215,10 @@
             padding: 8px 9px;
             font-size: 0.86rem;
             cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
         }
 
         .chapter-link:hover {
@@ -225,6 +229,33 @@
         .chapter-link.active {
             border-color: #0284c7;
             background: #e0f2fe;
+        }
+
+        .chapter-status-badge {
+            border-radius: 999px;
+            padding: 2px 8px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            border: 1px solid transparent;
+            white-space: nowrap;
+        }
+
+        .chapter-status-badge.draft {
+            color: #9a3412;
+            background: #ffedd5;
+            border-color: #fdba74;
+        }
+
+        .chapter-status-badge.approved {
+            color: #14532d;
+            background: #dcfce7;
+            border-color: #86efac;
+        }
+
+        .chapter-status-badge.rejected {
+            color: #7f1d1d;
+            background: #fee2e2;
+            border-color: #fca5a5;
         }
 
         .chapter-open-explorer {
@@ -592,7 +623,16 @@
                                 const button = document.createElement("button");
                                 button.type = "button";
                                 button.className = "chapter-link";
-                                button.textContent = chapter.name;
+                                const chapterName = document.createElement("span");
+                                chapterName.textContent = chapter.name;
+
+                                const chapterStatus = (chapter.status || "Draft").toLowerCase();
+                                const chapterStatusBadge = document.createElement("span");
+                                chapterStatusBadge.className = `chapter-status-badge ${chapterStatus}`;
+                                chapterStatusBadge.textContent = chapter.status || "Draft";
+
+                                button.appendChild(chapterName);
+                                button.appendChild(chapterStatusBadge);
                                 button.dataset.path = chapter.relative_path;
                                 button.addEventListener("click", async () => {
                                     await loadChapter(chapter.relative_path, button);

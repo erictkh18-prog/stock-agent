@@ -8,6 +8,7 @@ import requests
 from fastapi.testclient import TestClient
 
 from src.main import (
+    _build_kb_tree,
     _discover_domain_links,
     _extract_webpage_text,
     _github_commit_files,
@@ -356,3 +357,38 @@ def test_chapter_status_endpoint_updates_frontmatter(monkeypatch, tmp_path):
     assert "status: Approved" in updated
     assert "# Review Decision" in updated
     assert "Reviewed and accepted" in updated
+
+
+def test_build_kb_tree_includes_chapter_status(monkeypatch, tmp_path):
+    """Tree endpoint payload should include chapter status for UI badges."""
+    import src.main as main_module
+
+    monkeypatch.setattr(main_module, "KB_ROOT", tmp_path)
+    chapter_rel = "sections/02-trading-domain/topics/auto-test/chapters/chapter-a.md"
+    chapter_path = tmp_path / chapter_rel
+    chapter_path.parent.mkdir(parents=True, exist_ok=True)
+    chapter_path.write_text(
+        "\n".join(
+            [
+                "---",
+                "chapter_id: CH-AUTO-TEST-A",
+                "title: chapter-a",
+                "status: Rejected",
+                "owner: Eric + Copilot",
+                "last_reviewed: 2026-03-26",
+                "confidence: Medium",
+                "sources:",
+                "  - https://www.reuters.com/",
+                "---",
+                "",
+                "# Body",
+                "- test",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    tree = _build_kb_tree()
+    assert tree["sections"]
+    chapter = tree["sections"][0]["topics"][0]["chapters"][0]
+    assert chapter["status"] == "Rejected"
