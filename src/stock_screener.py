@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Optional
 from datetime import datetime, timedelta
 import threading
@@ -98,7 +99,7 @@ class StockScreener:
             
             # Calculate overall score and recommendation
             overall_score, recommendation, confidence = self._calculate_recommendation(
-                fundamental, technical, sentiment_dict
+                fundamental, technical, sentiment
             )
 
             # Build plain-language explanation
@@ -254,7 +255,6 @@ class StockScreener:
         # Sort by overall score descending.  A secondary key on the symbol name
         # ensures a fully deterministic, stable ordering whenever scores tie.
         results.sort(key=lambda x: (-x.overall_score, x.symbol))
-
         # Get top picks
         top_picks = results[:top_n]
 
@@ -333,8 +333,8 @@ class StockScreener:
             weights.append(0.40)
 
         # Sentiment score (20% weight)
-        if sentiment and sentiment.get('score'):
-            scores.append(sentiment['score'])
+        if sentiment and sentiment.score:
+            scores.append(sentiment.score)
             weights.append(0.20)
 
         # Calculate weighted average
