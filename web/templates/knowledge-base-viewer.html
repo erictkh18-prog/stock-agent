@@ -95,6 +95,33 @@
             margin-bottom: 12px;
         }
 
+        .filter-row {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .filter-row input {
+            width: 100%;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 10px;
+            min-height: 44px;
+            font-size: 0.92rem;
+        }
+
+        .filter-row button {
+            min-height: 44px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: #fff;
+            color: #0f172a;
+            padding: 0 12px;
+            cursor: pointer;
+            font-weight: 700;
+        }
+
         .chip {
             background: var(--chip);
             color: #0c4a6e;
@@ -151,6 +178,12 @@
             gap: 6px;
         }
 
+        .chapter-row {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 6px;
+        }
+
         .chapter-link {
             width: 100%;
             text-align: left;
@@ -173,6 +206,24 @@
             background: #e0f2fe;
         }
 
+        .chapter-open-explorer {
+            border: 1px solid #dbe3f0;
+            background: #fff;
+            color: #334155;
+            border-radius: 8px;
+            padding: 0 10px;
+            min-height: 38px;
+            cursor: pointer;
+            font-size: 0.82rem;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .chapter-open-explorer:hover {
+            border-color: #7dd3fc;
+            background: #f0f9ff;
+        }
+
         .empty {
             color: var(--muted);
             font-size: 0.9rem;
@@ -184,18 +235,78 @@
             margin-bottom: 10px;
         }
 
-        pre {
+        .doc-body {
             margin: 0;
             padding: 14px;
             border-radius: 10px;
             border: 1px solid #dbe3f0;
             background: #f8fafc;
             color: #1e293b;
-            white-space: pre-wrap;
-            word-break: break-word;
-            font-family: Consolas, "Courier New", monospace;
-            line-height: 1.45;
+            line-height: 1.55;
             min-height: 56vh;
+            overflow-wrap: anywhere;
+        }
+
+        .doc-body h1,
+        .doc-body h2,
+        .doc-body h3,
+        .doc-body h4 {
+            margin-top: 1.2em;
+            margin-bottom: 0.5em;
+            line-height: 1.3;
+        }
+
+        .doc-body h1:first-child,
+        .doc-body h2:first-child,
+        .doc-body h3:first-child {
+            margin-top: 0;
+        }
+
+        .doc-body code {
+            background: #e2e8f0;
+            border-radius: 6px;
+            padding: 2px 6px;
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 0.9em;
+        }
+
+        .doc-body pre {
+            background: #0f172a;
+            color: #e2e8f0;
+            border-radius: 8px;
+            padding: 12px;
+            overflow-x: auto;
+        }
+
+        .doc-body pre code {
+            background: transparent;
+            padding: 0;
+            color: inherit;
+        }
+
+        .doc-body blockquote {
+            margin: 0;
+            border-left: 4px solid #7dd3fc;
+            padding-left: 12px;
+            color: #334155;
+        }
+
+        .doc-actions {
+            margin-bottom: 10px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .doc-action-button {
+            border: 1px solid var(--line);
+            background: #fff;
+            color: #0f172a;
+            border-radius: 8px;
+            padding: 8px 10px;
+            cursor: pointer;
+            font-weight: 700;
+            min-height: 40px;
         }
 
         .status {
@@ -213,8 +324,12 @@
                 min-height: auto;
             }
 
-            pre {
+            .doc-body {
                 min-height: 40vh;
+            }
+
+            .chapter-row {
+                grid-template-columns: 1fr;
             }
         }
 
@@ -230,6 +345,10 @@
 
             .button {
                 width: 100%;
+            }
+
+            .filter-row {
+                grid-template-columns: 1fr;
             }
         }
     </style>
@@ -250,18 +369,27 @@
         <main class="layout">
             <section class="card" aria-label="Knowledge-base navigation">
                 <div class="stats" id="stats"></div>
+                <div class="filter-row">
+                    <input id="treeFilter" type="text" placeholder="Search sections, topics, or chapters..." aria-label="Search knowledge-base tree">
+                    <button id="clearFilterBtn" type="button">Clear</button>
+                </div>
                 <ul class="tree" id="tree"></ul>
             </section>
 
             <section class="card" aria-label="Chapter preview">
                 <h2 id="docTitle">Select a chapter</h2>
                 <div class="doc-meta" id="docMeta">Choose a chapter from the left panel to view its content.</div>
-                <pre id="docBody">No chapter selected yet.</pre>
+                <div class="doc-actions">
+                    <button class="doc-action-button" id="openSelectedExplorerBtn" type="button" disabled>Open in Explorer</button>
+                </div>
+                <article id="docBody" class="doc-body">No chapter selected yet.</article>
                 <div class="status" id="status"></div>
             </section>
         </main>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
     <script>
         const treeEl = document.getElementById("tree");
         const statsEl = document.getElementById("stats");
@@ -271,8 +399,12 @@
         const statusEl = document.getElementById("status");
         const refreshBtn = document.getElementById("refreshBtn");
         const openBuilderBtn = document.getElementById("openBuilderBtn");
+        const treeFilterInput = document.getElementById("treeFilter");
+        const clearFilterBtn = document.getElementById("clearFilterBtn");
+        const openSelectedExplorerBtn = document.getElementById("openSelectedExplorerBtn");
 
         let activeChapterPath = "";
+        let fullSections = [];
 
         openBuilderBtn.addEventListener("click", () => {
             window.location.href = "/knowledge-base-builder";
@@ -280,6 +412,23 @@
 
         refreshBtn.addEventListener("click", () => {
             void loadTree();
+        });
+
+        clearFilterBtn.addEventListener("click", () => {
+            treeFilterInput.value = "";
+            renderTree(fullSections, "");
+        });
+
+        treeFilterInput.addEventListener("input", () => {
+            renderTree(fullSections, treeFilterInput.value.trim().toLowerCase());
+        });
+
+        openSelectedExplorerBtn.addEventListener("click", async () => {
+            if (!activeChapterPath) {
+                statusEl.textContent = "Select a chapter first.";
+                return;
+            }
+            await openChapterInExplorer(activeChapterPath);
         });
 
         async function loadTree() {
@@ -294,8 +443,9 @@
                     throw new Error(payload.detail || "Could not load knowledge base");
                 }
 
+                fullSections = payload.sections || [];
                 renderStats(payload);
-                renderTree(payload.sections || []);
+                renderTree(fullSections, treeFilterInput.value.trim().toLowerCase());
 
                 statusEl.textContent = "Knowledge-base tree loaded.";
             } catch (error) {
@@ -315,13 +465,19 @@
             statsEl.innerHTML = chips.map((text) => `<span class="chip">${text}</span>`).join("");
         }
 
-        function renderTree(sections) {
+        function renderTree(sections, filterText) {
             if (!sections.length) {
                 treeEl.innerHTML = '<li class="empty">No sections found in knowledge-base.</li>';
                 return;
             }
 
+            const normalizedFilter = (filterText || "").toLowerCase();
+            const hasFilter = normalizedFilter.length > 0;
+            treeEl.innerHTML = "";
+            let matchedSections = 0;
+
             for (const section of sections) {
+                const sectionMatch = section.name.toLowerCase().includes(normalizedFilter);
                 const sectionItem = document.createElement("li");
                 sectionItem.className = "section";
 
@@ -329,32 +485,50 @@
                 sectionTitle.textContent = `${section.name} (${section.topic_count} topics)`;
                 sectionItem.appendChild(sectionTitle);
 
+                let sectionVisible = false;
+
                 if (!section.topics || !section.topics.length) {
-                    const emptyTopic = document.createElement("p");
-                    emptyTopic.className = "empty";
-                    emptyTopic.textContent = "No topics in this section yet.";
-                    sectionItem.appendChild(emptyTopic);
+                    if (!hasFilter || sectionMatch) {
+                        const emptyTopic = document.createElement("p");
+                        emptyTopic.className = "empty";
+                        emptyTopic.textContent = "No topics in this section yet.";
+                        sectionItem.appendChild(emptyTopic);
+                        sectionVisible = true;
+                    }
                 } else {
                     for (const topic of section.topics) {
+                        const topicMatch = topic.name.toLowerCase().includes(normalizedFilter);
                         const topicBlock = document.createElement("div");
                         topicBlock.className = "topic";
 
                         const topicHeader = document.createElement("p");
                         topicHeader.className = "topic-header";
                         topicHeader.textContent = `${topic.name} (${topic.chapter_count} chapters)`;
-                        topicBlock.appendChild(topicHeader);
 
                         const chapterList = document.createElement("ul");
                         chapterList.className = "chapter-list";
+                        let chapterMatches = 0;
 
                         if (!topic.chapters || !topic.chapters.length) {
-                            const emptyChapter = document.createElement("li");
-                            emptyChapter.className = "empty";
-                            emptyChapter.textContent = "No chapters yet.";
-                            chapterList.appendChild(emptyChapter);
+                            if (!hasFilter || sectionMatch || topicMatch) {
+                                const emptyChapter = document.createElement("li");
+                                emptyChapter.className = "empty";
+                                emptyChapter.textContent = "No chapters yet.";
+                                chapterList.appendChild(emptyChapter);
+                            }
                         } else {
                             for (const chapter of topic.chapters) {
+                                const chapterMatch = chapter.name.toLowerCase().includes(normalizedFilter)
+                                    || chapter.relative_path.toLowerCase().includes(normalizedFilter);
+                                if (hasFilter && !sectionMatch && !topicMatch && !chapterMatch) {
+                                    continue;
+                                }
+
+                                chapterMatches += 1;
                                 const chapterItem = document.createElement("li");
+                                const chapterRow = document.createElement("div");
+                                chapterRow.className = "chapter-row";
+
                                 const button = document.createElement("button");
                                 button.type = "button";
                                 button.className = "chapter-link";
@@ -363,17 +537,40 @@
                                 button.addEventListener("click", async () => {
                                     await loadChapter(chapter.relative_path, button);
                                 });
-                                chapterItem.appendChild(button);
+
+                                const openExplorerBtn = document.createElement("button");
+                                openExplorerBtn.type = "button";
+                                openExplorerBtn.className = "chapter-open-explorer";
+                                openExplorerBtn.textContent = "Open in Explorer";
+                                openExplorerBtn.addEventListener("click", async () => {
+                                    await openChapterInExplorer(chapter.relative_path);
+                                });
+
+                                chapterRow.appendChild(button);
+                                chapterRow.appendChild(openExplorerBtn);
+                                chapterItem.appendChild(chapterRow);
                                 chapterList.appendChild(chapterItem);
                             }
                         }
 
-                        topicBlock.appendChild(chapterList);
-                        sectionItem.appendChild(topicBlock);
+                        const showTopic = !hasFilter || sectionMatch || topicMatch || chapterMatches > 0;
+                        if (showTopic) {
+                            topicBlock.appendChild(topicHeader);
+                            topicBlock.appendChild(chapterList);
+                            sectionItem.appendChild(topicBlock);
+                            sectionVisible = true;
+                        }
                     }
                 }
 
-                treeEl.appendChild(sectionItem);
+                if (sectionVisible) {
+                    matchedSections += 1;
+                    treeEl.appendChild(sectionItem);
+                }
+            }
+
+            if (matchedSections === 0) {
+                treeEl.innerHTML = '<li class="empty">No results found for current search.</li>';
             }
         }
 
@@ -397,9 +594,44 @@
                 activeChapterPath = payload.path;
                 docTitleEl.textContent = payload.title;
                 docMetaEl.textContent = `Path: ${payload.path} | Updated: ${new Date(payload.updated_at).toLocaleString()}`;
-                docBodyEl.textContent = payload.content;
+                renderMarkdown(payload.content);
                 setActiveButton(button);
+                openSelectedExplorerBtn.disabled = false;
                 statusEl.textContent = "Chapter loaded.";
+            } catch (error) {
+                statusEl.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        function renderMarkdown(content) {
+            if (typeof marked === "undefined" || typeof DOMPurify === "undefined") {
+                docBodyEl.textContent = content;
+                return;
+            }
+
+            const markdownHtml = marked.parse(content || "", {
+                gfm: true,
+                breaks: true,
+            });
+            docBodyEl.innerHTML = DOMPurify.sanitize(markdownHtml);
+        }
+
+        async function openChapterInExplorer(relativePath) {
+            statusEl.textContent = "Opening chapter location in explorer...";
+
+            try {
+                const response = await fetch("/knowledge-base/open-explorer", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({ path: relativePath }),
+                });
+                const payload = await response.json();
+                if (!response.ok) {
+                    throw new Error(payload.detail || "Could not open explorer");
+                }
+                statusEl.textContent = `${payload.message}: ${payload.path}`;
             } catch (error) {
                 statusEl.textContent = `Error: ${error.message}`;
             }

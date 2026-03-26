@@ -97,6 +97,20 @@ def test_knowledge_base_chapter_rejects_invalid_path_traversal():
     assert resp.status_code == 400
 
 
+def test_knowledge_base_open_explorer_rejects_invalid_path_traversal():
+    resp = client.post("/knowledge-base/open-explorer", json={"path": "../README.md"})
+    assert resp.status_code == 400
+
+
+def test_knowledge_base_open_explorer_accepts_valid_path(monkeypatch):
+    monkeypatch.setattr("src.main._open_in_explorer", lambda path: None)
+    resp = client.post("/knowledge-base/open-explorer", json={"path": "INDEX.md"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert body["path"] == "INDEX.md"
+
+
 # ──────────────────────────────────────────────
 # Mobile responsiveness: viewport meta tag
 # ──────────────────────────────────────────────
@@ -178,6 +192,14 @@ def test_dashboard_cta_uses_cta_row_class():
     # Old inline style must be gone
     assert 'style="display: flex; justify-content: space-between' not in html, \
         "Inline flex style must be removed from CTA in dashboard.html"
+
+
+def test_knowledge_base_viewer_has_markdown_and_filter_controls():
+    html = _read_template("knowledge-base-viewer.html")
+    assert 'id="treeFilter"' in html
+    assert "marked.min.js" in html
+    assert "dompurify" in html.lower()
+    assert "Open in Explorer" in html
 
 
 # ──────────────────────────────────────────────

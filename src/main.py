@@ -2,6 +2,7 @@
 from io import StringIO
 import json
 import os
+import platform
 import re
 import subprocess
 import threading
@@ -312,6 +313,16 @@ class KnowledgeIngestResponse(BaseModel):
     summary: str
 
 
+class KnowledgeOpenExplorerRequest(BaseModel):
+    path: str
+
+
+class KnowledgeOpenExplorerResponse(BaseModel):
+    status: str
+    path: str
+    message: str
+
+
 def _safe_rel_path(path: Path, root: Path) -> str:
     """Return POSIX relative path from root for API payloads."""
     return path.relative_to(root).as_posix()
@@ -398,6 +409,22 @@ def _build_kb_tree() -> dict:
         "total_topics": total_topics,
         "total_chapters": total_chapters,
     }
+
+
+def _open_in_explorer(target: Path) -> None:
+    """Open file location in OS explorer/finder for local workflows."""
+    if os.name == "nt":
+        subprocess.run(["explorer", "/select,", str(target)], check=False)
+        return
+
+    if os.name == "posix":
+        if platform.system().lower() == "darwin":
+            subprocess.run(["open", "-R", str(target)], check=False)
+        else:
+            subprocess.run(["xdg-open", str(target.parent)], check=False)
+        return
+
+    raise RuntimeError("Unsupported operating system for explorer integration")
 
 
 def _fetch_symbols_from_wikipedia(url: str, candidate_columns: List[str]) -> List[str]:
@@ -729,6 +756,27 @@ async def knowledge_base_chapter(path: str = Query(..., description="Knowledge-b
         "updated_at": datetime.fromtimestamp(chapter_path.stat().st_mtime).isoformat(),
         "content": content,
     }
+
+
+@app.post("/knowledge-base/open-explorer", response_model=KnowledgeOpenExplorerResponse)
+async def knowledge_base_open_explorer(payload: KnowledgeOpenExplorerRequest):
+    """Open chapter file location in local file explorer for quick editing."""
+    relative_path = payload.path.strip()
+    if not relative_path:
+        raise HTTPException(status_code=400, detail="Chapter path is required")
+
+    chapter_path = _validate_kb_relative_path(relative_path)
+
+    try:
+        await asyncio.to_thread(_open_in_explorer, chapter_path)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Could not open explorer: {exc}") from exc
+
+    return KnowledgeOpenExplorerResponse(
+        status="ok",
+        path=_safe_rel_path(chapter_path, KB_ROOT),
+        message="Explorer opened for chapter path",
+    )
 
 
 @app.post("/knowledge-base/ingest", response_model=KnowledgeIngestResponse)
