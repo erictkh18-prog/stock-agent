@@ -2,7 +2,6 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Optional
 from datetime import datetime, timedelta
 import threading
@@ -316,7 +315,7 @@ class StockScreener:
         """
         Calculate overall recommendation based on all analyses.
 
-        Weights: fundamental 40 %, technical 40 %, sentiment 20 %.
+        Weights: fundamental 40%, technical 40%, sentiment 20%.
         Sentiment from free RSS feeds is noisy, so it receives a lower weight
         while fundamentals and technicals share equal importance.
 

@@ -97,7 +97,7 @@ def test_score_weighting_technical_dominant(screener):
 
 
 def test_score_weighting_all_components(screener):
-    """Verify 40/40/20 weighting when all three components are present."""
+    """Verify 40%/40%/20% weighting when all three components are present."""
     fundamental = FundamentalAnalysis(score=80)
     technical = TechnicalAnalysis(score=60)
     sentiment = SentimentAnalysis(score=50)

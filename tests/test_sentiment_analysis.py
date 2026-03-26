@@ -37,12 +37,11 @@ def test_calculate_sentiment_score(analyzer):
     assert 0 <= score_bearish <= 50, "Bearish should score low"
 
 def test_get_feed_sentiment_date_parsing(analyzer, monkeypatch):
-    """Improvement 1: _get_feed_sentiment must use calendar.timegm for date conversion.
+    """_get_feed_sentiment must use calendar.timegm for correct UTC date conversion.
 
-    Previously the code used ``entry.published_parsed[0:9].__hash__() % 2000000000``
-    which produced an arbitrary, unpredictable timestamp.  The fix uses
-    ``calendar.timegm(entry.published_parsed)`` so that only entries within the
-    look-back window are returned.
+    The implementation uses ``calendar.timegm(entry.published_parsed)`` with a
+    timezone-aware ``datetime`` so that only entries within the look-back window
+    are included. This test verifies that entries published "now" pass the filter.
     """
     # Build a fake feed entry whose published_parsed is exactly "now" in UTC
     now_utc_struct = time.gmtime()
