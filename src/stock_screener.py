@@ -1,5 +1,6 @@
 """Stock screener module for identifying suitable stocks"""
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import hashlib
 import yfinance as yf
 import requests
 import logging
@@ -258,10 +259,10 @@ class StockScreener:
             symbols: List of stock symbols to analyze
             filters: Screening filters to apply
             top_n: Number of top picks to return
-            seed: When provided, enables deterministic mode.  Input symbols are
-                  sorted alphabetically before processing and results are ranked
-                  with a stable secondary key (symbol name) so that identical
-                  inputs always produce the same ordering.
+            seed: When provided, enables deterministic mode. Input symbols are
+                sorted alphabetically before processing and tied scores are
+                broken with a stable seed-derived key so identical inputs plus
+                the same seed produce the same ordering.
 
         Returns:
             ScreeningResult with filtered stocks
@@ -293,9 +294,10 @@ class StockScreener:
                 except Exception as exc:
                     self.logger.warning("Failed to fetch %s: %s; skipping", symbol, exc)
 
-        # Sort by overall score descending.  A secondary key on the symbol name
-        # ensures a fully deterministic, stable ordering whenever scores tie.
-        results.sort(key=lambda x: (-x.overall_score, x.symbol))
+        # Sort by overall score descending. In deterministic mode, ties are
+        # broken with a stable seed-derived key so the supplied seed has a real
+        # effect without changing the primary score ordering.
+        results.sort(key=lambda x: self._rank_sort_key(x, seed))
         # Get top picks
         top_picks = results[:top_n]
 
@@ -364,17 +366,17 @@ class StockScreener:
         weights = []
 
         # Fundamental score (40% weight)
-        if fundamental and fundamental.score:
+        if fundamental and fundamental.score is not None:
             scores.append(fundamental.score)
             weights.append(0.40)
 
         # Technical score (40% weight)
-        if technical and technical.score:
+        if technical and technical.score is not None:
             scores.append(technical.score)
             weights.append(0.40)
 
         # Sentiment score (20% weight)
-        if sentiment and sentiment.score:
+        if sentiment and sentiment.score is not None:
             scores.append(sentiment.score)
             weights.append(0.20)
 
@@ -396,6 +398,17 @@ class StockScreener:
             confidence = min(1.0, (50 - overall_score) / 50)
 
         return overall_score, recommendation, confidence
+
+    def _rank_sort_key(self, analysis: StockAnalysis, seed: Optional[int]) -> tuple:
+        """Return the ranking sort key, using the seed only for stable tie-breaking."""
+        if seed is None:
+            return (-analysis.overall_score, analysis.symbol)
+        return (-analysis.overall_score, self._seeded_tie_breaker(analysis.symbol, seed), analysis.symbol)
+
+    def _seeded_tie_breaker(self, symbol: str, seed: int) -> int:
+        """Build a stable integer used to break ties reproducibly for a given seed."""
+        digest = hashlib.sha256(f"{seed}:{symbol}".encode("utf-8")).digest()
+        return int.from_bytes(digest[:8], "big")
 
     def _build_explanation(
         self,

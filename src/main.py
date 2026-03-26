@@ -1,4 +1,5 @@
 """Main FastAPI application for Stock Analysis Agent"""
+from io import StringIO
 import os
 import re
 import subprocess
@@ -11,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 import pandas as pd
+import requests
 import yfinance as yf
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -30,6 +32,15 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+WIKIPEDIA_REQUEST_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 
 def _resolve_commit_hash() -> str:
@@ -141,11 +152,18 @@ def _should_rate_limit(path: str) -> bool:
 
 def _fetch_symbols_from_wikipedia(url: str, candidate_columns: List[str]) -> List[str]:
     """Fetch ticker symbols from a Wikipedia table."""
-    tables = pd.read_html(url)
+    response = requests.get(url, headers=WIKIPEDIA_REQUEST_HEADERS, timeout=10)
+    response.raise_for_status()
+
+    tables = pd.read_html(StringIO(response.text))
     for table in tables:
         for column in candidate_columns:
             if column in table.columns:
-                symbols = [str(value).strip().upper() for value in table[column].tolist()]
+                symbols = [
+                    str(value).strip().upper()
+                    for value in table[column].tolist()
+                    if not pd.isna(value)
+                ]
                 cleaned = [_normalize_symbol(symbol.replace(".", "-")) for symbol in symbols]
                 return [symbol for symbol in cleaned if symbol]
     return []
@@ -563,15 +581,17 @@ async def scan_us_market(
     min_overall_score: float = Query(65, ge=0, le=100),
     top_n: int = Query(20, ge=1, le=100),
     max_symbols: int = Query(80, ge=25, le=800),
-    seed: Optional[int] = Query(None, description="Supply an integer seed to enable deterministic mode. Same inputs + same seed will produce stable top results."),
+    seed: Optional[int] = Query(None, description="Supply an integer seed to enable deterministic mode. Same inputs plus the same seed produce stable ordering, and different seeds can change the order of tied scores."),
 ):
     """Scan a broad US market universe and return potential opportunities.
 
     Pass ``seed`` (any integer) to activate deterministic mode: candidate
-    symbols are sorted alphabetically before scoring and results are ranked
-    with a tie-breaking secondary key so that repeated scans with identical
-    parameters and seed return the same top picks.  When ``seed`` is omitted
-    the endpoint behaves as before (dynamic/fresh results on every scan).
+    symbols are sorted alphabetically before scoring and tied scores are broken
+    with a stable seed-derived key. Repeated scans with identical parameters
+    and the same seed return the same ordering. Different seeds can change the
+    order of tied names only; the primary score ranking is unchanged. When
+    ``seed`` is omitted the endpoint behaves as before (dynamic/fresh results
+    on every scan).
     """
     global _market_scan_cache_hits, _market_scan_cache_misses
 

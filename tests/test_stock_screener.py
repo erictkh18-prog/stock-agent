@@ -113,6 +113,18 @@ def test_score_defaults_to_50_with_no_data(screener):
     assert rec == "HOLD"
 
 
+def test_zero_scores_are_included_in_weighting(screener):
+    """A zero-valued component score is valid input and must not be ignored."""
+    fundamental = FundamentalAnalysis(score=100)
+    technical = TechnicalAnalysis(score=0)
+    sentiment = SentimentAnalysis(score=0)
+
+    score, rec, _ = screener._calculate_recommendation(fundamental, technical, sentiment)
+
+    assert score == pytest.approx(40.0)
+    assert rec == "SELL"
+
+
 def test_sentiment_weight_is_lower_than_technical(screener):
     """A change in the sentiment score should move the overall score less than the same change
     in the technical score, reflecting the lower 20 % vs 40 % weight."""

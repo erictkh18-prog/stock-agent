@@ -102,8 +102,8 @@ class TestDeterministicMode:
         scores = [p.overall_score for p in result.top_picks]
         assert scores == sorted(scores, reverse=True)
 
-    def test_tie_breaking_by_symbol(self):
-        """When two stocks have identical scores, alphabetical symbol order wins."""
+    def test_tie_breaking_is_stable_for_same_seed(self):
+        """Tied scores should keep the same order when the same seed is reused."""
         symbols = ["ZZZ", "AAA", "MMM"]
         analyses = [
             _make_analysis("ZZZ", 75.0),
@@ -111,21 +111,26 @@ class TestDeterministicMode:
             _make_analysis("MMM", 75.0),
         ]
         screener = _build_screener_with_fixed_analyses(analyses)
-        result = screener.screen_stocks(symbols, ScreeningFilter(min_overall_score=0), top_n=3, seed=1)
+        result_a = screener.screen_stocks(symbols, ScreeningFilter(min_overall_score=0), top_n=3, seed=1)
+        result_b = screener.screen_stocks(symbols, ScreeningFilter(min_overall_score=0), top_n=3, seed=1)
 
-        assert [p.symbol for p in result.top_picks] == ["AAA", "MMM", "ZZZ"]
+        assert [p.symbol for p in result_a.top_picks] == [p.symbol for p in result_b.top_picks]
 
-    def test_different_seeds_produce_same_order_for_deterministic_data(self):
-        """Order is determined by score+symbol, not by seed value; different seeds yield same ranking."""
-        symbols, analyses = self._symbols_and_analyses()
+    def test_different_seeds_can_change_tied_order(self):
+        """Different seeds should be able to change ordering when scores are tied."""
+        symbols = ["ZZZ", "AAA", "MMM"]
+        analyses = [
+            _make_analysis("ZZZ", 75.0),
+            _make_analysis("AAA", 75.0),
+            _make_analysis("MMM", 75.0),
+        ]
         screener = _build_screener_with_fixed_analyses(analyses)
         filters = ScreeningFilter(min_overall_score=0)
 
         result_a = screener.screen_stocks(symbols, filters, top_n=7, seed=1)
         result_b = screener.screen_stocks(symbols, filters, top_n=7, seed=999)
 
-        # The ranking should be the same because it's fully determined by score+symbol.
-        assert [p.symbol for p in result_a.top_picks] == [p.symbol for p in result_b.top_picks]
+        assert [p.symbol for p in result_a.top_picks] != [p.symbol for p in result_b.top_picks]
 
 
 # ---------------------------------------------------------------------------

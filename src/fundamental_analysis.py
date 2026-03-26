@@ -3,6 +3,7 @@ import yfinance as yf
 import requests
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 from typing import Optional
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
@@ -15,9 +16,37 @@ class FundamentalAnalyzer:
     
     def __init__(self):
         self.logger = logger
+        self.quote_backoff_until = None
+        self._quote_backoff_lock = threading.Lock()
+
+    @staticmethod
+    def _is_missing_value(info: dict, key: str) -> bool:
+        """Treat only absent/None values as missing; zero is still valid data."""
+        return info.get(key) is None
+
+    def _start_quote_backoff(self, status_code: int) -> None:
+        """Pause quote fallback attempts after upstream auth/rate-limit failures."""
+        now = datetime.now()
+        backoff_minutes = 10 if status_code == 401 else 5
+        backoff_until = now + timedelta(minutes=backoff_minutes)
+
+        with self._quote_backoff_lock:
+            already_active = self.quote_backoff_until and self.quote_backoff_until > now
+            self.quote_backoff_until = backoff_until
+
+        if not already_active:
+            self.logger.warning(
+                "Disabling Yahoo quote fallback for %s minutes after HTTP %s responses",
+                backoff_minutes,
+                status_code,
+            )
 
     def _fetch_quote_fallback(self, symbol: str) -> dict:
         """Fetch quote fields from Yahoo quote endpoint when `stock.info` is unavailable."""
+        with self._quote_backoff_lock:
+            if self.quote_backoff_until and datetime.now() < self.quote_backoff_until:
+                return {}
+
         try:
             response = requests.get(
                 "https://query1.finance.yahoo.com/v7/finance/quote",
@@ -31,10 +60,20 @@ class FundamentalAnalyzer:
                 },
                 timeout=10,
             )
+            if response.status_code in {401, 429}:
+                self._start_quote_backoff(response.status_code)
+                return {}
             response.raise_for_status()
             payload = response.json()
             result = payload.get("quoteResponse", {}).get("result", [])
             return result[0] if result else {}
+        except requests.HTTPError as exc:
+            status_code = exc.response.status_code if exc.response is not None else None
+            if status_code in {401, 429}:
+                self._start_quote_backoff(status_code)
+                return {}
+            self.logger.warning(f"Quote fallback failed for {symbol}: {exc}")
+            return {}
         except Exception as exc:
             self.logger.warning(f"Quote fallback failed for {symbol}: {exc}")
             return {}
@@ -74,6 +113,8 @@ class FundamentalAnalyzer:
                 },
                 timeout=10,
             )
+            if response.status_code == 404:
+                return {}
             response.raise_for_status()
 
             soup = BeautifulSoup(response.text, "html.parser")
@@ -125,10 +166,18 @@ class FundamentalAnalyzer:
 
             # Only fetch fallbacks for fields not already provided by info,
             # and run both fallback requests concurrently to reduce latency.
-            # needs_quote: quote endpoint provides trailingPE, epsTrailingTwelveMonths, pegRatio
+            # needs_quote: quote endpoint provides price/quote-style metrics and
+            # is only useful here when core valuation fields are missing.
             # needs_web:   web page provides trailingPE, epsTrailingTwelveMonths, dividendYield
-            needs_quote = not info.get('trailingPE') or not info.get('trailingEps') or not info.get('pegRatio')
-            needs_web = not info.get('trailingPE') or not info.get('trailingEps') or not info.get('dividendYield')
+            needs_quote = (
+                self._is_missing_value(info, 'trailingPE')
+                or self._is_missing_value(info, 'trailingEps')
+            )
+            needs_web = (
+                self._is_missing_value(info, 'trailingPE')
+                or self._is_missing_value(info, 'trailingEps')
+                or self._is_missing_value(info, 'dividendYield')
+            )
 
             quote: dict = {}
             web_fallback: dict = {}
