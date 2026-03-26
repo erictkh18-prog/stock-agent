@@ -149,6 +149,7 @@ _request_metrics = {
 
 KB_ROOT = Path(__file__).parent.parent / "knowledge-base"
 KB_CHANGELOG_PATH = KB_ROOT / "CHANGELOG.md"
+KB_MIRROR_BASE_URL = "https://r.jina.ai/"
 
 
 def _should_rate_limit(path: str) -> bool:
@@ -186,6 +187,26 @@ def _append_kb_changelog(entry: str) -> None:
 def _extract_webpage_text(url: str) -> dict:
     """Fetch webpage and return title plus paragraph snippets for ingestion."""
     response = requests.get(url, headers=WIKIPEDIA_REQUEST_HEADERS, timeout=20)
+
+    if response.status_code >= 400:
+        if response.status_code in {401, 402, 403, 406, 429, 451}:
+            mirror_url = f"{KB_MIRROR_BASE_URL}{url}"
+            mirror_response = requests.get(
+                mirror_url,
+                headers=WIKIPEDIA_REQUEST_HEADERS,
+                timeout=25,
+            )
+            mirror_response.raise_for_status()
+            text = mirror_response.text
+            lines = [re.sub(r"\s+", " ", line).strip() for line in text.splitlines()]
+            paragraphs = [line for line in lines if len(line) >= 60][:8]
+            return {
+                "title": "Mirror extract",
+                "paragraphs": paragraphs or [text[:600]],
+            }
+
+        response.raise_for_status()
+
     response.raise_for_status()
 
     soup = BeautifulSoup(response.text, "html.parser")
