@@ -1,8 +1,7 @@
 """Stock screener module for identifying suitable stocks"""
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
 import logging
-import time
 from typing import List, Optional
 from datetime import datetime, timedelta
 import threading
@@ -30,8 +29,6 @@ class StockScreener:
         self.sentiment_analyzer = SentimentAnalyzer()
         self.logger = logger
         self.cache_ttl_seconds = config.CACHE_TTL_SECONDS
-        self.max_concurrent_fetches = config.MAX_CONCURRENT_FETCHES
-        self.symbol_fetch_timeout_seconds = config.SYMBOL_FETCH_TIMEOUT_SECONDS
         self.analysis_cache = {}
         self.info_backoff_until = None
         self._cache_lock = threading.Lock()
@@ -213,64 +210,60 @@ class StockScreener:
     
     def screen_stocks(
         self, symbols: List[str], filters: Optional[ScreeningFilter] = None,
-        top_n: int = 10
+        top_n: int = 10, seed: Optional[int] = None
     ) -> ScreeningResult:
         """
-        Screen multiple stocks and return top picks
-        
+        Screen multiple stocks and return top picks.
+
         Args:
             symbols: List of stock symbols to analyze
             filters: Screening filters to apply
             top_n: Number of top picks to return
-        
+            seed: When provided, enables deterministic mode.  Input symbols are
+                  sorted alphabetically before processing and results are ranked
+                  with a stable secondary key (symbol name) so that identical
+                  inputs always produce the same ordering.
+
         Returns:
             ScreeningResult with filtered stocks
         """
         if filters is None:
             filters = ScreeningFilter()
-        
+
+        deterministic_mode = seed is not None
+
+        # In deterministic mode sort the candidate list so that the slice taken
+        # by max_symbols (applied upstream) and the parallel work queue are
+        # always consistent across runs.
+        work_symbols = sorted(symbols) if deterministic_mode else symbols
+
         results = []
-        failed_symbols: List[str] = []
-        start_time = time.perf_counter()
 
-        max_workers = min(self.max_concurrent_fetches, max(1, len(symbols)))
+        max_workers = min(20, max(1, len(work_symbols)))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_symbol = {
-                executor.submit(self._analyze_symbol_for_screen, symbol, filters): symbol
-                for symbol in symbols
-            }
-            for future in as_completed(future_to_symbol):
-                symbol = future_to_symbol[future]
-                try:
-                    analysis = future.result(timeout=self.symbol_fetch_timeout_seconds)
-                    if analysis:
-                        results.append(analysis)
-                except FuturesTimeoutError:
-                    self.logger.warning(
-                        "Timeout fetching %s (limit %s seconds); skipping",
-                        symbol,
-                        self.symbol_fetch_timeout_seconds,
-                    )
-                    failed_symbols.append(symbol)
-                except Exception as exc:
-                    self.logger.warning("Failed to fetch %s: %s; skipping", symbol, exc)
-                    failed_symbols.append(symbol)
-        
-        scan_duration_ms = (time.perf_counter() - start_time) * 1000
+            futures = [
+                executor.submit(self._analyze_symbol_for_screen, symbol, filters)
+                for symbol in work_symbols
+            ]
+            for future in as_completed(futures):
+                analysis = future.result()
+                if analysis:
+                    results.append(analysis)
 
-        # Sort by overall score (descending)
-        results.sort(key=lambda x: x.overall_score, reverse=True)
-        
+        # Sort by overall score descending.  A secondary key on the symbol name
+        # ensures a fully deterministic, stable ordering whenever scores tie.
+        results.sort(key=lambda x: (-x.overall_score, x.symbol))
+
         # Get top picks
         top_picks = results[:top_n]
-        
+
         return ScreeningResult(
-            total_candidates=len(symbols),
+            total_candidates=len(work_symbols),
             filtered_count=len(results),
             top_picks=top_picks,
             screening_timestamp=datetime.now(),
-            scan_duration_ms=round(scan_duration_ms, 2),
-            failed_symbols=failed_symbols,
+            deterministic_mode=deterministic_mode,
+            seed=seed,
         )
     
     def _passes_filters(self, analysis: StockAnalysis, filters: ScreeningFilter) -> bool:
@@ -501,7 +494,5 @@ class StockScreener:
             "cache_hit_rate_pct": cache_hit_rate,
             "cache_size": cache_size,
             "cache_ttl_seconds": self.cache_ttl_seconds,
-            "max_concurrent_fetches": self.max_concurrent_fetches,
-            "symbol_fetch_timeout_seconds": self.symbol_fetch_timeout_seconds,
             "info_backoff_active": info_backoff_active,
         }

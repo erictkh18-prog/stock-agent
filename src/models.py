@@ -71,6 +71,5 @@ class ScreeningResult(BaseModel):
     filtered_count: int
     top_picks: List[StockAnalysis]
     screening_timestamp: datetime
-    cache_hit: bool = Field(False, description="True when result was served from cache")
-    scan_duration_ms: Optional[float] = Field(None, description="Wall-clock time of the scan in ms")
-    failed_symbols: List[str] = Field(default_factory=list, description="Symbols that could not be fetched")
+    deterministic_mode: bool = Field(False, description="True when a seed was supplied for stable ordering")
+    seed: Optional[int] = Field(None, description="Seed value used for deterministic ordering")
