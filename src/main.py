@@ -190,19 +190,40 @@ def _extract_webpage_text(url: str) -> dict:
 
     if response.status_code >= 400:
         if response.status_code in {401, 402, 403, 406, 429, 451}:
-            mirror_url = f"{KB_MIRROR_BASE_URL}{url}"
-            mirror_response = requests.get(
-                mirror_url,
-                headers=WIKIPEDIA_REQUEST_HEADERS,
-                timeout=25,
-            )
-            mirror_response.raise_for_status()
-            text = mirror_response.text
-            lines = [re.sub(r"\s+", " ", line).strip() for line in text.splitlines()]
-            paragraphs = [line for line in lines if len(line) >= 60][:8]
+            parsed = urlparse(url)
+            mirror_candidates = [
+                f"{KB_MIRROR_BASE_URL}{url}",
+                f"{KB_MIRROR_BASE_URL}http://{parsed.netloc}{parsed.path}{'?' + parsed.query if parsed.query else ''}",
+            ]
+
+            for mirror_url in mirror_candidates:
+                try:
+                    mirror_response = requests.get(
+                        mirror_url,
+                        headers=WIKIPEDIA_REQUEST_HEADERS,
+                        timeout=25,
+                    )
+                    mirror_response.raise_for_status()
+                    text = mirror_response.text
+                    lines = [re.sub(r"\s+", " ", line).strip() for line in text.splitlines()]
+                    paragraphs = [line for line in lines if len(line) >= 60][:8]
+                    return {
+                        "title": "Mirror extract",
+                        "paragraphs": paragraphs or [text[:600]],
+                    }
+                except requests.RequestException:
+                    continue
+
+            # If all mirrors fail for a blocked source, still return draft content
+            # so knowledge-base authoring can continue without hard failure.
             return {
-                "title": "Mirror extract",
-                "paragraphs": paragraphs or [text[:600]],
+                "title": "Blocked source (manual review required)",
+                "paragraphs": [
+                    (
+                        f"Automated extraction was blocked by the source (HTTP {response.status_code}). "
+                        "A draft chapter was created with source metadata only; add summary content manually."
+                    )
+                ],
             }
 
         response.raise_for_status()

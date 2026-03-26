@@ -48,3 +48,23 @@ def test_extract_webpage_text_raises_for_non_retryable_errors(monkeypatch):
 
     with pytest.raises(requests.HTTPError):
         _extract_webpage_text("https://example.com/broken")
+
+
+def test_extract_webpage_text_returns_placeholder_when_all_mirrors_fail(monkeypatch):
+    """Retryable blocked statuses should return placeholder text if mirrors fail."""
+
+    blocked_response = MagicMock()
+    blocked_response.status_code = 402
+    blocked_response.raise_for_status = MagicMock(side_effect=requests.HTTPError("402"))
+
+    def fake_get(url, headers, timeout):
+        if url.startswith("https://r.jina.ai/"):
+            raise requests.RequestException("mirror unavailable")
+        return blocked_response
+
+    monkeypatch.setattr("src.main.requests.get", fake_get)
+
+    result = _extract_webpage_text("https://www.investopedia.com/terms/m/macroeconomics.asp")
+
+    assert result["title"] == "Blocked source (manual review required)"
+    assert "Automated extraction was blocked" in result["paragraphs"][0]
