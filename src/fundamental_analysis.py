@@ -2,6 +2,7 @@
 import yfinance as yf
 import requests
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
@@ -122,9 +123,33 @@ class FundamentalAnalyzer:
                     self.logger.warning(f"Could not fetch info for {symbol}: {exc}")
                     info = {}
 
-            quote = self._fetch_quote_fallback(symbol)
-            web_fallback = self._fetch_web_fallback(symbol)
-            
+            # Only fetch fallbacks for fields not already provided by info,
+            # and run both fallback requests concurrently to reduce latency.
+            # needs_quote: quote endpoint provides trailingPE, epsTrailingTwelveMonths, pegRatio
+            # needs_web:   web page provides trailingPE, epsTrailingTwelveMonths, dividendYield
+            needs_quote = not info.get('trailingPE') or not info.get('trailingEps') or not info.get('pegRatio')
+            needs_web = not info.get('trailingPE') or not info.get('trailingEps') or not info.get('dividendYield')
+
+            quote: dict = {}
+            web_fallback: dict = {}
+            if needs_quote or needs_web:
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    futures = {}
+                    if needs_quote:
+                        futures['quote'] = executor.submit(self._fetch_quote_fallback, symbol)
+                    if needs_web:
+                        futures['web'] = executor.submit(self._fetch_web_fallback, symbol)
+                    if 'quote' in futures:
+                        try:
+                            quote = futures['quote'].result()
+                        except Exception:
+                            quote = {}
+                    if 'web' in futures:
+                        try:
+                            web_fallback = futures['web'].result()
+                        except Exception:
+                            web_fallback = {}
+
             # Extract fundamental metrics
             pe_ratio = info.get('trailingPE') or quote.get('trailingPE') or web_fallback.get('trailingPE')
             eps = info.get('trailingEps') or quote.get('epsTrailingTwelveMonths') or web_fallback.get('epsTrailingTwelveMonths')
