@@ -14,7 +14,7 @@ from collections import defaultdict, deque
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 import pandas as pd
 import requests
 import yfinance as yf
@@ -152,6 +152,13 @@ _request_metrics = {
 KB_ROOT = Path(__file__).parent.parent / "knowledge-base"
 KB_CHANGELOG_PATH = KB_ROOT / "CHANGELOG.md"
 KB_MIRROR_BASE_URL = "https://r.jina.ai/"
+AUTO_RESEARCH_DOMAINS = [
+    "reuters.com",
+    "bloomberg.com",
+    "investopedia.com",
+]
+AUTO_RESEARCH_MAX_LINKS_PER_DOMAIN = 2
+AUTO_RESEARCH_MAX_EXTRACTED_CLAIMS = 12
 
 
 def _should_rate_limit(path: str) -> bool:
@@ -300,7 +307,7 @@ def _write_topic_index_if_missing(topic_dir: Path, topic: str) -> Path:
 
 class KnowledgeIngestRequest(BaseModel):
     topic: str
-    url: str
+    url: Optional[str] = None
 
 
 class KnowledgeIngestResponse(BaseModel):
@@ -409,6 +416,188 @@ def _build_kb_tree() -> dict:
         "sections": sections,
         "total_topics": total_topics,
         "total_chapters": total_chapters,
+    }
+
+
+def _resolve_ddg_result_url(href: str) -> str:
+    """Resolve direct URL from DuckDuckGo redirect links when needed."""
+    parsed = urlparse(href)
+    if "duckduckgo.com" in parsed.netloc and parsed.path.startswith("/l/"):
+        query = parse_qs(parsed.query)
+        if "uddg" in query and query["uddg"]:
+            return unquote(query["uddg"][0])
+    return href
+
+
+def _discover_domain_links(topic: str, domain: str, max_links: int = AUTO_RESEARCH_MAX_LINKS_PER_DOMAIN) -> list[str]:
+    """Discover topic-relevant article URLs for a specific domain."""
+    query = f"site:{domain} {topic} stock trading investing"
+    try:
+        response = requests.get(
+            "https://duckduckgo.com/html/",
+            params={"q": query},
+            headers=WIKIPEDIA_REQUEST_HEADERS,
+            timeout=20,
+        )
+        response.raise_for_status()
+    except requests.RequestException:
+        return []
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    links: list[str] = []
+    seen: set[str] = set()
+
+    for anchor in soup.find_all("a", href=True):
+        classes = anchor.get("class") or []
+        if "result__a" not in classes:
+            continue
+
+        candidate = _resolve_ddg_result_url(anchor["href"])
+        parsed = urlparse(candidate)
+        if parsed.scheme not in {"http", "https"}:
+            continue
+        if domain not in parsed.netloc.lower():
+            continue
+        if candidate in seen:
+            continue
+
+        seen.add(candidate)
+        links.append(candidate)
+        if len(links) >= max_links:
+            break
+
+    return links
+
+
+def _fallback_domain_search_url(topic: str, domain: str) -> str:
+    """Build domain-native search page URL for resilient ingestion fallback."""
+    encoded = quote_plus(topic)
+    if domain == "reuters.com":
+        return f"https://www.reuters.com/site-search/?query={encoded}"
+    if domain == "bloomberg.com":
+        return f"https://www.bloomberg.com/search?query={encoded}"
+    return f"https://www.investopedia.com/search?q={encoded}"
+
+
+def _discover_topic_sources(topic: str) -> list[str]:
+    """Discover candidate source URLs across Reuters, Bloomberg, and Investopedia."""
+    sources: list[str] = []
+    seen: set[str] = set()
+
+    for domain in AUTO_RESEARCH_DOMAINS:
+        links = _discover_domain_links(topic, domain)
+        if not links:
+            links = [_fallback_domain_search_url(topic, domain)]
+
+        for link in links:
+            if link in seen:
+                continue
+            seen.add(link)
+            sources.append(link)
+
+    return sources
+
+
+def _derive_trading_application_insights(topic: str, claims: list[str]) -> list[str]:
+    """Transform extracted claims into actionable trading-oriented guidance."""
+    insights: list[str] = []
+
+    keyword_rules = {
+        "inflation": "Map inflation surprises to rates-sensitive sectors; avoid entries before confirmation candles.",
+        "interest": "Track rate expectations and rotate position sizing toward beneficiaries of the rate regime.",
+        "earnings": "Use earnings catalyst windows with strict stop-loss sizing and post-event trend confirmation.",
+        "gdp": "Treat GDP trend shifts as medium-horizon regime signals and rebalance sector exposure gradually.",
+        "employment": "Use labor data as a volatility trigger and avoid oversized positions into release windows.",
+        "oil": "Monitor energy-price shocks for second-order impacts on transportation, consumer, and inflation proxies.",
+        "bond": "Watch yield-curve direction for risk-on/risk-off positioning and duration-sensitive equities.",
+    }
+
+    for claim in claims:
+        claim_lower = claim.lower()
+        matched_rule = None
+        for keyword, rule in keyword_rules.items():
+            if keyword in claim_lower:
+                matched_rule = rule
+                break
+
+        if not matched_rule:
+            matched_rule = (
+                "Use this as context only; require price, volume, and trend confirmation "
+                "before entering a trade based on the narrative."
+            )
+
+        snippet = claim if len(claim) <= 170 else f"{claim[:167]}..."
+        insights.append(f"{snippet} -> {matched_rule}")
+
+        if len(insights) >= 8:
+            break
+
+    if not insights:
+        insights.append(
+            f"No high-quality claims extracted for '{topic}'. Keep the chapter in Draft and add manual analyst notes."
+        )
+
+    return insights
+
+
+def _auto_research_topic(topic: str) -> dict:
+    """Run multi-source topic research and synthesize claims for chapter generation."""
+    source_urls = _discover_topic_sources(topic)
+
+    claims: list[str] = []
+    seen_claims: set[str] = set()
+    used_sources: list[dict[str, str]] = []
+
+    for source_url in source_urls:
+        try:
+            extracted = _extract_webpage_text(source_url)
+        except requests.RequestException:
+            continue
+
+        paragraphs = extracted.get("paragraphs", [])
+        if not paragraphs:
+            continue
+
+        used_sources.append(
+            {
+                "url": source_url,
+                "title": extracted.get("title", "Untitled source"),
+            }
+        )
+
+        for paragraph in paragraphs:
+            normalized = re.sub(r"\s+", " ", paragraph).strip()
+            if len(normalized) < 60:
+                continue
+            key = normalized.lower()
+            if key in seen_claims:
+                continue
+            seen_claims.add(key)
+            claims.append(normalized)
+            if len(claims) >= AUTO_RESEARCH_MAX_EXTRACTED_CLAIMS:
+                break
+
+        if len(claims) >= AUTO_RESEARCH_MAX_EXTRACTED_CLAIMS:
+            break
+
+    trading_insights = _derive_trading_application_insights(topic, claims)
+    summary = claims[0] if claims else (
+        "Automated discovery found limited extractable content; manual review and enrichment required."
+    )
+
+    source_title = (
+        "Auto research synthesis from Reuters, Bloomberg, and Investopedia"
+        if used_sources
+        else "Auto research attempted (insufficient extractable source content)"
+    )
+
+    return {
+        "source_title": source_title,
+        "summary": summary,
+        "claims": claims[:8],
+        "trading_insights": trading_insights,
+        "source_urls": [item["url"] for item in used_sources],
+        "source_labels": [f"{item['title']} ({item['url']})" for item in used_sources],
     }
 
 
@@ -852,16 +1041,43 @@ async def knowledge_base_open_explorer(payload: KnowledgeOpenExplorerRequest):
 async def knowledge_base_ingest(payload: KnowledgeIngestRequest):
     """Ingest website content into section/topic/chapter structure (steps 2-5)."""
     topic = payload.topic.strip()
-    source_url = payload.url.strip()
+    source_url = (payload.url or "").strip()
     if not topic:
         raise HTTPException(status_code=400, detail="Topic is required")
 
-    _validate_ingestion_url(source_url)
+    source_urls: list[str] = []
+    source_title = ""
+    summary = ""
+    claims: list[str] = []
+    trading_insights: list[str] = []
 
-    try:
-        extracted = await asyncio.to_thread(_extract_webpage_text, source_url)
-    except requests.RequestException as exc:
-        raise HTTPException(status_code=400, detail=f"Could not fetch URL: {exc}") from exc
+    if source_url:
+        _validate_ingestion_url(source_url)
+        try:
+            extracted = await asyncio.to_thread(_extract_webpage_text, source_url)
+        except requests.RequestException as exc:
+            raise HTTPException(status_code=400, detail=f"Could not fetch URL: {exc}") from exc
+
+        paragraphs = extracted.get("paragraphs", [])
+        summary = paragraphs[0] if paragraphs else "No substantial text extracted from source."
+        claims = paragraphs[:5]
+        trading_insights = _derive_trading_application_insights(topic, claims)
+        source_title = extracted.get("title", "Untitled source")
+        source_urls = [source_url]
+    else:
+        auto_result = await asyncio.to_thread(_auto_research_topic, topic)
+        source_title = auto_result["source_title"]
+        summary = auto_result["summary"]
+        claims = auto_result["claims"]
+        trading_insights = auto_result["trading_insights"]
+        source_urls = auto_result["source_urls"]
+
+        if not source_urls:
+            source_urls = [
+                _fallback_domain_search_url(topic, "reuters.com"),
+                _fallback_domain_search_url(topic, "bloomberg.com"),
+                _fallback_domain_search_url(topic, "investopedia.com"),
+            ]
 
     topic_dir, chapters_dir = _build_kb_topic_paths(topic)
     topic_index = _write_topic_index_if_missing(topic_dir, topic)
@@ -869,10 +1085,6 @@ async def knowledge_base_ingest(payload: KnowledgeIngestRequest):
     timestamp = datetime.now()
     chapter_name = f"{timestamp.strftime('%Y%m%d-%H%M%S')}-{_slugify(topic)}.md"
     chapter_path = chapters_dir / chapter_name
-
-    paragraphs = extracted.get("paragraphs", [])
-    summary = paragraphs[0] if paragraphs else "No substantial text extracted from source."
-    claims = paragraphs[:5]
 
     chapter_lines = [
         "---",
@@ -883,17 +1095,24 @@ async def knowledge_base_ingest(payload: KnowledgeIngestRequest):
         f"last_reviewed: {timestamp.strftime('%Y-%m-%d')}",
         "confidence: Medium",
         "sources:",
-        f"  - {source_url}",
+    ]
+
+    for source in source_urls:
+        chapter_lines.append(f"  - {source}")
+
+    chapter_lines.extend(
+        [
         "---",
         "",
         "# Objective",
-        f"- Capture source knowledge for topic: {topic}.",
+        f"- Capture source knowledge for topic: {topic} and map it to practical trading use.",
         "",
         "# Core Concepts",
-        f"- Source title: {extracted.get('title', 'Untitled source')}",
+        f"- Source synthesis: {source_title}",
         "",
         "# Extracted Claims",
-    ]
+        ]
+    )
 
     if claims:
         for claim in claims:
@@ -905,7 +1124,18 @@ async def knowledge_base_ingest(payload: KnowledgeIngestRequest):
         [
             "",
             "# Actionable Rules Derived",
-            "- Draft only. Review and promote before production usage.",
+        ]
+    )
+
+    for insight in trading_insights:
+        chapter_lines.append(f"- {insight}")
+
+    chapter_lines.extend(
+        [
+            "",
+            "# Trading Application Notes",
+            "- Use insights as scenario context, not as standalone trade triggers.",
+            "- Confirm entries with technical structure, liquidity, and risk limits.",
             "",
             "# Constraints And Caveats",
             "- Content is automatically extracted and may contain noise.",
@@ -916,7 +1146,17 @@ async def knowledge_base_ingest(payload: KnowledgeIngestRequest):
             "- Step 4 applies after chapter is promoted to Approved.",
             "",
             "# References",
-            f"- {source_url}",
+        ]
+    )
+
+    for source in source_urls:
+        chapter_lines.append(f"- {source}")
+
+    chapter_lines.extend(
+        [
+            "",
+            "# Source Acquisition Mode",
+            f"- {'Manual URL ingestion' if source_url else 'Auto multi-source topic research'}",
         ]
     )
 
@@ -925,8 +1165,9 @@ async def knowledge_base_ingest(payload: KnowledgeIngestRequest):
 
     topic_index_content = topic_index.read_text(encoding="utf-8")
 
+    source_label = source_url if source_url else "AUTO_DISCOVERY"
     _append_kb_changelog(
-        f"Ingested topic '{topic}' from {source_url} into {chapter_path.as_posix()}"
+        f"Ingested topic '{topic}' from {source_label} into {chapter_path.as_posix()}"
     )
 
     # Write-back to GitHub so content persists across deploys on production.
@@ -934,7 +1175,7 @@ async def knowledge_base_ingest(payload: KnowledgeIngestRequest):
     kb_root_resolved = KB_ROOT.resolve()
     chapter_repo_path = "knowledge-base/" + _safe_rel_path(chapter_path, KB_ROOT)
     topic_index_repo_path = "knowledge-base/" + _safe_rel_path(topic_index, KB_ROOT)
-    commit_msg = f"kb: auto-ingest topic '{topic}' from {source_url}"
+    commit_msg = f"kb: auto-ingest topic '{topic}' from {source_label}"
 
     def _do_github_writeback() -> None:
         files_to_commit = {
@@ -955,8 +1196,8 @@ async def knowledge_base_ingest(payload: KnowledgeIngestRequest):
 
     return KnowledgeIngestResponse(
         topic=topic,
-        url=source_url,
-        source_title=extracted.get("title", "Untitled source"),
+        url=source_url if source_url else "AUTO_DISCOVERY",
+        source_title=source_title,
         created_chapter=chapter_path.as_posix(),
         created_topic_index=topic_index.as_posix(),
         changelog_updated=KB_CHANGELOG_PATH.as_posix(),

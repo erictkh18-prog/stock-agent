@@ -147,7 +147,7 @@
     <main class="container">
         <section class="card">
             <h1>Knowledge Base Builder</h1>
-            <p class="subtitle">Enter a topic and website URL. On submit, the app performs Step 2 to Step 5 automatically: ingest source, create chapter in section/topic/chapter format, update changelog, and keep status as Draft pending approval.</p>
+            <p class="subtitle">Enter a topic. URL is optional: if omitted, the app auto-researches Reuters, Bloomberg, and Investopedia, then drafts a trading-focused chapter and updates the changelog.</p>
 
             <form id="kbForm" class="grid">
                 <div>
@@ -156,8 +156,8 @@
                 </div>
 
                 <div>
-                    <label for="url">Website URL</label>
-                    <input id="url" name="url" type="url" placeholder="https://example.com/article" required>
+                    <label for="url">Website URL (Optional)</label>
+                    <input id="url" name="url" type="url" placeholder="https://example.com/article">
                 </div>
 
                 <button id="submitBtn" type="submit">Submit</button>
@@ -167,9 +167,9 @@
 
             <div class="steps">
                 <strong>Automated flow:</strong><br>
-                Step 2: Source ingestion from URL<br>
+                Step 2: Source ingestion from URL or auto research on Reuters/Bloomberg/Investopedia<br>
                 Step 3: Draft chapter creation under section/topic/chapter<br>
-                Step 4: Decision policy note (Draft until approved)<br>
+                Step 4: Trading-application insights generated from extracted claims<br>
                 Step 5: Changelog update for audit trail
             </div>
         </section>
