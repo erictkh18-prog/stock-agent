@@ -402,6 +402,8 @@
                 <div class="doc-meta" id="docMeta">Choose a chapter from the left panel to view its content.</div>
                 <div class="doc-actions">
                     <button class="doc-action-button" id="openSelectedExplorerBtn" type="button" disabled>Open in Explorer</button>
+                    <button class="doc-action-button" id="approveChapterBtn" type="button" disabled>Approve Chapter</button>
+                    <button class="doc-action-button" id="rejectChapterBtn" type="button" disabled>Reject Chapter</button>
                 </div>
                 <article id="docBody" class="doc-body">No chapter selected yet.</article>
                 <div class="status" id="status"></div>
@@ -423,6 +425,8 @@
         const treeFilterInput = document.getElementById("treeFilter");
         const clearFilterBtn = document.getElementById("clearFilterBtn");
         const openSelectedExplorerBtn = document.getElementById("openSelectedExplorerBtn");
+        const approveChapterBtn = document.getElementById("approveChapterBtn");
+        const rejectChapterBtn = document.getElementById("rejectChapterBtn");
 
         let activeChapterPath = "";
         let fullSections = [];
@@ -450,6 +454,28 @@
                 return;
             }
             await openChapterInExplorer(activeChapterPath);
+        });
+
+        approveChapterBtn.addEventListener("click", async () => {
+            if (!activeChapterPath) {
+                statusEl.textContent = "Select a chapter first.";
+                return;
+            }
+            const note = window.prompt("Approval note (optional):", "") || "";
+            await updateChapterStatus(activeChapterPath, "Approved", note);
+            await loadChapter(activeChapterPath, null);
+            await loadTree();
+        });
+
+        rejectChapterBtn.addEventListener("click", async () => {
+            if (!activeChapterPath) {
+                statusEl.textContent = "Select a chapter first.";
+                return;
+            }
+            const note = window.prompt("Why reject this chapter?", "Needs manual rewrite") || "Needs manual rewrite";
+            await updateChapterStatus(activeChapterPath, "Rejected", note);
+            await loadChapter(activeChapterPath, null);
+            await loadTree();
         });
 
         async function loadTree() {
@@ -636,6 +662,8 @@
                 renderMarkdown(payload.content);
                 setActiveButton(button);
                 openSelectedExplorerBtn.disabled = false;
+                approveChapterBtn.disabled = false;
+                rejectChapterBtn.disabled = false;
                 statusEl.textContent = "Chapter loaded.";
             } catch (error) {
                 statusEl.textContent = `Error: ${error.message}`;
@@ -671,6 +699,33 @@
                     throw new Error(payload.detail || "Could not open explorer");
                 }
                 statusEl.textContent = `${payload.message}: ${payload.path}`;
+            } catch (error) {
+                statusEl.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        async function updateChapterStatus(relativePath, chapterStatus, note) {
+            statusEl.textContent = `Updating chapter status to ${chapterStatus}...`;
+
+            try {
+                const response = await fetch("/knowledge-base/chapter-status", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        path: relativePath,
+                        status: chapterStatus,
+                        note,
+                    }),
+                });
+
+                const payload = await response.json();
+                if (!response.ok) {
+                    throw new Error(payload.detail || "Could not update chapter status");
+                }
+
+                statusEl.textContent = `${payload.message}: ${payload.path} -> ${payload.chapter_status}`;
             } catch (error) {
                 statusEl.textContent = `Error: ${error.message}`;
             }

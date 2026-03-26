@@ -162,6 +162,18 @@ AUTO_RESEARCH_MAX_LINKS_PER_DOMAIN = 2
 AUTO_RESEARCH_MAX_EXTRACTED_CLAIMS = 12
 AUTO_RESEARCH_MIN_CLAIM_SCORE = 2
 AUTO_RESEARCH_SIMILARITY_THRESHOLD = 0.86
+AUTO_RESEARCH_MAX_CLAIMS_PER_SOURCE = 4
+CLAIM_NOISE_PATTERNS = [
+    "skip to content",
+    "subscribe",
+    "sign up",
+    "customer support",
+    "manage products",
+    "remote login",
+    "software updates",
+    "url source:",
+    "bloomberg the company",
+]
 
 
 def _should_rate_limit(path: str) -> bool:
@@ -334,6 +346,19 @@ class KnowledgeOpenExplorerResponse(BaseModel):
     message: str
 
 
+class KnowledgeChapterStatusRequest(BaseModel):
+    path: str
+    status: str
+    note: Optional[str] = None
+
+
+class KnowledgeChapterStatusResponse(BaseModel):
+    status: str
+    path: str
+    chapter_status: str
+    message: str
+
+
 def _safe_rel_path(path: Path, root: Path) -> str:
     """Return POSIX relative path from root for API payloads."""
     return path.relative_to(root).as_posix()
@@ -501,6 +526,29 @@ def _discover_topic_sources(topic: str) -> list[str]:
     return sources
 
 
+def _source_domain_from_url(url: str) -> str:
+    """Map source URL to a known research domain label."""
+    host = urlparse(url).netloc.lower()
+    for domain in AUTO_RESEARCH_DOMAINS:
+        if domain in host:
+            return domain
+    return host or "unknown"
+
+
+def _is_claim_noise(claim: str) -> bool:
+    """Filter navigation/boilerplate fragments that degrade chapter quality."""
+    claim_l = claim.lower().strip()
+    if len(claim_l) < 70:
+        return True
+    if claim_l.startswith("[") and "](" in claim_l:
+        return True
+    if claim_l.startswith("*"):
+        return True
+    if any(pattern in claim_l for pattern in CLAIM_NOISE_PATTERNS):
+        return True
+    return False
+
+
 def _is_low_quality_source_extract(source_title: str, paragraphs: list[str]) -> bool:
     """Detect blocked/noisy extraction responses that should not feed claim synthesis."""
     title_l = (source_title or "").lower()
@@ -535,28 +583,70 @@ def _claim_quality_score(claim: str, topic: str) -> int:
     return score
 
 
-def _rank_and_deduplicate_claims(claims: list[str], topic: str) -> list[str]:
-    """Remove near-duplicate claims and keep highest-scoring candidates first."""
+def _rank_and_deduplicate_claims(claims: list[dict[str, str]], topic: str) -> list[str]:
+    """Keep high-quality, low-duplicate claims with balanced source coverage."""
     ranked = sorted(
         claims,
-        key=lambda claim: _claim_quality_score(claim, topic),
+        key=lambda claim: _claim_quality_score(claim["text"], topic),
         reverse=True,
     )
 
     selected: list[str] = []
-    for claim in ranked:
-        score = _claim_quality_score(claim, topic)
-        if score < AUTO_RESEARCH_MIN_CLAIM_SCORE:
-            continue
+    preliminary_selected: list[str] = []
+    source_counts: dict[str, int] = defaultdict(int)
 
-        is_duplicate = any(
-            SequenceMatcher(None, claim.lower(), existing.lower()).ratio() >= AUTO_RESEARCH_SIMILARITY_THRESHOLD
+    def _is_duplicate(candidate: str) -> bool:
+        return any(
+            SequenceMatcher(None, candidate.lower(), existing.lower()).ratio() >= AUTO_RESEARCH_SIMILARITY_THRESHOLD
             for existing in selected
         )
-        if is_duplicate:
+
+    available_domains = {
+        claim.get("source_domain", "unknown") for claim in ranked
+    }
+
+    # Pass 1: keep one strong claim from each available source when possible.
+    for domain in available_domains:
+        for claim in ranked:
+            if claim.get("source_domain", "unknown") != domain:
+                continue
+
+            text = claim["text"]
+            score = _claim_quality_score(text, topic)
+            if score < AUTO_RESEARCH_MIN_CLAIM_SCORE:
+                continue
+
+            preliminary_selected.append(text)
+            break
+
+    for text in preliminary_selected:
+        if _is_duplicate(text):
+            continue
+        selected.append(text)
+        source_domain = next(
+            (
+                claim.get("source_domain", "unknown")
+                for claim in ranked
+                if claim["text"] == text
+            ),
+            "unknown",
+        )
+        source_counts[source_domain] += 1
+
+    # Pass 2: fill remaining slots by score while keeping source cap.
+    for claim in ranked:
+        text = claim["text"]
+        domain = claim.get("source_domain", "unknown")
+        score = _claim_quality_score(text, topic)
+        if score < AUTO_RESEARCH_MIN_CLAIM_SCORE:
+            continue
+        if source_counts[domain] >= AUTO_RESEARCH_MAX_CLAIMS_PER_SOURCE:
+            continue
+        if _is_duplicate(text):
             continue
 
-        selected.append(claim)
+        selected.append(text)
+        source_counts[domain] += 1
         if len(selected) >= AUTO_RESEARCH_MAX_EXTRACTED_CLAIMS:
             break
 
@@ -609,11 +699,12 @@ def _auto_research_topic(topic: str) -> dict:
     """Run multi-source topic research and synthesize claims for chapter generation."""
     source_urls = _discover_topic_sources(topic)
 
-    raw_claims: list[str] = []
+    raw_claims: list[dict[str, str]] = []
     seen_claims: set[str] = set()
     used_sources: list[dict[str, str]] = []
 
     for source_url in source_urls:
+        source_domain = _source_domain_from_url(source_url)
         try:
             extracted = _extract_webpage_text(source_url)
         except requests.RequestException:
@@ -638,11 +729,18 @@ def _auto_research_topic(topic: str) -> dict:
             normalized = re.sub(r"\s+", " ", paragraph).strip()
             if len(normalized) < 60:
                 continue
+            if _is_claim_noise(normalized):
+                continue
             key = normalized.lower()
             if key in seen_claims:
                 continue
             seen_claims.add(key)
-            raw_claims.append(normalized)
+            raw_claims.append(
+                {
+                    "text": normalized,
+                    "source_domain": source_domain,
+                }
+            )
 
     claims = _rank_and_deduplicate_claims(raw_claims, topic)
 
@@ -665,6 +763,51 @@ def _auto_research_topic(topic: str) -> dict:
         "source_urls": [item["url"] for item in used_sources],
         "source_labels": [f"{item['title']} ({item['url']})" for item in used_sources],
     }
+
+
+def _apply_chapter_status_update(chapter_path: Path, new_status: str, note: Optional[str]) -> None:
+    """Update chapter frontmatter status and append review note for auditability."""
+    content = chapter_path.read_text(encoding="utf-8")
+    lines = content.splitlines()
+
+    if len(lines) < 3 or lines[0].strip() != "---":
+        raise HTTPException(status_code=400, detail="Chapter missing valid frontmatter")
+
+    end_idx = None
+    for idx in range(1, len(lines)):
+        if lines[idx].strip() == "---":
+            end_idx = idx
+            break
+
+    if end_idx is None:
+        raise HTTPException(status_code=400, detail="Chapter frontmatter is not closed")
+
+    frontmatter = lines[1:end_idx]
+    body = lines[end_idx + 1 :]
+
+    def _set_frontmatter_field(field: str, value: str) -> None:
+        prefix = f"{field}:"
+        for i, line in enumerate(frontmatter):
+            if line.startswith(prefix):
+                frontmatter[i] = f"{field}: {value}"
+                return
+        frontmatter.append(f"{field}: {value}")
+
+    _set_frontmatter_field("status", new_status)
+    _set_frontmatter_field("last_reviewed", datetime.now().strftime("%Y-%m-%d"))
+
+    review_lines = [
+        "",
+        "# Review Decision",
+        f"- Status updated to {new_status} on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.",
+    ]
+    if note and note.strip():
+        review_lines.append(f"- Note: {note.strip()}")
+
+    updated_content = "\n".join(
+        ["---", *frontmatter, "---", *body, *review_lines]
+    ).strip() + "\n"
+    chapter_path.write_text(updated_content, encoding="utf-8")
 
 
 GITHUB_API_BASE = "https://api.github.com"
@@ -1100,6 +1243,49 @@ async def knowledge_base_open_explorer(payload: KnowledgeOpenExplorerRequest):
         status="ok",
         path=_safe_rel_path(chapter_path, KB_ROOT),
         message="Explorer opened for chapter path",
+    )
+
+
+@app.post("/knowledge-base/chapter-status", response_model=KnowledgeChapterStatusResponse)
+async def knowledge_base_chapter_status(payload: KnowledgeChapterStatusRequest):
+    """Approve/reject/draft a chapter by updating frontmatter status."""
+    relative_path = payload.path.strip()
+    requested_status = payload.status.strip().title()
+    note = payload.note.strip() if payload.note else ""
+
+    if not relative_path:
+        raise HTTPException(status_code=400, detail="Chapter path is required")
+
+    allowed_statuses = {"Approved", "Rejected", "Draft"}
+    if requested_status not in allowed_statuses:
+        raise HTTPException(status_code=400, detail="Status must be one of: Approved, Rejected, Draft")
+
+    chapter_path = _validate_kb_relative_path(relative_path)
+    await asyncio.to_thread(_apply_chapter_status_update, chapter_path, requested_status, note)
+
+    rel_chapter = _safe_rel_path(chapter_path, KB_ROOT)
+    _append_kb_changelog(f"Chapter status set to {requested_status}: {chapter_path.as_posix()}")
+
+    chapter_repo_path = "knowledge-base/" + rel_chapter
+    changelog_repo_path = "knowledge-base/" + _safe_rel_path(KB_CHANGELOG_PATH, KB_ROOT)
+
+    def _do_github_status_writeback() -> None:
+        files_to_commit = {
+            chapter_repo_path: chapter_path.read_text(encoding="utf-8"),
+            changelog_repo_path: KB_CHANGELOG_PATH.read_text(encoding="utf-8"),
+        }
+        _github_commit_files(
+            files_to_commit,
+            f"kb: set chapter status '{requested_status}' for {rel_chapter}",
+        )
+
+    threading.Thread(target=_do_github_status_writeback, daemon=True).start()
+
+    return KnowledgeChapterStatusResponse(
+        status="ok",
+        path=rel_chapter,
+        chapter_status=requested_status,
+        message="Chapter status updated",
     )
 
 

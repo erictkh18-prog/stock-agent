@@ -11,8 +11,10 @@ from src.main import (
     _discover_domain_links,
     _extract_webpage_text,
     _github_commit_files,
+    _is_claim_noise,
     _is_low_quality_source_extract,
     _rank_and_deduplicate_claims,
+    _source_domain_from_url,
     app,
 )
 
@@ -227,10 +229,22 @@ def test_knowledge_base_ingest_without_url_runs_auto_research(monkeypatch, tmp_p
 def test_rank_and_deduplicate_claims_prioritizes_relevant_finance_content():
     """Ranking should keep relevant macro/finance claims and drop noisy duplicates."""
     claims = [
-        "Inflation data and bond yields continue to drive equity valuation shifts across sectors.",
-        "Inflation data and bond yields continue to drive equity valuation shifts across sectors!",
-        "Click here to subscribe for unlimited content and cookie updates.",
-        "The Federal Reserve policy outlook changed interest-rate expectations for growth stocks.",
+        {
+            "text": "Inflation data and bond yields continue to drive equity valuation shifts across sectors.",
+            "source_domain": "reuters.com",
+        },
+        {
+            "text": "Inflation data and bond yields continue to drive equity valuation shifts across sectors!",
+            "source_domain": "bloomberg.com",
+        },
+        {
+            "text": "Click here to subscribe for unlimited content and cookie updates.",
+            "source_domain": "investopedia.com",
+        },
+        {
+            "text": "The Federal Reserve policy outlook changed interest-rate expectations for growth stocks.",
+            "source_domain": "reuters.com",
+        },
     ]
 
     selected = _rank_and_deduplicate_claims(claims, "macro inflation trading")
@@ -238,6 +252,31 @@ def test_rank_and_deduplicate_claims_prioritizes_relevant_finance_content():
     assert len(selected) == 2
     assert any("Inflation data and bond yields" in claim for claim in selected)
     assert any("Federal Reserve policy outlook" in claim for claim in selected)
+
+
+def test_rank_and_deduplicate_claims_balances_sources_when_available():
+    """Selection should include at least one claim per available source when quality permits."""
+    claims = [
+        {
+            "text": "Reuters notes inflation pressure and bond-yield repricing across cyclicals.",
+            "source_domain": "reuters.com",
+        },
+        {
+            "text": "Bloomberg reports central-bank messaging shifted expectations for future rates.",
+            "source_domain": "bloomberg.com",
+        },
+        {
+            "text": "Investopedia explains how interest-rate policy changes affect sector rotation and valuation assumptions.",
+            "source_domain": "investopedia.com",
+        },
+    ]
+
+    selected = _rank_and_deduplicate_claims(claims, "inflation interest rates")
+
+    assert len(selected) == 3
+    assert any("Reuters notes inflation" in claim for claim in selected)
+    assert any("Bloomberg reports central-bank" in claim for claim in selected)
+    assert any("Investopedia explains" in claim for claim in selected)
 
 
 def test_is_low_quality_source_extract_flags_blocked_placeholder():
@@ -251,3 +290,69 @@ def test_is_low_quality_source_extract_flags_blocked_placeholder():
         "Reuters Markets",
         ["Inflation and rates expectations continue to impact risk assets globally."],
     ) is False
+
+
+def test_source_domain_from_url_matches_known_domains():
+    """Domain mapper should normalize URLs to known source labels."""
+    assert _source_domain_from_url("https://www.reuters.com/markets/us/fed") == "reuters.com"
+    assert _source_domain_from_url("https://www.bloomberg.com/news/articles/x") == "bloomberg.com"
+    assert _source_domain_from_url("https://www.investopedia.com/terms/i/inflation.asp") == "investopedia.com"
+
+
+def test_is_claim_noise_blocks_navigation_fragments():
+    """Navigation and account/marketing snippets should be rejected as claims."""
+    assert _is_claim_noise("[Skip to content](https://example.com#content)") is True
+    assert _is_claim_noise("Bloomberg the Company & Its Products and customer support links") is True
+    assert _is_claim_noise("Interest-rate expectations are repricing growth-equity valuation multiples.") is False
+
+
+def test_chapter_status_endpoint_updates_frontmatter(monkeypatch, tmp_path):
+    """Approve/reject endpoint should update status and append review note."""
+    import src.main as main_module
+
+    monkeypatch.setattr(main_module, "KB_ROOT", tmp_path)
+    monkeypatch.setattr(main_module, "KB_CHANGELOG_PATH", tmp_path / "CHANGELOG.md")
+    monkeypatch.setattr(main_module, "_github_commit_files", lambda files, message: True)
+
+    chapter_rel = "sections/02-trading-domain/topics/auto-test/chapters/ch1.md"
+    chapter_path = tmp_path / chapter_rel
+    chapter_path.parent.mkdir(parents=True, exist_ok=True)
+    chapter_path.write_text(
+        "\n".join(
+            [
+                "---",
+                "chapter_id: CH-AUTO-TEST",
+                "title: test topic",
+                "status: Draft",
+                "owner: Eric + Copilot",
+                "last_reviewed: 2026-03-26",
+                "confidence: Medium",
+                "sources:",
+                "  - https://www.reuters.com/",
+                "---",
+                "",
+                "# Objective",
+                "- Test",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    response = client.post(
+        "/knowledge-base/chapter-status",
+        json={
+            "path": chapter_rel,
+            "status": "Approved",
+            "note": "Reviewed and accepted",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["chapter_status"] == "Approved"
+
+    updated = chapter_path.read_text(encoding="utf-8")
+    assert "status: Approved" in updated
+    assert "# Review Decision" in updated
+    assert "Reviewed and accepted" in updated

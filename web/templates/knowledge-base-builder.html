@@ -137,6 +137,30 @@
             line-height: 1.5;
         }
 
+        .nav-links {
+            margin-bottom: 14px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .nav-links a {
+            display: inline-block;
+            text-decoration: none;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 8px 12px;
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: #0f172a;
+            background: #fff;
+        }
+
+        .nav-links a:hover {
+            border-color: #7dd3fc;
+            background: #f0f9ff;
+        }
+
         @media (max-width: 640px) {
             h1 { font-size: 1.45rem; }
             .container { padding-top: 18px; }
@@ -147,6 +171,10 @@
     <main class="container">
         <section class="card">
             <h1>Knowledge Base Builder</h1>
+            <div class="nav-links">
+                <a href="/knowledge-base">Open KB Viewer</a>
+                <a href="/">Back to Dashboard</a>
+            </div>
             <p class="subtitle">Enter a topic. URL is optional: if omitted, the app auto-researches Reuters, Bloomberg, and Investopedia, then drafts a trading-focused chapter and updates the changelog.</p>
 
             <form id="kbForm" class="grid">
