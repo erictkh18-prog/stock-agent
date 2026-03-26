@@ -36,3 +36,91 @@ def test_determine_trend(analyzer):
     
     trend = analyzer._determine_trend(sma_50=None, sma_200=None, current_price=100)
     assert trend == "unknown"
+
+
+@pytest.fixture
+def sample_data_200():
+    """Create sample OHLC data with 260 rows (1+ year) for 52w and momentum tests."""
+    import numpy as np
+    n = 260
+    dates = pd.date_range('2023-01-01', periods=n)
+    # Trending upward with some volatility
+    rng = np.random.default_rng(42)
+    prices = 100 + np.cumsum(rng.normal(0.1, 1.5, n))
+    prices = np.maximum(prices, 1.0)
+    data = pd.DataFrame({
+        'Open': prices * 0.998,
+        'High': prices * 1.01,
+        'Low': prices * 0.99,
+        'Close': prices,
+        'Volume': rng.integers(500_000, 2_000_000, n).astype(float),
+    }, index=dates)
+    return data
+
+
+def test_calculate_ema(analyzer, sample_data):
+    """EMA should return a float for sufficient data."""
+    ema = analyzer._calculate_ema(sample_data, 20)
+    assert ema is not None
+    assert isinstance(ema, float)
+
+
+def test_calculate_atr(analyzer, sample_data):
+    """ATR should return a positive float."""
+    atr = analyzer._calculate_atr(sample_data, 14)
+    assert atr is not None
+    assert atr > 0
+
+
+def test_calculate_volume_ratio(analyzer, sample_data):
+    """Volume ratio should return a positive float."""
+    ratio = analyzer._calculate_volume_ratio(sample_data, 20)
+    assert ratio is not None
+    assert ratio > 0
+
+
+def test_calculate_price_change(analyzer, sample_data_200):
+    """Price change % should return a float for sufficient data."""
+    change = analyzer._calculate_price_change(sample_data_200, 21)
+    assert change is not None
+    assert isinstance(change, float)
+
+
+def test_calculate_52w_high_low(analyzer, sample_data_200):
+    """52-week high/low should be valid values."""
+    high, low = analyzer._calculate_52w_high_low(sample_data_200)
+    assert high is not None
+    assert low is not None
+    assert high >= low
+
+
+def test_technical_score_includes_momentum(analyzer, sample_data_200):
+    """Score should differ when price_change_3m is provided vs not."""
+    sma50 = analyzer._calculate_sma(sample_data_200, 50)
+    sma200 = analyzer._calculate_sma(sample_data_200, 200)
+    rsi = analyzer._calculate_rsi(sample_data_200, 14)
+    current = sample_data_200['Close'].iloc[-1]
+    trend = analyzer._determine_trend(sma50, sma200, current)
+
+    score_no_mom = analyzer._calculate_technical_score(sma50, sma200, rsi, trend, current, None, None)
+    score_with_strong_mom = analyzer._calculate_technical_score(
+        sma50, sma200, rsi, trend, current, None, None,
+        price_change_3m=0.25
+    )
+    assert score_with_strong_mom > score_no_mom, "Strong 3m momentum should raise score"
+
+
+def test_technical_score_volume_confirmation(analyzer, sample_data_200):
+    """High volume ratio should increase score."""
+    sma50 = analyzer._calculate_sma(sample_data_200, 50)
+    sma200 = analyzer._calculate_sma(sample_data_200, 200)
+    rsi = analyzer._calculate_rsi(sample_data_200, 14)
+    current = sample_data_200['Close'].iloc[-1]
+    trend = analyzer._determine_trend(sma50, sma200, current)
+
+    score_no_vol = analyzer._calculate_technical_score(sma50, sma200, rsi, trend, current, None, None)
+    score_high_vol = analyzer._calculate_technical_score(
+        sma50, sma200, rsi, trend, current, None, None,
+        volume_ratio=2.0
+    )
+    assert score_high_vol > score_no_vol, "High volume should raise score"

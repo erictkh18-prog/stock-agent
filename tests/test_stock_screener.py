@@ -580,3 +580,159 @@ def test_analyze_stock_fast_mode_skips_live_sentiment_lookup():
     assert analysis.sentiment is not None
     assert analysis.sentiment.analyst_sentiment == "neutral"
     assert analysis.sentiment.score == 50.0
+
+
+# ---------------------------------------------------------------------------
+# New filter tests (enhanced competitive screening criteria)
+# ---------------------------------------------------------------------------
+
+def _make_analysis_extended(
+    symbol: str,
+    score: float = 70.0,
+    roe: float = None,
+    roa: float = None,
+    profit_margin: float = None,
+    peg_ratio: float = None,
+    pb_ratio: float = None,
+    current_ratio: float = None,
+    quick_ratio: float = None,
+    fcf_yield: float = None,
+    beta: float = None,
+    price_change_3m: float = None,
+    volume_ratio: float = None,
+    forward_pe: float = None,
+) -> StockAnalysis:
+    """Create a StockAnalysis with selectively populated extended fields."""
+    from src.models import FundamentalAnalysis, TechnicalAnalysis
+    fundamental = FundamentalAnalysis(
+        score=score,
+        roe=roe,
+        roa=roa,
+        profit_margin=profit_margin,
+        peg_ratio=peg_ratio,
+        pb_ratio=pb_ratio,
+        current_ratio=current_ratio,
+        quick_ratio=quick_ratio,
+        fcf_yield=fcf_yield,
+        beta=beta,
+        forward_pe=forward_pe,
+    )
+    technical = TechnicalAnalysis(
+        score=score,
+        price_change_3m=price_change_3m,
+        volume_ratio=volume_ratio,
+    )
+    return StockAnalysis(
+        symbol=symbol,
+        name=symbol,
+        current_price=100.0,
+        timestamp=datetime.now(),
+        fundamental=fundamental,
+        technical=technical,
+        overall_score=score,
+        recommendation="BUY",
+        confidence=0.8,
+    )
+
+
+def test_passes_filter_min_roe(screener):
+    """Stocks with ROE below min_roe should be filtered out."""
+    analysis = _make_analysis_extended("TST", score=75, roe=0.08)
+    filters = ScreeningFilter(min_roe=0.10)
+    assert not screener._passes_filters(analysis, filters)
+
+
+def test_passes_filter_min_roe_ok(screener):
+    """Stocks with ROE >= min_roe should pass."""
+    analysis = _make_analysis_extended("TST", score=75, roe=0.15)
+    filters = ScreeningFilter(min_roe=0.10)
+    assert screener._passes_filters(analysis, filters)
+
+
+def test_passes_filter_max_peg(screener):
+    """Stocks with PEG > max_peg_ratio should be filtered out."""
+    analysis = _make_analysis_extended("TST", score=75, peg_ratio=3.0)
+    filters = ScreeningFilter(max_peg_ratio=2.0)
+    assert not screener._passes_filters(analysis, filters)
+
+
+def test_passes_filter_max_beta(screener):
+    """Stocks with beta > max_beta should be filtered out."""
+    analysis = _make_analysis_extended("TST", score=75, beta=2.5)
+    filters = ScreeningFilter(max_beta=1.5)
+    assert not screener._passes_filters(analysis, filters)
+
+
+def test_passes_filter_min_price_change_3m(screener):
+    """Stocks with 3m price change below threshold should be filtered out."""
+    analysis = _make_analysis_extended("TST", score=75, price_change_3m=-0.05)
+    filters = ScreeningFilter(min_price_change_3m=0.05)
+    assert not screener._passes_filters(analysis, filters)
+
+
+def test_passes_filter_min_fcf_yield(screener):
+    """Stocks with FCF yield below threshold should be filtered out."""
+    analysis = _make_analysis_extended("TST", score=75, fcf_yield=0.01)
+    filters = ScreeningFilter(min_fcf_yield=0.03)
+    assert not screener._passes_filters(analysis, filters)
+
+
+def test_passes_filter_min_current_ratio(screener):
+    """Stocks with current ratio below min should be filtered out."""
+    analysis = _make_analysis_extended("TST", score=75, current_ratio=0.8)
+    filters = ScreeningFilter(min_current_ratio=1.0)
+    assert not screener._passes_filters(analysis, filters)
+
+
+def test_passes_filter_min_quick_ratio(screener):
+    """Stocks with quick ratio below min should be filtered out."""
+    analysis = _make_analysis_extended("TST", score=75, quick_ratio=0.4)
+    filters = ScreeningFilter(min_quick_ratio=0.8)
+    assert not screener._passes_filters(analysis, filters)
+
+
+def test_passes_filter_volume_ratio(screener):
+    """Stocks with below-minimum volume ratio should be filtered out."""
+    analysis = _make_analysis_extended("TST", score=75, volume_ratio=0.8)
+    filters = ScreeningFilter(min_volume_ratio=1.2)
+    assert not screener._passes_filters(analysis, filters)
+
+
+def test_build_explanation_fcf_yield(screener):
+    """Strong FCF yield should appear in contributing factors."""
+    from src.models import FundamentalAnalysis
+    fund = FundamentalAnalysis(
+        score=75,
+        eps=3.0,
+        roe=0.20,
+        fcf_yield=0.06,
+    )
+    reason, contributing, risks = screener._build_explanation(fund, None, None)
+    assert any("cash flow" in f for f in contributing), f"Expected FCF factor, got: {contributing}"
+
+
+def test_build_explanation_peg_undervalued(screener):
+    """PEG < 1 should appear in contributing factors."""
+    from src.models import FundamentalAnalysis
+    fund = FundamentalAnalysis(score=75, eps=3.0, peg_ratio=0.8)
+    reason, contributing, risks = screener._build_explanation(fund, None, None)
+    assert any("PEG" in f or "undervalued" in f for f in contributing), \
+        f"Expected PEG factor, got: {contributing}"
+
+
+def test_build_explanation_high_beta_risk(screener):
+    """Beta > 2 should appear in risk factors."""
+    from src.models import FundamentalAnalysis
+    fund = FundamentalAnalysis(score=50, beta=2.5)
+    reason, contributing, risks = screener._build_explanation(fund, None, None)
+    assert any("beta" in r or "volatility" in r for r in risks), \
+        f"Expected beta risk factor, got: {risks}"
+
+
+def test_build_explanation_3m_momentum(screener):
+    """Strong 3-month price change should appear in contributing factors."""
+    from src.models import TechnicalAnalysis
+    tech = TechnicalAnalysis(score=75, price_change_3m=0.20, trend="uptrend")
+    reason, contributing, risks = screener._build_explanation(None, tech, None)
+    assert any("momentum" in f or "3-month" in f for f in contributing), \
+        f"Expected momentum factor, got: {contributing}"

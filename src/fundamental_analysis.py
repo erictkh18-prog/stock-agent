@@ -207,7 +207,9 @@ class FundamentalAnalyzer:
 
             # Extract fundamental metrics
             pe_ratio = info.get('trailingPE') or quote.get('trailingPE') or web_fallback.get('trailingPE')
+            forward_pe = info.get('forwardPE') or quote.get('forwardPE')
             eps = info.get('trailingEps') or quote.get('epsTrailingTwelveMonths') or web_fallback.get('epsTrailingTwelveMonths')
+            eps_forward = info.get('forwardEps') or quote.get('epsForward')
             dividend_yield = (
                 info.get('dividendYield')
                 or quote.get('trailingAnnualDividendYield')
@@ -219,10 +221,28 @@ class FundamentalAnalyzer:
                 dividend_yield = dividend_yield / 100
             debt_to_equity = info.get('debtToEquity')
             current_ratio = info.get('currentRatio')
+            quick_ratio = info.get('quickRatio')
             roa = info.get('returnOnAssets')
             roe = info.get('returnOnEquity')
             peg_ratio = info.get('pegRatio') or quote.get('pegRatio')
-            
+            pb_ratio = info.get('priceToBook') or quote.get('priceToBook')
+            price_to_sales = info.get('priceToSalesTrailing12Months') or quote.get('priceToSalesTrailing12Months')
+            ev_ebitda = info.get('enterpriseToEbitda')
+            operating_margin = info.get('operatingMargins')
+            beta = info.get('beta') or quote.get('beta')
+
+            # Free cash flow and FCF yield
+            free_cash_flow = info.get('freeCashflow')
+            market_cap = info.get('marketCap') or quote.get('marketCap')
+            fcf_yield: Optional[float] = None
+            if free_cash_flow is not None and market_cap and market_cap > 0:
+                fcf_yield = free_cash_flow / market_cap
+
+            # EPS growth (trailing vs forward as proxy when available)
+            eps_growth: Optional[float] = None
+            if eps is not None and eps_forward is not None and eps > 0:
+                eps_growth = (eps_forward - eps) / abs(eps)
+
             # Calculate growth metrics
             # Keep expensive financial-statement lookup only when info is available.
             revenue_growth = self._calculate_revenue_growth(stock) if info else None
@@ -230,21 +250,33 @@ class FundamentalAnalyzer:
             
             # Calculate score
             score = self._calculate_fundamental_score(
-                pe_ratio, eps, dividend_yield, debt_to_equity,
-                current_ratio, roa, roe, revenue_growth
+                pe_ratio, forward_pe, eps, dividend_yield, debt_to_equity,
+                current_ratio, quick_ratio, roa, roe, revenue_growth,
+                profit_margin, operating_margin, peg_ratio, pb_ratio,
+                price_to_sales, ev_ebitda, fcf_yield, beta
             )
             
             return FundamentalAnalysis(
                 pe_ratio=pe_ratio,
+                forward_pe=forward_pe,
                 eps=eps,
+                eps_growth=eps_growth,
                 dividend_yield=dividend_yield,
                 debt_to_equity=debt_to_equity,
                 current_ratio=current_ratio,
+                quick_ratio=quick_ratio,
                 roa=roa,
                 roe=roe,
                 revenue_growth=revenue_growth,
                 profit_margin=profit_margin,
+                operating_margin=operating_margin,
                 peg_ratio=peg_ratio,
+                pb_ratio=pb_ratio,
+                price_to_sales=price_to_sales,
+                ev_ebitda=ev_ebitda,
+                free_cash_flow=free_cash_flow,
+                fcf_yield=fcf_yield,
+                beta=beta,
                 score=score
             )
         
@@ -273,71 +305,213 @@ class FundamentalAnalyzer:
             return None
     
     def _calculate_fundamental_score(
-        self, pe_ratio, eps, dividend_yield, debt_to_equity,
-        current_ratio, roa, roe, revenue_growth
+        self, pe_ratio=None, forward_pe=None, eps=None, dividend_yield=None,
+        debt_to_equity=None, current_ratio=None, quick_ratio=None,
+        roa=None, roe=None, revenue_growth=None, profit_margin=None,
+        operating_margin=None, peg_ratio=None, pb_ratio=None,
+        price_to_sales=None, ev_ebitda=None, fcf_yield=None, beta=None
     ) -> float:
         """
-        Calculate a fundamental score (0-100)
-        
-        Scoring logic:
-        - Low P/E ratio (under 15): positive
-        - Positive EPS: positive
-        - High dividend yield: positive
-        - Low debt to equity: positive
-        - Strong current ratio (> 1.5): positive
-        - Positive ROA and ROE: positive
-        - Positive revenue growth: positive
+        Calculate a fundamental score (0-100) using 18 competitive screening criteria.
+
+        Scoring logic aligned with industry-standard screeners (Finviz, Stock Rover,
+        ValueSense):
+        - Valuation: P/E, Forward P/E, PEG, P/B, P/S, EV/EBITDA
+        - Profitability: EPS, ROE, ROA, profit margin, operating margin
+        - Growth: revenue growth
+        - Financial health: debt-to-equity, current ratio, quick ratio, FCF yield
+        - Risk: beta
+        - Income: dividend yield
         """
         score = 50  # Start with neutral score
-        
-        # P/E Ratio analysis (ideal: 15-25)
-        if pe_ratio:
-            if 10 <= pe_ratio <= 25:
-                score += 10
-            elif pe_ratio < 10:
+
+        # --- Valuation (max ±20 pts) ---
+
+        # Trailing P/E (ideal 10-25, penalise very high or negative)
+        if pe_ratio is not None and pe_ratio > 0:
+            if pe_ratio <= 15:
                 score += 8
-            elif pe_ratio > 30:
-                score -= 5
-        
-        # EPS analysis
-        if eps and eps > 0:
-            score += 10
-        elif eps and eps < 0:
-            score -= 10
-        
-        # Dividend yield
-        if dividend_yield and dividend_yield > 0.02:
-            score += 5
-        
-        # Debt to equity (lower is better)
-        if debt_to_equity:
-            if debt_to_equity < 0.5:
-                score += 10
-            elif debt_to_equity < 1:
+            elif pe_ratio <= 25:
                 score += 5
-            elif debt_to_equity > 2:
+            elif pe_ratio <= 35:
+                score += 0
+            else:
                 score -= 5
-        
-        # Current ratio (should be > 1.5)
-        if current_ratio:
-            if current_ratio > 1.5:
+
+        # Forward P/E (better predictor of value than trailing)
+        if forward_pe is not None and forward_pe > 0:
+            if forward_pe <= 15:
                 score += 5
-            elif current_ratio < 1:
+            elif forward_pe <= 25:
+                score += 3
+            elif forward_pe > 40:
+                score -= 4
+
+        # PEG ratio — combines valuation and growth (< 1.0 = undervalued grower)
+        if peg_ratio is not None and peg_ratio > 0:
+            if peg_ratio < 1.0:
+                score += 7
+            elif peg_ratio <= 1.5:
+                score += 4
+            elif peg_ratio <= 2.0:
+                score += 1
+            else:
+                score -= 3
+
+        # Price-to-book (< 1 = trading below book value; > 5 = expensive)
+        if pb_ratio is not None and pb_ratio > 0:
+            if pb_ratio < 1.5:
+                score += 4
+            elif pb_ratio <= 3.0:
+                score += 2
+            elif pb_ratio > 5.0:
+                score -= 3
+
+        # Price-to-sales (< 2 attractive; > 10 stretched)
+        if price_to_sales is not None and price_to_sales > 0:
+            if price_to_sales < 2:
+                score += 3
+            elif price_to_sales <= 5:
+                score += 1
+            elif price_to_sales > 10:
+                score -= 3
+
+        # EV/EBITDA (< 10 cheap; > 20 expensive)
+        if ev_ebitda is not None and ev_ebitda > 0:
+            if ev_ebitda < 10:
+                score += 4
+            elif ev_ebitda <= 15:
+                score += 2
+            elif ev_ebitda > 20:
+                score -= 3
+
+        # --- Profitability (max ±25 pts) ---
+
+        # EPS (positive earnings are a baseline requirement)
+        if eps is not None:
+            if eps > 0:
+                score += 8
+            else:
                 score -= 10
-        
-        # ROA (return on assets)
-        if roa and roa > 0.05:
-            score += 5
-        
-        # ROE (return on equity)
-        if roe and roe > 0.15:
-            score += 5
-        
-        # Revenue growth
-        if revenue_growth and revenue_growth > 0.1:
-            score += 10
-        elif revenue_growth and revenue_growth < 0:
-            score -= 5
-        
+
+        # ROE (> 15% signals efficient use of equity capital)
+        if roe is not None:
+            if roe > 0.20:
+                score += 7
+            elif roe > 0.15:
+                score += 5
+            elif roe > 0.10:
+                score += 3
+            elif roe < 0:
+                score -= 5
+
+        # ROA (> 5% signals asset efficiency)
+        if roa is not None:
+            if roa > 0.10:
+                score += 5
+            elif roa > 0.05:
+                score += 3
+            elif roa < 0:
+                score -= 4
+
+        # Net profit margin (> 15% = strong; < 0% = loss-making)
+        if profit_margin is not None:
+            if profit_margin > 0.20:
+                score += 5
+            elif profit_margin > 0.10:
+                score += 3
+            elif profit_margin > 0:
+                score += 1
+            else:
+                score -= 5
+
+        # Operating margin (> 15% = operational efficiency)
+        if operating_margin is not None:
+            if operating_margin > 0.20:
+                score += 4
+            elif operating_margin > 0.10:
+                score += 2
+            elif operating_margin < 0:
+                score -= 4
+
+        # --- Growth (max ±10 pts) ---
+
+        # Revenue growth (year-over-year)
+        if revenue_growth is not None:
+            if revenue_growth > 0.20:
+                score += 10
+            elif revenue_growth > 0.10:
+                score += 7
+            elif revenue_growth > 0:
+                score += 3
+            else:
+                score -= 5
+
+        # --- Financial health (max ±20 pts) ---
+
+        # Debt-to-equity (lower is safer)
+        if debt_to_equity is not None:
+            if debt_to_equity < 0.3:
+                score += 7
+            elif debt_to_equity < 0.5:
+                score += 5
+            elif debt_to_equity < 1.0:
+                score += 2
+            elif debt_to_equity > 2.0:
+                score -= 7
+            elif debt_to_equity > 1.5:
+                score -= 4
+
+        # Current ratio (liquidity safety net)
+        if current_ratio is not None:
+            if current_ratio >= 2.0:
+                score += 5
+            elif current_ratio >= 1.5:
+                score += 3
+            elif current_ratio >= 1.0:
+                score += 1
+            else:
+                score -= 8
+
+        # Quick ratio (more stringent liquidity check)
+        if quick_ratio is not None:
+            if quick_ratio >= 1.5:
+                score += 3
+            elif quick_ratio >= 1.0:
+                score += 1
+            elif quick_ratio < 0.5:
+                score -= 5
+
+        # Free cash flow yield (> 3% is attractive)
+        if fcf_yield is not None:
+            if fcf_yield > 0.05:
+                score += 5
+            elif fcf_yield > 0.02:
+                score += 3
+            elif fcf_yield < 0:
+                score -= 4
+
+        # --- Income (max +5 pts) ---
+
+        # Dividend yield (income investors reward steady dividends)
+        if dividend_yield is not None and dividend_yield > 0:
+            if dividend_yield > 0.04:
+                score += 5
+            elif dividend_yield > 0.02:
+                score += 3
+            else:
+                score += 1
+
+        # --- Risk adjustment (max ±5 pts) ---
+
+        # Beta (moderate beta 0.5-1.5 preferred; very high beta penalised)
+        if beta is not None:
+            if 0.5 <= beta <= 1.5:
+                score += 2
+            elif beta > 2.5:
+                score -= 4
+            elif beta < 0:
+                score -= 2
+
         # Clamp score between 0 and 100
         return max(0, min(100, score))

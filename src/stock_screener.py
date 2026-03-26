@@ -342,30 +342,106 @@ class StockScreener:
         
         # Fundamental filters
         if analysis.fundamental:
-            if filters.min_pe_ratio and analysis.fundamental.pe_ratio:
-                if analysis.fundamental.pe_ratio < filters.min_pe_ratio:
+            fund = analysis.fundamental
+
+            if filters.min_pe_ratio and fund.pe_ratio:
+                if fund.pe_ratio < filters.min_pe_ratio:
                     return False
             
-            if filters.max_pe_ratio and analysis.fundamental.pe_ratio:
-                if analysis.fundamental.pe_ratio > filters.max_pe_ratio:
+            if filters.max_pe_ratio and fund.pe_ratio:
+                if fund.pe_ratio > filters.max_pe_ratio:
+                    return False
+
+            if filters.max_forward_pe and fund.forward_pe:
+                if fund.forward_pe > filters.max_forward_pe:
                     return False
             
-            if filters.min_dividend_yield and analysis.fundamental.dividend_yield:
-                if analysis.fundamental.dividend_yield < filters.min_dividend_yield:
+            if filters.min_dividend_yield and fund.dividend_yield:
+                if fund.dividend_yield < filters.min_dividend_yield:
                     return False
             
-            if filters.max_debt_to_equity and analysis.fundamental.debt_to_equity:
-                if analysis.fundamental.debt_to_equity > filters.max_debt_to_equity:
+            if filters.max_debt_to_equity and fund.debt_to_equity:
+                if fund.debt_to_equity > filters.max_debt_to_equity:
                     return False
             
-            if filters.min_revenue_growth and analysis.fundamental.revenue_growth:
-                if analysis.fundamental.revenue_growth < filters.min_revenue_growth:
+            if filters.min_revenue_growth and fund.revenue_growth:
+                if fund.revenue_growth < filters.min_revenue_growth:
+                    return False
+
+            if filters.min_roe is not None and fund.roe is not None:
+                if fund.roe < filters.min_roe:
+                    return False
+
+            if filters.min_roa is not None and fund.roa is not None:
+                if fund.roa < filters.min_roa:
+                    return False
+
+            if filters.min_profit_margin is not None and fund.profit_margin is not None:
+                if fund.profit_margin < filters.min_profit_margin:
+                    return False
+
+            if filters.min_operating_margin is not None and fund.operating_margin is not None:
+                if fund.operating_margin < filters.min_operating_margin:
+                    return False
+
+            if filters.max_peg_ratio and fund.peg_ratio:
+                if fund.peg_ratio > filters.max_peg_ratio:
+                    return False
+
+            if filters.max_pb_ratio and fund.pb_ratio:
+                if fund.pb_ratio > filters.max_pb_ratio:
+                    return False
+
+            if filters.max_price_to_sales and fund.price_to_sales:
+                if fund.price_to_sales > filters.max_price_to_sales:
+                    return False
+
+            if filters.max_ev_ebitda and fund.ev_ebitda:
+                if fund.ev_ebitda > filters.max_ev_ebitda:
+                    return False
+
+            if filters.min_current_ratio is not None and fund.current_ratio is not None:
+                if fund.current_ratio < filters.min_current_ratio:
+                    return False
+
+            if filters.min_quick_ratio is not None and fund.quick_ratio is not None:
+                if fund.quick_ratio < filters.min_quick_ratio:
+                    return False
+
+            if filters.min_eps is not None and fund.eps is not None:
+                if fund.eps < filters.min_eps:
+                    return False
+
+            if filters.min_fcf_yield is not None and fund.fcf_yield is not None:
+                if fund.fcf_yield < filters.min_fcf_yield:
+                    return False
+
+            if filters.max_beta is not None and fund.beta is not None:
+                if fund.beta > filters.max_beta:
+                    return False
+
+            if filters.min_beta is not None and fund.beta is not None:
+                if fund.beta < filters.min_beta:
                     return False
         
         # Technical filters
         if analysis.technical:
-            if filters.trend and analysis.technical.trend != filters.trend:
+            tech = analysis.technical
+
+            if filters.trend and tech.trend != filters.trend:
                 return False
+
+            if filters.min_price_change_3m is not None and tech.price_change_3m is not None:
+                if tech.price_change_3m < filters.min_price_change_3m:
+                    return False
+
+            if filters.min_price_change_1m is not None and tech.price_change_1m is not None:
+                if tech.price_change_1m < filters.min_price_change_1m:
+                    return False
+
+            if filters.min_volume_ratio is not None and tech.volume_ratio is not None:
+                if tech.volume_ratio < filters.min_volume_ratio:
+                    return False
         
         return True
     
@@ -451,11 +527,20 @@ class StockScreener:
         # --- Fundamental factors ---
         if fundamental:
             pe = fundamental.pe_ratio
+            forward_pe = fundamental.forward_pe
             eps = fundamental.eps
             revenue_growth = fundamental.revenue_growth
             roe = fundamental.roe
+            roa = fundamental.roa
             debt_to_equity = fundamental.debt_to_equity
             current_ratio = fundamental.current_ratio
+            quick_ratio = fundamental.quick_ratio
+            profit_margin = fundamental.profit_margin
+            operating_margin = fundamental.operating_margin
+            peg_ratio = fundamental.peg_ratio
+            pb_ratio = fundamental.pb_ratio
+            fcf_yield = fundamental.fcf_yield
+            beta = fundamental.beta
 
             if eps is not None:
                 if eps > 0:
@@ -471,6 +556,24 @@ class StockScreener:
                 elif pe > 35:
                     risks.append("elevated valuation")
 
+            if forward_pe is not None and forward_pe > 0:
+                if forward_pe <= 15:
+                    contributing.append("attractive forward valuation")
+                elif forward_pe > 30:
+                    risks.append("high forward P/E")
+
+            if peg_ratio is not None and peg_ratio > 0:
+                if peg_ratio < 1.0:
+                    contributing.append("undervalued relative to growth (PEG < 1)")
+                elif peg_ratio > 2.0:
+                    risks.append("expensive relative to growth (PEG > 2)")
+
+            if pb_ratio is not None and pb_ratio > 0:
+                if pb_ratio < 1.5:
+                    contributing.append("trading near book value")
+                elif pb_ratio > 5.0:
+                    risks.append("high price-to-book ratio")
+
             if revenue_growth is not None:
                 if revenue_growth > 0.15:
                     contributing.append("strong revenue growth")
@@ -481,6 +584,20 @@ class StockScreener:
 
             if roe is not None and roe > 0.15:
                 contributing.append("strong return on equity")
+            if roe is not None and roe < 0:
+                risks.append("negative return on equity")
+
+            if roa is not None and roa > 0.08:
+                contributing.append("efficient asset utilisation")
+
+            if profit_margin is not None:
+                if profit_margin > 0.15:
+                    contributing.append("strong profit margins")
+                elif profit_margin < 0:
+                    risks.append("loss-making operations")
+
+            if operating_margin is not None and operating_margin < 0:
+                risks.append("negative operating margin")
 
             if debt_to_equity is not None:
                 if debt_to_equity < 0.5:
@@ -491,11 +608,26 @@ class StockScreener:
             if current_ratio is not None and current_ratio < 1.0:
                 risks.append("tight liquidity")
 
+            if quick_ratio is not None and quick_ratio < 0.7:
+                risks.append("weak quick ratio")
+
+            if fcf_yield is not None:
+                if fcf_yield > 0.04:
+                    contributing.append("strong free cash flow yield")
+                elif fcf_yield < 0:
+                    risks.append("negative free cash flow")
+
+            if beta is not None and beta > 2.0:
+                risks.append("high market volatility (beta > 2)")
+
         # --- Technical factors ---
         if technical:
             trend = technical.trend
             rsi = technical.rsi
             macd = technical.macd
+            price_change_3m = technical.price_change_3m
+            volume_ratio = technical.volume_ratio
+            price_pct_from_52w_high = technical.price_pct_from_52w_high
 
             if trend == "uptrend":
                 contributing.append("positive price momentum")
@@ -514,6 +646,21 @@ class StockScreener:
                     contributing.append("bullish MACD signal")
                 elif histogram < 0:
                     risks.append("bearish MACD signal")
+
+            if price_change_3m is not None:
+                if price_change_3m > 0.15:
+                    contributing.append("strong 3-month momentum")
+                elif price_change_3m < -0.15:
+                    risks.append("weak 3-month price performance")
+
+            if volume_ratio is not None and volume_ratio >= 1.5:
+                contributing.append("above-average volume confirmation")
+
+            if price_pct_from_52w_high is not None:
+                if price_pct_from_52w_high >= -0.05:
+                    contributing.append("near 52-week high — breakout zone")
+                elif price_pct_from_52w_high < -0.40:
+                    risks.append("deep below 52-week high")
 
         # --- Sentiment factors ---
         if sentiment:

@@ -43,6 +43,7 @@ class TechnicalAnalyzer:
             # Calculate moving averages
             sma_50 = self._calculate_sma(hist, 50)
             sma_200 = self._calculate_sma(hist, 200)
+            ema_20 = self._calculate_ema(hist, 20)
             
             # Get current price
             current_price = hist['Close'].iloc[-1] if len(hist) > 0 else None
@@ -61,21 +62,55 @@ class TechnicalAnalyzer:
             
             # Determine trend
             trend = self._determine_trend(sma_50, sma_200, current_price)
+
+            # Average True Range (14-day volatility)
+            atr = self._calculate_atr(hist, 14)
+            atr_pct = (atr / current_price) if (atr is not None and current_price) else None
+
+            # Volume ratio (today vs 20-day average)
+            volume_ratio = self._calculate_volume_ratio(hist, 20)
+
+            # Price momentum
+            price_change_1m = self._calculate_price_change(hist, 21)
+            price_change_3m = self._calculate_price_change(hist, 63)
+            price_change_6m = self._calculate_price_change(hist, 126)
+
+            # 52-week high/low
+            high_52w, low_52w = self._calculate_52w_high_low(hist)
+            price_pct_from_52w_high: Optional[float] = None
+            price_pct_from_52w_low: Optional[float] = None
+            if current_price and high_52w and high_52w > 0:
+                price_pct_from_52w_high = (current_price - high_52w) / high_52w
+            if current_price and low_52w and low_52w > 0:
+                price_pct_from_52w_low = (current_price - low_52w) / low_52w
             
             # Calculate technical score
             score = self._calculate_technical_score(
-                sma_50, sma_200, rsi, trend, current_price, support, resistance
+                sma_50, sma_200, rsi, trend, current_price, support, resistance,
+                macd, volume_ratio, price_change_1m, price_change_3m,
+                price_pct_from_52w_high, atr_pct
             )
             
             return TechnicalAnalysis(
                 sma_50=sma_50,
                 sma_200=sma_200,
+                ema_20=ema_20,
                 rsi=rsi,
                 macd=macd,
                 bollinger_bands=bollinger_bands,
                 support_level=support,
                 resistance_level=resistance,
                 trend=trend,
+                atr=atr,
+                atr_pct=atr_pct,
+                volume_ratio=volume_ratio,
+                price_change_1m=price_change_1m,
+                price_change_3m=price_change_3m,
+                price_change_6m=price_change_6m,
+                high_52w=high_52w,
+                low_52w=low_52w,
+                price_pct_from_52w_high=price_pct_from_52w_high,
+                price_pct_from_52w_low=price_pct_from_52w_low,
                 score=score
             )
         
@@ -88,6 +123,15 @@ class TechnicalAnalyzer:
         try:
             if len(df) >= period:
                 return df['Close'].tail(period).mean()
+            return None
+        except Exception:
+            return None
+
+    def _calculate_ema(self, df: pd.DataFrame, period: int) -> Optional[float]:
+        """Calculate Exponential Moving Average"""
+        try:
+            if len(df) >= period:
+                return df['Close'].ewm(span=period, adjust=False).mean().iloc[-1]
             return None
         except Exception:
             return None
@@ -144,6 +188,58 @@ class TechnicalAnalyzer:
             }
         except Exception:
             return None
+
+    def _calculate_atr(self, df: pd.DataFrame, period: int = 14) -> Optional[float]:
+        """Calculate Average True Range (ATR) — a measure of price volatility."""
+        try:
+            high = df['High']
+            low = df['Low']
+            close = df['Close']
+            prev_close = close.shift(1)
+            tr = pd.concat([
+                high - low,
+                (high - prev_close).abs(),
+                (low - prev_close).abs(),
+            ], axis=1).max(axis=1)
+            atr = tr.rolling(window=period).mean()
+            return atr.iloc[-1]
+        except Exception:
+            return None
+
+    def _calculate_volume_ratio(self, df: pd.DataFrame, period: int = 20) -> Optional[float]:
+        """Calculate today's volume relative to the N-day average volume."""
+        try:
+            if 'Volume' not in df.columns or len(df) < period + 1:
+                return None
+            avg_volume = df['Volume'].iloc[-(period + 1):-1].mean()
+            if avg_volume == 0:
+                return None
+            return df['Volume'].iloc[-1] / avg_volume
+        except Exception:
+            return None
+
+    def _calculate_price_change(self, df: pd.DataFrame, trading_days: int) -> Optional[float]:
+        """Calculate price change % over the given number of trading days."""
+        try:
+            if len(df) < trading_days + 1:
+                return None
+            past_price = df['Close'].iloc[-(trading_days + 1)]
+            current_price = df['Close'].iloc[-1]
+            if past_price == 0:
+                return None
+            return (current_price - past_price) / past_price
+        except Exception:
+            return None
+
+    def _calculate_52w_high_low(self, df: pd.DataFrame) -> Tuple[Optional[float], Optional[float]]:
+        """Calculate 52-week high and low from available history."""
+        try:
+            window = df.tail(252)
+            high_52w = window['High'].max()
+            low_52w = window['Low'].min()
+            return high_52w, low_52w
+        except Exception:
+            return None, None
     
     def _find_support_resistance(self, df: pd.DataFrame) -> Tuple[Optional[float], Optional[float]]:
         """Find support and resistance levels"""
@@ -178,49 +274,123 @@ class TechnicalAnalyzer:
     
     def _calculate_technical_score(
         self, sma_50, sma_200, rsi, trend, current_price,
-        support, resistance
+        support, resistance, macd=None, volume_ratio=None,
+        price_change_1m=None, price_change_3m=None,
+        price_pct_from_52w_high=None, atr_pct=None
     ) -> float:
         """
-        Calculate technical score (0-100)
-        
-        Scoring logic:
-        - Uptrend: positive
-        - RSI 30-70: healthy, extreme values are risky
-        - Price near support: positive (buying opportunity)
-        - MACD convergence: monitor
+        Calculate technical score (0-100) using competitive screener criteria.
+
+        Scoring factors (aligned with Finviz/StockCharts methodology):
+        - Trend / moving average alignment  (Golden/Death cross)
+        - RSI momentum (oversold/overbought)
+        - MACD histogram direction
+        - Price vs Support/Resistance
+        - Volume confirmation
+        - Price momentum (1-month, 3-month)
+        - Position relative to 52-week high (breakout vs near highs)
+        - ATR volatility filter
         """
         score = 50
         
-        # Trend scoring
+        # Trend scoring (primary filter)
         if trend == "uptrend":
             score += 15
         elif trend == "downtrend":
             score -= 15
         
         # RSI scoring (14 period)
-        if rsi:
-            if 30 <= rsi <= 70:
-                score += 10
+        if rsi is not None:
+            if 40 <= rsi <= 60:
+                score += 5   # Healthy, not extreme
+            elif 30 <= rsi < 40:
+                score += 8   # Mild pullback — buying zone
             elif rsi < 30:
-                score += 5  # Oversold - potential bounce
-            elif rsi > 70:
-                score -= 5  # Overbought
+                score += 4   # Oversold — potential reversal
+            elif 60 < rsi <= 70:
+                score += 3   # Momentum but not overbought
+            else:             # rsi > 70
+                score -= 5   # Overbought — risk of pullback
+
+        # MACD histogram direction
+        if macd is not None:
+            histogram = macd.get("histogram", 0) or 0
+            macd_line = macd.get("macd", 0) or 0
+            signal_line = macd.get("signal", 0) or 0
+            if histogram > 0 and macd_line > signal_line:
+                score += 8   # Bullish crossover
+            elif histogram > 0:
+                score += 4
+            elif histogram < 0 and macd_line < signal_line:
+                score -= 8   # Bearish crossover
+            else:
+                score -= 3
         
-        # Price vs Support/Resistance
+        # Price vs Support/Resistance (proximity scoring)
         if all([current_price, support, resistance]):
             distance_to_support = current_price - support
             distance_to_resistance = resistance - current_price
             
             if distance_to_support < distance_to_resistance * 0.3:
-                score += 10  # Close to support - good entry
+                score += 8   # Close to support - good entry
             elif distance_to_resistance < distance_to_support * 0.3:
-                score -= 10  # Close to resistance - might sell
+                score -= 8   # Close to resistance - might sell
         
         # Moving averages (Golden cross/Death cross)
         if all([sma_50, sma_200, current_price]):
             if sma_50 > sma_200 and current_price > sma_50:
-                score += 10
+                score += 8   # Strong uptrend alignment
+            elif sma_50 > sma_200:
+                score += 3   # Golden cross but price below SMA50
             elif sma_50 < sma_200 and current_price < sma_50:
-                score -= 10
-        
+                score -= 8   # Strong downtrend alignment
+            else:
+                score -= 3
+
+        # Volume confirmation (above-average volume signals conviction)
+        if volume_ratio is not None:
+            if volume_ratio >= 1.5:
+                score += 5   # Strong volume confirmation
+            elif volume_ratio >= 1.2:
+                score += 2
+            elif volume_ratio < 0.5:
+                score -= 3   # Very light volume — weak move
+
+        # Price momentum (3-month is a stronger signal than 1-month)
+        if price_change_3m is not None:
+            if price_change_3m > 0.20:
+                score += 7
+            elif price_change_3m > 0.10:
+                score += 4
+            elif price_change_3m > 0:
+                score += 1
+            elif price_change_3m < -0.20:
+                score -= 7
+            else:
+                score -= 3
+
+        # 1-month momentum
+        if price_change_1m is not None:
+            if price_change_1m > 0.10:
+                score += 4
+            elif price_change_1m > 0.03:
+                score += 2
+            elif price_change_1m < -0.10:
+                score -= 4
+            elif price_change_1m < -0.03:
+                score -= 2
+
+        # 52-week high proximity (breakout near highs is bullish)
+        if price_pct_from_52w_high is not None:
+            if price_pct_from_52w_high >= -0.05:
+                score += 5   # Within 5% of 52-week high — bullish momentum
+            elif price_pct_from_52w_high >= -0.15:
+                score += 2
+            elif price_pct_from_52w_high < -0.40:
+                score -= 4   # Deep below 52-week high — broken trend
+
+        # Volatility penalty (very high ATR% increases risk)
+        if atr_pct is not None and atr_pct > 0.05:
+            score -= 3  # High daily volatility adds risk
+
         return max(0, min(100, score))
