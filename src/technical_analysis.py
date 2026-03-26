@@ -17,24 +17,26 @@ class TechnicalAnalyzer:
     def analyze(self, symbol: str, lookback_days: int = 365, stock: Optional[yf.Ticker] = None) -> Optional[TechnicalAnalysis]:
         """
         Analyze technical indicators for a stock
-        
+
         Args:
             symbol: Stock ticker symbol
             lookback_days: Number of days of historical data to analyze
-            stock: Optional pre-created yf.Ticker instance to avoid redundant creation
-        
+            stock: Optional pre-created yf.Ticker instance. A fresh instance is
+                   always used for the history fetch to avoid stale internal state
+                   (e.g. a previously-failed info call that sets _already_fetched=True).
+
         Returns:
             TechnicalAnalysis object with indicators
         """
         try:
-            # Fetch historical data
-            if stock is None:
-                stock = yf.Ticker(symbol)
+            # Always use a fresh Ticker for history to avoid inheriting a
+            # broken _already_fetched state from a prior failed info lookup.
+            fetch_stock = yf.Ticker(symbol)
             end_date = datetime.now()
             start_date = end_date - timedelta(days=lookback_days)
-            
-            hist = stock.history(start=start_date, end=end_date)
-            if hist.empty:
+
+            hist = fetch_stock.history(start=start_date, end=end_date)
+            if hist is None or hist.empty:
                 self.logger.warning(f"No historical data for {symbol}")
                 return None
             
