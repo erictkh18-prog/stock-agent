@@ -153,6 +153,25 @@ If you prefer manual setup in Render:
 - Free plans may sleep after inactivity; first request can be slow.
 - The app uses free public data sources and does not require paid API keys.
 
+### Knowledge Base Persistence on Render
+
+Render's filesystem is **ephemeral** — files written at runtime are lost on every redeploy.  
+To make Knowledge Base submissions persist, the server commits them back to GitHub via the API.
+
+**Required one-time setup** in your Render service dashboard:
+
+1. Go to your service → **Environment** tab.
+2. Add a secret environment variable:
+   - **Key**: `GITHUB_TOKEN`
+   - **Value**: a GitHub Personal Access Token (PAT) with **`repo`** scope  
+     (Create one at: GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic))
+3. Click **Save Changes** — Render will redeploy automatically.
+
+Once set, any topic submitted via `/knowledge-base-builder` will be committed directly to the `knowledge-base/` folder in this repo, surviving all future deploys.
+
+> **Security note**: never put `GITHUB_TOKEN` in `render.yaml` or commit it to the repo.  
+> Always set it only through the Render dashboard secret environment variables UI.
+
 ### API Endpoints
 
 #### 1. Analyze a Single Stock
