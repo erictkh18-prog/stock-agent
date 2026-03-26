@@ -11,6 +11,8 @@ from src.main import (
     _discover_domain_links,
     _extract_webpage_text,
     _github_commit_files,
+    _is_low_quality_source_extract,
+    _rank_and_deduplicate_claims,
     app,
 )
 
@@ -220,3 +222,32 @@ def test_knowledge_base_ingest_without_url_runs_auto_research(monkeypatch, tmp_p
     assert "# Trading Application Notes" in chapter_content
     assert "# Source Acquisition Mode" in chapter_content
     assert "Auto multi-source topic research" in chapter_content
+
+
+def test_rank_and_deduplicate_claims_prioritizes_relevant_finance_content():
+    """Ranking should keep relevant macro/finance claims and drop noisy duplicates."""
+    claims = [
+        "Inflation data and bond yields continue to drive equity valuation shifts across sectors.",
+        "Inflation data and bond yields continue to drive equity valuation shifts across sectors!",
+        "Click here to subscribe for unlimited content and cookie updates.",
+        "The Federal Reserve policy outlook changed interest-rate expectations for growth stocks.",
+    ]
+
+    selected = _rank_and_deduplicate_claims(claims, "macro inflation trading")
+
+    assert len(selected) == 2
+    assert any("Inflation data and bond yields" in claim for claim in selected)
+    assert any("Federal Reserve policy outlook" in claim for claim in selected)
+
+
+def test_is_low_quality_source_extract_flags_blocked_placeholder():
+    """Blocked placeholder extracts should be excluded from synthesis."""
+    assert _is_low_quality_source_extract(
+        "Blocked source (manual review required)",
+        ["Automated extraction was blocked by the source (HTTP 402)."],
+    ) is True
+
+    assert _is_low_quality_source_extract(
+        "Reuters Markets",
+        ["Inflation and rates expectations continue to impact risk assets globally."],
+    ) is False

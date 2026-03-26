@@ -9,6 +9,7 @@ import subprocess
 import threading
 import time
 import asyncio
+from difflib import SequenceMatcher
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict, deque
 from datetime import datetime
@@ -159,6 +160,8 @@ AUTO_RESEARCH_DOMAINS = [
 ]
 AUTO_RESEARCH_MAX_LINKS_PER_DOMAIN = 2
 AUTO_RESEARCH_MAX_EXTRACTED_CLAIMS = 12
+AUTO_RESEARCH_MIN_CLAIM_SCORE = 2
+AUTO_RESEARCH_SIMILARITY_THRESHOLD = 0.86
 
 
 def _should_rate_limit(path: str) -> bool:
@@ -498,6 +501,68 @@ def _discover_topic_sources(topic: str) -> list[str]:
     return sources
 
 
+def _is_low_quality_source_extract(source_title: str, paragraphs: list[str]) -> bool:
+    """Detect blocked/noisy extraction responses that should not feed claim synthesis."""
+    title_l = (source_title or "").lower()
+    if "blocked source" in title_l:
+        return True
+
+    if len(paragraphs) == 1:
+        body_l = paragraphs[0].lower()
+        if "automated extraction was blocked" in body_l:
+            return True
+
+    return False
+
+
+def _claim_quality_score(claim: str, topic: str) -> int:
+    """Score claim relevance and informativeness for ranking."""
+    claim_l = claim.lower()
+    topic_tokens = [token for token in re.split(r"[^a-z0-9]+", topic.lower()) if len(token) >= 4]
+
+    finance_keywords = {
+        "inflation", "interest", "gdp", "yield", "bond", "earnings", "revenue",
+        "equity", "volatility", "liquidity", "valuation", "fed", "central bank",
+    }
+
+    score = 0
+    score += min(2, sum(1 for token in topic_tokens if token in claim_l))
+    score += min(2, sum(1 for keyword in finance_keywords if keyword in claim_l))
+    if 80 <= len(claim) <= 400:
+        score += 1
+    if not any(noise in claim_l for noise in ["subscribe", "sign up", "advertisement", "cookie"]):
+        score += 1
+    return score
+
+
+def _rank_and_deduplicate_claims(claims: list[str], topic: str) -> list[str]:
+    """Remove near-duplicate claims and keep highest-scoring candidates first."""
+    ranked = sorted(
+        claims,
+        key=lambda claim: _claim_quality_score(claim, topic),
+        reverse=True,
+    )
+
+    selected: list[str] = []
+    for claim in ranked:
+        score = _claim_quality_score(claim, topic)
+        if score < AUTO_RESEARCH_MIN_CLAIM_SCORE:
+            continue
+
+        is_duplicate = any(
+            SequenceMatcher(None, claim.lower(), existing.lower()).ratio() >= AUTO_RESEARCH_SIMILARITY_THRESHOLD
+            for existing in selected
+        )
+        if is_duplicate:
+            continue
+
+        selected.append(claim)
+        if len(selected) >= AUTO_RESEARCH_MAX_EXTRACTED_CLAIMS:
+            break
+
+    return selected
+
+
 def _derive_trading_application_insights(topic: str, claims: list[str]) -> list[str]:
     """Transform extracted claims into actionable trading-oriented guidance."""
     insights: list[str] = []
@@ -544,7 +609,7 @@ def _auto_research_topic(topic: str) -> dict:
     """Run multi-source topic research and synthesize claims for chapter generation."""
     source_urls = _discover_topic_sources(topic)
 
-    claims: list[str] = []
+    raw_claims: list[str] = []
     seen_claims: set[str] = set()
     used_sources: list[dict[str, str]] = []
 
@@ -558,10 +623,14 @@ def _auto_research_topic(topic: str) -> dict:
         if not paragraphs:
             continue
 
+        source_title = extracted.get("title", "Untitled source")
+        if _is_low_quality_source_extract(source_title, paragraphs):
+            continue
+
         used_sources.append(
             {
                 "url": source_url,
-                "title": extracted.get("title", "Untitled source"),
+                "title": source_title,
             }
         )
 
@@ -573,12 +642,9 @@ def _auto_research_topic(topic: str) -> dict:
             if key in seen_claims:
                 continue
             seen_claims.add(key)
-            claims.append(normalized)
-            if len(claims) >= AUTO_RESEARCH_MAX_EXTRACTED_CLAIMS:
-                break
+            raw_claims.append(normalized)
 
-        if len(claims) >= AUTO_RESEARCH_MAX_EXTRACTED_CLAIMS:
-            break
+    claims = _rank_and_deduplicate_claims(raw_claims, topic)
 
     trading_insights = _derive_trading_application_insights(topic, claims)
     summary = claims[0] if claims else (
