@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stock Analysis Agent</title>
     <link rel="preconnect" href="https://cdn.jsdelivr.net">
-    <link rel="stylesheet" href="../static/style.css?v=20260325a">
+    <link rel="stylesheet" href="../static/style.css?v=20260326a">
     <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
 </head>
 <body>
@@ -17,7 +17,7 @@
     <div class="container">
         <!-- QUICK LINK: Stock Scanner -->
         <div class="card stock-scanner-cta">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div class="cta-row">
                 <div>
                     <h2>✨ StockPulse Scanner</h2>
                     <p class="description">Real-time market scanner powered by Finnhub. Filter by sector, market cap, and investment strategy.</p>
@@ -119,12 +119,12 @@
             <p class="description">Scan broad US stock universes and surface potential opportunities</p>
 
             <div class="input-group">
-                <select id="marketUniverse">
+                <select id="marketUniverse" aria-label="Universe">
                     <option value="sp500" selected>S&amp;P 500</option>
                     <option value="nasdaq100">Nasdaq-100</option>
                     <option value="combined">Combined (S&amp;P 500 + Nasdaq-100)</option>
                 </select>
-                <select id="marketSector">
+                <select id="marketSector" aria-label="Sector">
                     <option value="all" selected>All Sectors</option>
                     <option value="technology">Technology</option>
                     <option value="financial services">Financial Services</option>
@@ -138,9 +138,9 @@
                     <option value="basic materials">Basic Materials</option>
                     <option value="utilities">Utilities</option>
                 </select>
-                <input type="number" id="marketMinScore" min="0" max="100" step="1" value="65" placeholder="Min score">
-                <input type="number" id="marketTopN" min="1" max="100" step="1" value="20" placeholder="Top N">
-                <input type="number" id="marketMaxSymbols" min="25" max="800" step="5" value="80" placeholder="Max symbols">
+                <input type="number" id="marketMinScore" min="0" max="100" step="1" value="65" placeholder="Min score" aria-label="Min score">
+                <input type="number" id="marketTopN" min="1" max="100" step="1" value="20" placeholder="Top N" aria-label="Top N">
+                <input type="number" id="marketMaxSymbols" min="25" max="800" step="5" value="80" placeholder="Max symbols" aria-label="Max symbols">
                 <button id="marketScanBtn">Scan US Market</button>
             </div>
 
@@ -167,6 +167,6 @@
         <p>Data powered by Yahoo Finance • Updated in real-time</p>
     </div>
 
-    <script src="../static/script.js?v=20260325a" defer></script>
+    <script src="../static/script.js?v=20260326a" defer></script>
 </body>
 </html>

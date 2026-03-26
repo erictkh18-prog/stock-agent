@@ -103,6 +103,50 @@
   .error-msg.visible { display: block; }
   .disclaimer { background: rgba(240,180,41,0.05); border: 1px solid rgba(240,180,41,0.2); border-radius: 4px; padding: 14px 18px; margin-bottom: 40px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: rgba(240,180,41,0.7); line-height: 1.6; }
   footer { border-top: 1px solid var(--border); padding: 22px 0; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted2); }
+
+  /* ── BACK LINK ── */
+  .back-link { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; transition: color 0.2s; }
+  .back-link:hover { color: var(--accent); }
+  .header-nav { display: flex; align-items: center; gap: 20px; }
+
+  /* ── MOBILE RESPONSIVE ── */
+  @media (max-width: 768px) {
+    .container { padding: 0 16px; }
+    .logo-mark { font-size: 18px; }
+    .logo-sub { display: none; }
+    .status-pill span { display: none; }
+    .hero { padding: 28px 0 20px; }
+    h1 { letter-spacing: -1px; }
+    .hero-desc { font-size: 13px; }
+    .api-setup { padding: 20px; margin: 24px 0 16px; }
+    .api-input-row { flex-direction: column; }
+    .api-input-row input { min-width: unset; }
+    .save-key-btn { width: 100%; padding: 12px; }
+    .scanner-panel { padding: 20px; }
+    .filters { grid-template-columns: 1fr 1fr; gap: 12px; }
+    .strategy-tags { gap: 6px; }
+    .tag { font-size: 10px; padding: 5px 10px; }
+    .scan-btn { width: 100%; justify-content: center; padding: 14px; }
+    .stocks-grid { grid-template-columns: 1fr; gap: 14px; }
+    .results-header { flex-direction: column; align-items: flex-start; gap: 6px; }
+    .ai-summary-section { padding: 18px; }
+  }
+
+  @media (max-width: 480px) {
+    .container { padding: 0 12px; }
+    .hero { padding: 20px 0 16px; }
+    .api-setup { padding: 16px; }
+    .api-setup-title { font-size: 15px; }
+    .scanner-panel { padding: 16px; }
+    .filters { grid-template-columns: 1fr; gap: 10px; }
+    .stock-card { padding: 16px; }
+    .card-top { gap: 8px; }
+    .stock-ticker { font-size: 18px; }
+    .score-value { font-size: 22px; }
+    .metrics-row { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .metric-value { font-size: 11px; }
+    .disclaimer { font-size: 10px; }
+  }
 </style>
 </head>
 <body>
@@ -112,7 +156,10 @@
       <span class="logo-mark">StockPulse</span>
       <span class="logo-sub">AI Scanner</span>
     </div>
-    <div class="status-pill"><div class="status-dot"></div><span>Finnhub Live Data</span></div>
+    <div class="header-nav">
+      <a href="/" class="back-link">← Dashboard</a>
+      <div class="status-pill"><div class="status-dot"></div><span>Finnhub Live Data</span></div>
+    </div>
   </div>
 </header>
 
