@@ -31,4 +31,9 @@ class Config:
     MAX_CONCURRENT_FETCHES: int = int(os.getenv("MAX_CONCURRENT_FETCHES", "10"))
     SYMBOL_FETCH_TIMEOUT_SECONDS: int = int(os.getenv("SYMBOL_FETCH_TIMEOUT_SECONDS", "30"))
 
+    # GitHub write-back settings (for production KB persistence)
+    GITHUB_TOKEN: Optional[str] = os.getenv("GITHUB_TOKEN")
+    GITHUB_REPO: str = os.getenv("GITHUB_REPO", "erictkh18-prog/stock-agent")
+    GITHUB_BRANCH: str = os.getenv("GITHUB_BRANCH", "main")
+
 config = Config()

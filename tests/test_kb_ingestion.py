@@ -1,12 +1,12 @@
 """Tests for knowledge-base ingestion URL fetching and fallback behavior."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
 from fastapi.testclient import TestClient
 
-from src.main import _extract_webpage_text, app
+from src.main import _extract_webpage_text, _github_commit_files, app
 
 
 client = TestClient(app, raise_server_exceptions=True)
@@ -86,3 +86,61 @@ def test_knowledge_base_chapter_returns_markdown_for_existing_file():
     payload = response.json()
     assert payload["path"] == "INDEX.md"
     assert "Knowledge Base Index" in payload["content"]
+
+
+# ──────────────────────────────────────────────
+# GitHub write-back helpers
+# ──────────────────────────────────────────────
+
+
+def test_github_commit_files_returns_false_without_token(monkeypatch):
+    """Write-back must silently skip and return False when GITHUB_TOKEN is absent."""
+    import src.main as main_module
+
+    monkeypatch.setattr(main_module.config, "GITHUB_TOKEN", None)
+    result = _github_commit_files({"knowledge-base/test.md": "# test"}, "test commit")
+    assert result is False
+
+
+def test_github_commit_files_commits_new_file(monkeypatch):
+    """Write-back should PUT file content to GitHub Contents API when token is set."""
+    import src.main as main_module
+
+    monkeypatch.setattr(main_module.config, "GITHUB_TOKEN", "ghp_testtoken")
+    monkeypatch.setattr(main_module.config, "GITHUB_REPO", "owner/repo")
+    monkeypatch.setattr(main_module.config, "GITHUB_BRANCH", "main")
+
+    get_resp = MagicMock()
+    get_resp.status_code = 404  # file doesn't exist yet
+
+    put_resp = MagicMock()
+    put_resp.status_code = 201
+
+    call_log = []
+
+    def fake_request(method, url, **kwargs):
+        call_log.append((method, url))
+        if method == "GET":
+            return get_resp
+        return put_resp
+
+    with patch("src.main.requests.get", side_effect=lambda url, **kw: get_resp):
+        with patch("src.main.requests.put", side_effect=lambda url, **kw: put_resp):
+            result = _github_commit_files({"knowledge-base/test.md": "# hello"}, "add test")
+
+    assert result is True
+
+
+def test_github_commit_files_handles_api_error_gracefully(monkeypatch):
+    """A GitHub API error must not raise — it should log and return False."""
+    import src.main as main_module
+
+    monkeypatch.setattr(main_module.config, "GITHUB_TOKEN", "ghp_testtoken")
+    monkeypatch.setattr(main_module.config, "GITHUB_REPO", "owner/repo")
+    monkeypatch.setattr(main_module.config, "GITHUB_BRANCH", "main")
+
+    with patch("src.main.requests.get", side_effect=requests.RequestException("network error")):
+        with patch("src.main.requests.put", side_effect=requests.RequestException("network error")):
+            result = _github_commit_files({"knowledge-base/test.md": "# hello"}, "fail test")
+
+    assert result is False

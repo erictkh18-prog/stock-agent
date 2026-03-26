@@ -1,5 +1,6 @@
 """Main FastAPI application for Stock Analysis Agent"""
 from io import StringIO
+import base64
 import json
 import os
 import platform
@@ -409,6 +410,74 @@ def _build_kb_tree() -> dict:
         "total_topics": total_topics,
         "total_chapters": total_chapters,
     }
+
+
+GITHUB_API_BASE = "https://api.github.com"
+
+
+def _github_headers() -> dict:
+    """Build GitHub API auth headers from GITHUB_TOKEN env var."""
+    token = config.GITHUB_TOKEN
+    if not token:
+        return {}
+    return {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+
+def _github_commit_files(files: dict[str, str], commit_message: str) -> bool:
+    """
+    Commit one or more files to GitHub via the Contents API.
+    files: mapping of repo-relative POSIX path -> file content (UTF-8 text).
+    Returns True on success, False if GITHUB_TOKEN is absent or call fails.
+    """
+    token = config.GITHUB_TOKEN
+    if not token:
+        return False
+
+    repo = config.GITHUB_REPO
+    branch = config.GITHUB_BRANCH
+    headers = _github_headers()
+    success = True
+
+    for repo_path, content_text in files.items():
+        encoded = base64.b64encode(content_text.encode("utf-8")).decode("ascii")
+        api_url = f"{GITHUB_API_BASE}/repos/{repo}/contents/{repo_path}"
+
+        # Fetch current SHA if file already exists (required for updates)
+        existing_sha = None
+        try:
+            get_resp = requests.get(api_url, headers=headers, params={"ref": branch}, timeout=10)
+            if get_resp.status_code == 200:
+                existing_sha = get_resp.json().get("sha")
+        except requests.RequestException:
+            pass
+
+        body: dict = {
+            "message": commit_message,
+            "content": encoded,
+            "branch": branch,
+        }
+        if existing_sha:
+            body["sha"] = existing_sha
+
+        try:
+            put_resp = requests.put(api_url, headers=headers, json=body, timeout=15)
+            if put_resp.status_code not in {200, 201}:
+                logger.warning(
+                    "GitHub write-back failed for %s: %s %s",
+                    repo_path,
+                    put_resp.status_code,
+                    put_resp.text[:200],
+                )
+                success = False
+        except requests.RequestException as exc:
+            logger.warning("GitHub write-back request error for %s: %s", repo_path, exc)
+            success = False
+
+    return success
 
 
 def _open_in_explorer(target: Path) -> None:
@@ -851,11 +920,38 @@ async def knowledge_base_ingest(payload: KnowledgeIngestRequest):
         ]
     )
 
-    chapter_path.write_text("\n".join(chapter_lines) + "\n", encoding="utf-8")
+    chapter_content = "\n".join(chapter_lines) + "\n"
+    chapter_path.write_text(chapter_content, encoding="utf-8")
+
+    topic_index_content = topic_index.read_text(encoding="utf-8")
 
     _append_kb_changelog(
         f"Ingested topic '{topic}' from {source_url} into {chapter_path.as_posix()}"
     )
+
+    # Write-back to GitHub so content persists across deploys on production.
+    # Run in background thread; failure is logged but does NOT break the response.
+    kb_root_resolved = KB_ROOT.resolve()
+    chapter_repo_path = "knowledge-base/" + _safe_rel_path(chapter_path, KB_ROOT)
+    topic_index_repo_path = "knowledge-base/" + _safe_rel_path(topic_index, KB_ROOT)
+    commit_msg = f"kb: auto-ingest topic '{topic}' from {source_url}"
+
+    def _do_github_writeback() -> None:
+        files_to_commit = {
+            chapter_repo_path: chapter_content,
+            topic_index_repo_path: topic_index_content,
+        }
+        ok = _github_commit_files(files_to_commit, commit_msg)
+        if ok:
+            logger.info("GitHub write-back succeeded for topic '%s'", topic)
+        else:
+            logger.warning(
+                "GitHub write-back skipped or failed for topic '%s' (GITHUB_TOKEN configured: %s)",
+                topic,
+                bool(config.GITHUB_TOKEN),
+            )
+
+    threading.Thread(target=_do_github_writeback, daemon=True).start()
 
     return KnowledgeIngestResponse(
         topic=topic,
