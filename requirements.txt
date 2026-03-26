@@ -11,3 +11,5 @@ feedparser==6.0.12
 textblob==0.19.0
 Jinja2==3.1.6
 pytest==8.4.2
+lxml==5.4.0
+beautifulsoup4==4.14.0

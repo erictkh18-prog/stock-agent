@@ -1,6 +1,7 @@
 """Stock screener module for identifying suitable stocks"""
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import yfinance as yf
+import requests
 import logging
 from typing import List, Optional
 from datetime import datetime, timedelta
@@ -172,36 +173,73 @@ class StockScreener:
             self.logger.error(f"Error screening {symbol}: {e}")
             return None
 
+    def _fetch_price_direct(self, symbol: str) -> Optional[float]:
+        """Fetch current price directly from Yahoo Finance v7 quote API using plain HTTP.
+
+        This bypasses yfinance's cookie/crumb authentication flow and works even
+        when yfinance's internal auth fails (e.g. due to rate limiting or IP blocks).
+        """
+        try:
+            resp = requests.get(
+                "https://query1.finance.yahoo.com/v7/finance/quote",
+                params={"symbols": symbol},
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/124.0.0.0 Safari/537.36"
+                    )
+                },
+                timeout=10,
+            )
+            resp.raise_for_status()
+            result = resp.json().get("quoteResponse", {}).get("result", [])
+            if result:
+                for key in ("regularMarketPrice", "ask", "bid", "previousClose"):
+                    val = result[0].get(key)
+                    if val is not None:
+                        return float(val)
+        except Exception as exc:
+            self.logger.debug(f"Direct price fetch failed for {symbol}: {exc}")
+        return None
+
     def _get_current_price(self, stock: yf.Ticker, info: dict, symbol: str) -> Optional[float]:
         """Resolve the best available current price using multiple Yahoo data paths."""
-        price_candidates = [
-            info.get('currentPrice'),
-            info.get('regularMarketPrice'),
-            info.get('previousClose'),
-        ]
-
-        try:
-            fast_info = stock.fast_info
-            for key in ('lastPrice', 'regularMarketPrice', 'previousClose'):
+        # 1. Try values already in the info dict (no extra network call).
+        for key in ("currentPrice", "regularMarketPrice", "previousClose"):
+            val = info.get(key)
+            if val is not None:
                 try:
-                    value = fast_info.get(key)
-                except Exception:
-                    value = None
-                price_candidates.append(value)
-        except Exception as exc:
-            self.logger.warning(f"fast_info lookup failed for {symbol}: {exc}")
-
-        for price in price_candidates:
-            if price is not None:
-                try:
-                    return float(price)
+                    return float(val)
                 except (TypeError, ValueError):
                     continue
 
+        # 2. Try fast_info snake_case properties (yfinance 1.x API).
         try:
-            history = stock.history(period="5d", interval="1d", auto_adjust=False)
-            if not history.empty:
-                close_series = history['Close'].dropna()
+            fast_info = stock.fast_info
+            for attr in ("last_price", "previous_close"):
+                try:
+                    val = getattr(fast_info, attr, None)
+                    if val is not None:
+                        return float(val)
+                except Exception:
+                    continue
+        except Exception as exc:
+            self.logger.debug(f"fast_info lookup failed for {symbol}: {exc}")
+
+        # 3. Direct HTTP fallback — bypasses yfinance auth flow entirely.
+        direct_price = self._fetch_price_direct(symbol)
+        if direct_price is not None:
+            return direct_price
+
+        # 4. History fallback using a fresh Ticker so that a previously-failed
+        #    info fetch (which sets _already_fetched=True internally) does not
+        #    poison the timezone lookup inside stock.history().
+        try:
+            fresh = yf.Ticker(symbol)
+            history = fresh.history(period="5d", interval="1d", auto_adjust=False)
+            if history is not None and not history.empty:
+                close_series = history["Close"].dropna()
                 if not close_series.empty:
                     return float(close_series.iloc[-1])
         except Exception as exc:
