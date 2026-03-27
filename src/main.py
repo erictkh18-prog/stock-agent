@@ -1840,28 +1840,39 @@ async def screen_text(symbols: List[str] = Query(..., description="List of stock
 
 
 def _estimate_upside_percent(analysis: StockAnalysis, duration_days: int) -> float:
-    """Estimate upside potential from score quality, trend, sentiment, and horizon."""
-    base = max(0.0, analysis.overall_score - 50.0) * 0.25
+    """Estimate upside potential from score quality, trend, sentiment, and horizon.
+
+    Calibration notes:
+    - Base uses a lower anchor (48) and a slightly higher multiplier (0.30) so
+      stocks in the 50-65 score range still produce meaningful upside estimates.
+    - Downtrend is penalised modestly (-1.0) rather than harshly (-2.0); it is
+      one risk signal, not an automatic disqualifier over a longer horizon.
+    - horizon_scale is capped at 2.0 (≈60+ days) instead of 1.6 so that
+      longer-duration requests surface more candidates.
+    - RSI overbought threshold raised to 80 to avoid penalising mildly hot stocks.
+    """
+    base = max(0.5, (analysis.overall_score - 48.0) * 0.30)
 
     trend = (getattr(analysis.technical, "trend", "") or "").lower()
     if trend == "uptrend":
-        trend_bonus = 2.0
-    elif trend == "sideways":
+        trend_bonus = 2.5
+    elif trend in ("sideways", ""):
         trend_bonus = 0.5
     elif trend == "downtrend":
-        trend_bonus = -2.0
+        trend_bonus = -1.0  # less punitive: one negative signal, not a dealbreaker
     else:
         trend_bonus = 0.0
 
     sentiment_score = float(getattr(analysis.sentiment, "score", 50.0) or 50.0)
-    sentiment_bonus = max(-3.0, min(3.0, (sentiment_score - 50.0) / 10.0))
+    sentiment_bonus = max(-2.0, min(3.0, (sentiment_score - 50.0) / 10.0))
 
     rsi = getattr(analysis.technical, "rsi", None)
-    rsi_penalty = 1.0 if (rsi is not None and rsi > 75) else 0.0
+    rsi_penalty = 1.5 if (rsi is not None and rsi > 80) else 0.0
 
-    horizon_scale = max(0.6, min(1.6, duration_days / 30.0))
+    # Longer horizons scale projected returns more aggressively (cap raised to 2.0)
+    horizon_scale = max(0.7, min(2.0, duration_days / 30.0))
     projected = (base + trend_bonus + sentiment_bonus - rsi_penalty) * horizon_scale
-    return round(max(1.0, min(35.0, projected)), 2)
+    return round(max(1.0, min(50.0, projected)), 2)
 
 
 def _build_simple_reason(analysis: StockAnalysis, duration_days: int, target_percentage: float) -> str:
@@ -2169,9 +2180,9 @@ async def scan_us_market(
 async def stock_recommendations(
     universe: str = Query("sp500", pattern="^(sp500|nasdaq100|combined)$"),
     sector: Optional[str] = Query(None),
-    min_overall_score: float = Query(65, ge=0, le=100),
+    min_overall_score: float = Query(50, ge=0, le=100),
     top_n: int = Query(10, ge=1, le=50),
-    max_symbols: int = Query(10, ge=5, le=800),
+    max_symbols: int = Query(80, ge=5, le=800),
     duration_days: int = Query(30, ge=1, le=365),
     target_percentage: float = Query(8.0, ge=1, le=100),
     seed: Optional[int] = Query(None),
@@ -2204,7 +2215,7 @@ async def stock_recommendations(
         screener.screen_stocks,
         symbols,
         filters,
-        max(top_n * 3, top_n),
+        max(top_n * 5, 25),
         seed,
         True,
     )
