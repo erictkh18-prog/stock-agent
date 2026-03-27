@@ -90,7 +90,10 @@ def hash_password(plain: str) -> str:
 
 
 def _is_postgres_enabled() -> bool:
-    return bool(AUTH_DATABASE_URL)
+    # TEMP: Force disable Postgres to diagnose 503 Render errors
+    # TODO: Re-enable once root cause is found
+    return False
+    # return bool(AUTH_DATABASE_URL)
 
 
 def _load_users_from_json() -> dict[str, dict]:
