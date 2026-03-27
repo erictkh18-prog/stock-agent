@@ -1,0 +1,64 @@
+name: CI Guard
+
+on:
+  pull_request:
+    branches: ["main"]
+  push:
+    branches: ["main"]
+
+jobs:
+  pr-base-sync-check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure branch includes latest base code
+        shell: bash
+        run: |
+          BASE_REF="${{ github.event.pull_request.base.ref }}"
+          echo "Checking PR branch against base: $BASE_REF"
+          git fetch origin "$BASE_REF" --depth=1
+
+          if git merge-base --is-ancestor "origin/$BASE_REF" HEAD; then
+            echo "OK: PR branch already includes latest base commits."
+          else
+            echo "::error::This branch is behind origin/$BASE_REF. Please update/rebase before merge to avoid deployment conflicts."
+            exit 1
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest -q
+
+  main-tests:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest -q
