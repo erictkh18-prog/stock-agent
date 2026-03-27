@@ -2073,10 +2073,14 @@ async def stock_recommendations(
 ):
     """Recommend stocks with projected upside target within user-selected duration."""
     normalized_sector = _normalize_sector(sector) if sector else "all"
-    symbols = _get_us_market_universe(universe)[:max_symbols]
+    all_symbols = _get_us_market_universe(universe)
 
     if normalized_sector != "all":
-        symbols = await asyncio.to_thread(_filter_symbols_by_sector, symbols, normalized_sector)
+        symbols = await asyncio.to_thread(_filter_symbols_by_sector, all_symbols, normalized_sector)
+    else:
+        symbols = all_symbols
+
+    symbols = symbols[:max_symbols]
 
     if not symbols:
         return {

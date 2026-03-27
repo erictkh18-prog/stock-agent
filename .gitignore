@@ -30,3 +30,4 @@ htmlcov/
 .idea/
 .vscode/
 instance/
+data/trade_outcomes.json
