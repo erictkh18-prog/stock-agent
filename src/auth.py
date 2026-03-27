@@ -383,6 +383,8 @@ def require_admin(user: UserInfo = Depends(get_current_user)) -> UserInfo:
 
 
 def register_user(email: str, password: str) -> dict:
+    _ensure_admin_initialized()
+    
     email = email.strip().lower()
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="Invalid email address")
@@ -424,6 +426,8 @@ def register_user(email: str, password: str) -> dict:
 
 
 def login_user(email: str, password: str) -> TokenResponse:
+    _ensure_admin_initialized()
+    
     email = email.strip().lower()
 
     with _users_lock:
@@ -483,12 +487,23 @@ def list_all_users() -> list[dict]:
     ]
 
 
-# Initialize admin at import time with graceful error handling
-# If database connection fails, the app will still start and retry on first request
-try:
-    _ensure_admin_exists()
-except Exception as exc:
-    logger.warning(
-        "Could not initialize admin at startup (will retry on first auth request): %s",
-        exc,
-    )
+# Lazy initialization flag - admin account creation deferred to first auth request
+_admin_initialized = False
+_admin_init_lock = threading.Lock()
+
+
+def _ensure_admin_initialized():
+    """Lazy initialization of admin account (called on first auth request)."""
+    global _admin_initialized
+    if _admin_initialized:
+        return
+    
+    with _admin_init_lock:
+        if _admin_initialized:
+            return
+        
+        try:
+            _ensure_admin_exists()
+            _admin_initialized = True
+        except Exception as exc:
+            logger.warning("Could not initialize admin account: %s", exc)
