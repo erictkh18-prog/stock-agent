@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KB Builder - Admin Approvals</title>
+    <style>
+        :root {
+            --bg: #f4f8fb;
+            --panel: #ffffff;
+            --text: #0f172a;
+            --muted: #475569;
+            --accent: #0f766e;
+            --accent-dark: #115e59;
+            --border: #d1d5db;
+            --ok-bg: #ecfdf5;
+            --ok-text: #065f46;
+            --warn-bg: #fffbeb;
+            --warn-text: #92400e;
+            --err-bg: #fef2f2;
+            --err-text: #991b1b;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            color: var(--text);
+            background: radial-gradient(circle at top right, #cffafe 0%, var(--bg) 50%);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1080px;
+            margin: 0 auto;
+            padding: 24px 16px 48px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.8rem;
+        }
+
+        .subtitle {
+            margin: 6px 0 0;
+            color: var(--muted);
+            line-height: 1.4;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .btn {
+            border: 0;
+            border-radius: 10px;
+            background: var(--accent);
+            color: #fff;
+            padding: 10px 14px;
+            font-size: 0.92rem;
+            font-weight: 700;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .btn:hover { background: var(--accent-dark); }
+
+        .btn.secondary {
+            background: #fff;
+            color: #0f172a;
+            border: 1px solid var(--border);
+            font-weight: 600;
+        }
+
+        .btn.secondary:hover {
+            background: #f8fafc;
+        }
+
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            box-shadow: 0 10px 24px rgba(2, 6, 23, 0.08);
+            padding: 18px;
+            margin-bottom: 14px;
+        }
+
+        .status {
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            font-size: 0.92rem;
+            margin-bottom: 16px;
+            display: none;
+        }
+
+        .status.ok {
+            display: block;
+            background: var(--ok-bg);
+            color: var(--ok-text);
+            border-color: #a7f3d0;
+        }
+
+        .status.warn {
+            display: block;
+            background: var(--warn-bg);
+            color: var(--warn-text);
+            border-color: #fde68a;
+        }
+
+        .status.err {
+            display: block;
+            background: var(--err-bg);
+            color: var(--err-text);
+            border-color: #fecaca;
+        }
+
+        .table-wrap {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 620px;
+        }
+
+        th,
+        td {
+            text-align: left;
+            padding: 10px 8px;
+            border-bottom: 1px solid #e5e7eb;
+            font-size: 0.92rem;
+            vertical-align: top;
+        }
+
+        th {
+            color: #334155;
+            font-size: 0.84rem;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+        }
+
+        .pill {
+            border-radius: 999px;
+            padding: 3px 8px;
+            font-size: 0.76rem;
+            font-weight: 700;
+        }
+
+        .pill.approved {
+            color: #065f46;
+            background: #d1fae5;
+        }
+
+        .pill.pending {
+            color: #9a3412;
+            background: #ffedd5;
+        }
+
+        .small {
+            color: var(--muted);
+            font-size: 0.84rem;
+        }
+
+        .approve-btn {
+            border: 0;
+            border-radius: 8px;
+            background: var(--accent);
+            color: #fff;
+            padding: 8px 10px;
+            font-size: 0.84rem;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .approve-btn:hover { background: var(--accent-dark); }
+        .approve-btn:disabled { opacity: 0.65; cursor: wait; }
+
+        @media (max-width: 700px) {
+            .header {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            h1 { font-size: 1.45rem; }
+        }
+    </style>
+</head>
+<body>
+    <main class="container">
+        <div class="header">
+            <div>
+                <h1>Admin - Account Approvals</h1>
+                <p class="subtitle">Review pending account requests and approve contributor access for Knowledge Base Builder.</p>
+            </div>
+            <div class="actions">
+                <a class="btn secondary" href="/knowledge-base-builder">KB Builder</a>
+                <a class="btn secondary" href="/">Dashboard</a>
+                <button id="refreshBtn" class="btn" type="button">Refresh</button>
+                <button id="logoutBtn" class="btn secondary" type="button">Log Out</button>
+            </div>
+        </div>
+
+        <div id="statusBox" class="status"></div>
+
+        <section class="panel">
+            <h2 style="margin: 0 0 12px; font-size: 1.15rem;">Pending Requests</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Email</th>
+                            <th>Requested At</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pendingBody">
+                        <tr><td colspan="3" class="small">Loading pending requests...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="panel">
+            <h2 style="margin: 0 0 12px; font-size: 1.15rem;">All Users</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Email</th>
+                            <th>Role</th>
+                            <th>Status</th>
+                            <th>Created At</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersBody">
+                        <tr><td colspan="4" class="small">Loading users...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const statusBox = document.getElementById("statusBox");
+        const pendingBody = document.getElementById("pendingBody");
+        const usersBody = document.getElementById("usersBody");
+        const refreshBtn = document.getElementById("refreshBtn");
+        const logoutBtn = document.getElementById("logoutBtn");
+
+        const token = localStorage.getItem("kb_token");
+
+        function setStatus(kind, message) {
+            statusBox.className = "status " + kind;
+            statusBox.textContent = message;
+        }
+
+        function clearStatus() {
+            statusBox.className = "status";
+            statusBox.textContent = "";
+        }
+
+        function toLocalTime(raw) {
+            if (!raw) return "-";
+            const dt = new Date(raw);
+            if (Number.isNaN(dt.getTime())) return raw;
+            return dt.toLocaleString();
+        }
+
+        async function fetchJson(path, options = {}) {
+            const headers = {
+                "Authorization": "Bearer " + token,
+                ...(options.headers || {}),
+            };
+            const resp = await fetch(path, { ...options, headers });
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok) {
+                throw new Error(data.detail || ("Request failed: " + resp.status));
+            }
+            return data;
+        }
+
+        async function verifyAdminAccess() {
+            if (!token) {
+                window.location.href = "/login?next=/admin/approvals";
+                return false;
+            }
+
+            try {
+                const me = await fetchJson("/auth/me");
+                if (!me.is_admin) {
+                    setStatus("err", "Your account is signed in but does not have admin permission.");
+                    pendingBody.innerHTML = '<tr><td colspan="3" class="small">Admin role required.</td></tr>';
+                    usersBody.innerHTML = '<tr><td colspan="4" class="small">Admin role required.</td></tr>';
+                    return false;
+                }
+                return true;
+            } catch (err) {
+                localStorage.removeItem("kb_token");
+                window.location.href = "/login?next=/admin/approvals";
+                return false;
+            }
+        }
+
+        async function renderPendingUsers() {
+            const pending = await fetchJson("/auth/pending-users");
+            if (!Array.isArray(pending) || pending.length === 0) {
+                pendingBody.innerHTML = '<tr><td colspan="3" class="small">No pending requests.</td></tr>';
+                return;
+            }
+
+            pendingBody.innerHTML = "";
+            pending.forEach(user => {
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td>${user.email || "-"}</td>
+                    <td>${toLocalTime(user.created_at)}</td>
+                    <td><button class="approve-btn" data-email="${user.email}">Approve</button></td>
+                `;
+                pendingBody.appendChild(tr);
+            });
+
+            pendingBody.querySelectorAll(".approve-btn").forEach(btn => {
+                btn.addEventListener("click", async () => {
+                    const email = btn.dataset.email;
+                    if (!email) return;
+                    btn.disabled = true;
+                    btn.textContent = "Approving...";
+                    try {
+                        await fetchJson("/auth/approve/" + encodeURIComponent(email), { method: "POST" });
+                        setStatus("ok", "Approved " + email + " successfully.");
+                        await reloadData();
+                    } catch (err) {
+                        setStatus("err", err.message || "Approval failed.");
+                    } finally {
+                        btn.disabled = false;
+                        btn.textContent = "Approve";
+                    }
+                });
+            });
+        }
+
+        async function renderAllUsers() {
+            const users = await fetchJson("/auth/users");
+            if (!Array.isArray(users) || users.length === 0) {
+                usersBody.innerHTML = '<tr><td colspan="4" class="small">No users found.</td></tr>';
+                return;
+            }
+
+            usersBody.innerHTML = "";
+            users.sort((a, b) => String(a.email || "").localeCompare(String(b.email || "")));
+            users.forEach(user => {
+                const role = user.is_admin ? "Admin" : "Contributor";
+                const status = user.is_approved
+                    ? '<span class="pill approved">Approved</span>'
+                    : '<span class="pill pending">Pending</span>';
+
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td>${user.email || "-"}</td>
+                    <td>${role}</td>
+                    <td>${status}</td>
+                    <td>${toLocalTime(user.created_at)}</td>
+                `;
+                usersBody.appendChild(tr);
+            });
+        }
+
+        async function reloadData() {
+            clearStatus();
+            pendingBody.innerHTML = '<tr><td colspan="3" class="small">Loading pending requests...</td></tr>';
+            usersBody.innerHTML = '<tr><td colspan="4" class="small">Loading users...</td></tr>';
+
+            await Promise.all([renderPendingUsers(), renderAllUsers()]);
+        }
+
+        refreshBtn.addEventListener("click", async () => {
+            try {
+                await reloadData();
+                setStatus("ok", "Lists refreshed.");
+            } catch (err) {
+                setStatus("err", err.message || "Could not refresh lists.");
+            }
+        });
+
+        logoutBtn.addEventListener("click", () => {
+            localStorage.removeItem("kb_token");
+            window.location.href = "/login";
+        });
+
+        (async function init() {
+            const isAdmin = await verifyAdminAccess();
+            if (!isAdmin) return;
+            try {
+                await reloadData();
+                setStatus("warn", "Admin mode active. Approvals are applied immediately.");
+            } catch (err) {
+                setStatus("err", err.message || "Failed to load admin data.");
+            }
+        })();
+    </script>
+</body>
+</html>

@@ -134,6 +134,12 @@ def test_auth_me_without_token():
     assert resp.status_code == 401
 
 
+def test_admin_approvals_page_available():
+    resp = client.get("/admin/approvals")
+    assert resp.status_code == 200
+    assert "Admin - Account Approvals" in resp.text
+
+
 # ── Admin approval flow ───────────────────────────────────────────────────────
 
 def _get_admin_token():

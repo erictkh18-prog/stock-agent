@@ -1253,6 +1253,15 @@ async def login_page():
     return {"message": "Login page not available"}
 
 
+@app.get("/admin/approvals")
+async def admin_approvals_page():
+    """Serve the admin approvals UI for account request moderation."""
+    admin_path = templates_dir / "admin-approvals.html"
+    if admin_path.exists():
+        return FileResponse(str(admin_path))
+    return {"message": "Admin approvals page not available"}
+
+
 @app.post("/auth/register")
 async def auth_register(payload: RegisterRequest):
     """Register a new account (pending admin approval).

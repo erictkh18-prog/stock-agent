@@ -232,6 +232,7 @@
         </div>
 
         <a href="/" class="back-link">← Back to Dashboard</a>
+        <a href="/admin/approvals" class="back-link">Open Admin Approvals</a>
     </div>
 
     <script>
@@ -259,7 +260,7 @@
 
         // ── Redirect target ─────────────────────────────────────────────────
         const params = new URLSearchParams(window.location.search);
-        const redirectTo = params.get("next") || "/knowledge-base-builder";
+        const redirectTo = params.get("next") || "";
 
         // ── Login form ──────────────────────────────────────────────────────
         const loginForm = document.getElementById("loginForm");
@@ -287,7 +288,16 @@
                 localStorage.setItem("kb_token", data.access_token);
                 loginMsg.className = "msg ok";
                 loginMsg.textContent = "Signed in! Redirecting…";
-                setTimeout(() => window.location.href = redirectTo, 600);
+                if (redirectTo) {
+                    setTimeout(() => window.location.href = redirectTo, 600);
+                } else {
+                    const meResp = await fetch("/auth/me", {
+                        headers: { "Authorization": "Bearer " + data.access_token }
+                    });
+                    const me = meResp.ok ? await meResp.json() : null;
+                    const nextPath = me && me.is_admin ? "/admin/approvals" : "/knowledge-base-builder";
+                    setTimeout(() => window.location.href = nextPath, 600);
+                }
             } catch (err) {
                 loginMsg.className = "msg err";
                 loginMsg.textContent = err.message;
