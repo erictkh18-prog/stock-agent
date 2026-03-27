@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs, quote_plus, unquote, urlparse
+from uuid import uuid4
 import pandas as pd
 import requests
 import yfinance as yf
@@ -191,6 +192,11 @@ CLAIM_NOISE_PATTERNS = [
 TRADE_OUTCOMES_PATH = Path(__file__).parent.parent / "data" / "trade_outcomes.json"
 TRADE_OUTCOME_STATUSES = {"target_hit", "stop_hit", "timeout", "manual_close"}
 _trade_outcomes_lock = threading.Lock()
+RECOMMENDATION_MIN_BASE_SCORE = 50.0
+RECOMMENDATION_SCAN_TARGET_COUNT = 5
+RECOMMENDATION_SCAN_BATCH_SIZE = 15
+_recommendation_jobs_lock = threading.Lock()
+_recommendation_scan_jobs: dict[str, dict] = {}
 
 
 def _should_rate_limit(path: str) -> bool:
@@ -1923,6 +1929,137 @@ def _build_recommendation_candidate(
     }
 
 
+def _rank_recommendation_candidates(candidates: list[dict], top_n: int) -> list[dict]:
+    """Sort recommendation candidates by upside then quality."""
+    ranked = sorted(
+        candidates,
+        key=lambda item: (item["adjusted_upside_pct"], item["overall_score"], item["confidence"]),
+        reverse=True,
+    )
+    return ranked[:top_n]
+
+
+def _recommendation_scan_worker(
+    job_id: str,
+    symbols: list[str],
+    duration_days: int,
+    target_percentage: float,
+) -> None:
+    """Background worker for progressive recommendation scanning."""
+    try:
+        outcome_summary = _summarize_trade_outcomes(_load_trade_outcomes())
+        seen_symbols: set[str] = set()
+
+        for start in range(0, len(symbols), RECOMMENDATION_SCAN_BATCH_SIZE):
+            with _recommendation_jobs_lock:
+                job = _recommendation_scan_jobs.get(job_id)
+                if not job:
+                    return
+                if job.get("stop_requested"):
+                    job["status"] = "stopped"
+                    job["message"] = "Scan stopped by user."
+                    return
+
+            batch = symbols[start:start + RECOMMENDATION_SCAN_BATCH_SIZE]
+            filters = ScreeningFilter(min_overall_score=RECOMMENDATION_MIN_BASE_SCORE)
+            screen_result = screener.screen_stocks(
+                batch,
+                filters,
+                top_n=len(batch),
+                seed=None,
+                fast_mode=True,
+            )
+
+            fresh_candidates: list[dict] = []
+            for analysis in screen_result.top_picks:
+                candidate = _build_recommendation_candidate(analysis, duration_days, target_percentage)
+                learning_adj = _learning_adjustment_for_symbol(candidate["symbol"], outcome_summary)
+                adjusted_upside = round(candidate["expected_upside_pct"] + learning_adj, 2)
+                candidate["learning_adjustment"] = learning_adj
+                candidate["adjusted_upside_pct"] = max(0.0, adjusted_upside)
+
+                if learning_adj > 0:
+                    candidate["reason"] += " Past tracked outcomes for this symbol have been favorable."
+                elif learning_adj < 0:
+                    candidate["reason"] += " Past tracked outcomes for this symbol have been weaker, so confidence is trimmed."
+
+                if candidate["adjusted_upside_pct"] >= target_percentage:
+                    symbol_key = str(candidate.get("symbol", "")).upper()
+                    if symbol_key and symbol_key not in seen_symbols:
+                        seen_symbols.add(symbol_key)
+                        fresh_candidates.append(candidate)
+
+            with _recommendation_jobs_lock:
+                job = _recommendation_scan_jobs.get(job_id)
+                if not job:
+                    return
+                job["scanned_count"] = min(len(symbols), start + len(batch))
+                existing = list(job.get("results", []))
+                existing.extend(fresh_candidates)
+                job["results"] = _rank_recommendation_candidates(existing, RECOMMENDATION_SCAN_TARGET_COUNT)
+                found_count = len(job["results"])
+                total = job.get("total_symbols", len(symbols))
+                job["message"] = (
+                    f"Scanning in progress: {job['scanned_count']}/{total} symbols checked, "
+                    f"{found_count} match(es) found so far."
+                )
+                job["updated_at"] = datetime.now().isoformat()
+
+                if found_count >= RECOMMENDATION_SCAN_TARGET_COUNT:
+                    job["status"] = "completed"
+                    job["message"] = (
+                        f"Scan complete: found {found_count} stocks meeting {target_percentage:.1f}% "
+                        f"target within {duration_days} days."
+                    )
+                    job["updated_at"] = datetime.now().isoformat()
+                    return
+
+        with _recommendation_jobs_lock:
+            job = _recommendation_scan_jobs.get(job_id)
+            if not job:
+                return
+            job["status"] = "completed"
+            found_count = len(job.get("results", []))
+            if found_count:
+                job["message"] = (
+                    f"Scan finished all symbols: found {found_count} stock(s) meeting {target_percentage:.1f}% "
+                    f"target within {duration_days} days."
+                )
+            else:
+                job["message"] = (
+                    "Scan finished all symbols but found no matches. "
+                    "Try lower target % or longer duration."
+                )
+            job["updated_at"] = datetime.now().isoformat()
+    except Exception as exc:
+        logger.exception("Recommendation scan worker failed for job %s", job_id)
+        with _recommendation_jobs_lock:
+            job = _recommendation_scan_jobs.get(job_id)
+            if not job:
+                return
+            job["status"] = "error"
+            job["message"] = f"Scan failed: {exc}"
+            job["updated_at"] = datetime.now().isoformat()
+
+
+def _snapshot_recommendation_job(job: dict) -> dict:
+    """Build API-safe snapshot for recommendation scan job polling."""
+    return {
+        "job_id": job["job_id"],
+        "status": job["status"],
+        "universe": job["universe"],
+        "sector": job["sector"],
+        "duration_days": job["duration_days"],
+        "target_percentage": job["target_percentage"],
+        "scanned_count": job["scanned_count"],
+        "total_symbols": job["total_symbols"],
+        "found_count": len(job.get("results", [])),
+        "results": list(job.get("results", [])),
+        "message": job.get("message", ""),
+        "updated_at": job.get("updated_at", datetime.now().isoformat()),
+    }
+
+
 def _ensure_trade_outcomes_file() -> None:
     """Ensure trade outcome store exists as a JSON list."""
     TRADE_OUTCOMES_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -2274,6 +2411,94 @@ async def stock_recommendations(
             "average_return_pct": outcome_summary.get("average_return_pct", 0.0),
         },
     }
+
+
+@app.post("/stock-recommendations/scan/start")
+async def start_stock_recommendation_scan(
+    universe: str = Query("sp500", pattern="^(sp500|nasdaq100|combined)$"),
+    sector: Optional[str] = Query(None),
+    duration_days: int = Query(30, ge=1, le=365),
+    target_percentage: float = Query(8.0, ge=1, le=100),
+):
+    """Start progressive recommendation scan; returns job_id for polling."""
+    normalized_sector = _normalize_sector(sector) if sector else "all"
+    all_symbols = _get_us_market_universe(universe)
+    if normalized_sector != "all":
+        symbols = await asyncio.to_thread(_filter_symbols_by_sector, all_symbols, normalized_sector)
+    else:
+        symbols = all_symbols
+
+    if not symbols:
+        return {
+            "job_id": None,
+            "status": "completed",
+            "universe": universe,
+            "sector": normalized_sector,
+            "duration_days": duration_days,
+            "target_percentage": target_percentage,
+            "scanned_count": 0,
+            "total_symbols": 0,
+            "found_count": 0,
+            "results": [],
+            "message": "No symbols available for the selected universe and sector.",
+        }
+
+    job_id = str(uuid4())
+    now = datetime.now().isoformat()
+    with _recommendation_jobs_lock:
+        _recommendation_scan_jobs[job_id] = {
+            "job_id": job_id,
+            "status": "running",
+            "stop_requested": False,
+            "universe": universe,
+            "sector": normalized_sector,
+            "duration_days": duration_days,
+            "target_percentage": target_percentage,
+            "scanned_count": 0,
+            "total_symbols": len(symbols),
+            "results": [],
+            "message": "Scan started.",
+            "updated_at": now,
+        }
+
+    worker = threading.Thread(
+        target=_recommendation_scan_worker,
+        kwargs={
+            "job_id": job_id,
+            "symbols": symbols,
+            "duration_days": duration_days,
+            "target_percentage": target_percentage,
+        },
+        daemon=True,
+    )
+    worker.start()
+
+    with _recommendation_jobs_lock:
+        return _snapshot_recommendation_job(_recommendation_scan_jobs[job_id])
+
+
+@app.get("/stock-recommendations/scan/{job_id}")
+async def get_stock_recommendation_scan(job_id: str):
+    """Poll progressive recommendation scan status and current matches."""
+    with _recommendation_jobs_lock:
+        job = _recommendation_scan_jobs.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Scan job not found")
+        job["updated_at"] = datetime.now().isoformat()
+        return _snapshot_recommendation_job(job)
+
+
+@app.post("/stock-recommendations/scan/{job_id}/stop")
+async def stop_stock_recommendation_scan(job_id: str):
+    """Request background recommendation scan stop."""
+    with _recommendation_jobs_lock:
+        job = _recommendation_scan_jobs.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Scan job not found")
+        job["stop_requested"] = True
+        job["message"] = "Stopping scan..."
+        job["updated_at"] = datetime.now().isoformat()
+        return _snapshot_recommendation_job(job)
 
 
 @app.post("/trade-outcomes", response_model=TradeOutcomeResponse)
