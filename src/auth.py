@@ -98,22 +98,36 @@ def _save_users(users: dict[str, dict]) -> None:
 def _ensure_admin_exists() -> None:
     """Create the admin user record if it does not already exist.
 
-    The admin account starts as approved but without a password – the admin
-    must call /auth/set-password (or register normally) the first time.
-    We create a placeholder so the email is recognisable as an admin.
+    If the ADMIN_PASSWORD environment variable is set, it is always used as
+    the admin password – this ensures login works after ephemeral-filesystem
+    restarts (e.g. Render free tier).  If the env var is absent the admin
+    must use the /auth/register endpoint to set a password the first time.
     """
+    admin_plain_pw: str = os.getenv("ADMIN_PASSWORD", "")
     with _users_lock:
         users = _load_users()
-        if ADMIN_EMAIL not in users:
+        existing = users.get(ADMIN_EMAIL)
+        if existing is None:
+            # First boot: create record, apply password from env if available
             users[ADMIN_EMAIL] = UserRecord(
                 email=ADMIN_EMAIL,
-                hashed_password="",  # no password yet
+                hashed_password=hash_password(admin_plain_pw) if admin_plain_pw else "",
                 is_admin=True,
                 is_approved=True,
                 created_at=datetime.now(timezone.utc).isoformat(),
             ).model_dump()
             _save_users(users)
-            logger.info("Admin account placeholder created for %s", ADMIN_EMAIL)
+            logger.info("Admin account created for %s (password %s)",
+                        ADMIN_EMAIL, "set from env" if admin_plain_pw else "not set")
+        elif admin_plain_pw:
+            # Env var present: refresh hashed password on every restart so
+            # the admin can always log in even after the JSON file is wiped.
+            if not pwd_context.verify(admin_plain_pw, existing.get("hashed_password", "")):
+                existing["hashed_password"] = hash_password(admin_plain_pw)
+                existing["is_admin"] = True
+                existing["is_approved"] = True
+                _save_users(users)
+                logger.info("Admin password refreshed from ADMIN_PASSWORD env var")
 
 
 # Bootstrap admin on module import
