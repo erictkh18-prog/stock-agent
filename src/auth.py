@@ -126,7 +126,7 @@ def _import_psycopg():
 
 def _connect_postgres():
     psycopg = _import_psycopg()
-    return psycopg.connect(AUTH_DATABASE_URL, autocommit=True)
+    return psycopg.connect(AUTH_DATABASE_URL, connect_timeout=10, autocommit=True)
 
 
 def _normalize_user_dict(raw: Any) -> dict[str, Any]:
@@ -471,4 +471,12 @@ def list_all_users() -> list[dict]:
     ]
 
 
-_ensure_admin_exists()
+# Initialize admin at import time with graceful error handling
+# If database connection fails, the app will still start and retry on first request
+try:
+    _ensure_admin_exists()
+except Exception as exc:
+    logger.warning(
+        "Could not initialize admin at startup (will retry on first auth request): %s",
+        exc,
+    )
