@@ -207,22 +207,28 @@ def _migrate_json_users_to_postgres() -> None:
 def _ensure_storage_ready() -> None:
     if not _is_postgres_enabled():
         return
-    _ensure_postgres_schema()
-    _migrate_json_users_to_postgres()
+    try:
+        _ensure_postgres_schema()
+        _migrate_json_users_to_postgres()
+    except Exception as exc:
+        logger.error("Failed to initialize Postgres storage (will use JSON fallback): %s", exc)
 
 
 def _list_users() -> list[dict[str, Any]]:
     if _is_postgres_enabled():
-        _ensure_storage_ready()
-        with _connect_postgres() as conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT email, hashed_password, is_admin, is_approved, created_at
-                FROM kb_users
-                ORDER BY created_at ASC, email ASC
-                """
-            )
-            return [_normalize_user_dict(row) for row in cur.fetchall()]
+        try:
+            _ensure_storage_ready()
+            with _connect_postgres() as conn, conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT email, hashed_password, is_admin, is_approved, created_at
+                    FROM kb_users
+                    ORDER BY created_at ASC, email ASC
+                    """
+                )
+                return [_normalize_user_dict(row) for row in cur.fetchall()]
+        except Exception as exc:
+            logger.warning("Postgres query failed, falling back to JSON (error: %s)", exc)
 
     return [_normalize_user_dict(user) for user in _load_users_from_json().values()]
 
@@ -230,18 +236,21 @@ def _list_users() -> list[dict[str, Any]]:
 def _get_user(email: str) -> Optional[dict[str, Any]]:
     normalized_email = email.strip().lower()
     if _is_postgres_enabled():
-        _ensure_storage_ready()
-        with _connect_postgres() as conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT email, hashed_password, is_admin, is_approved, created_at
-                FROM kb_users
-                WHERE email = %s
-                """,
-                (normalized_email,),
-            )
-            row = cur.fetchone()
-            return _normalize_user_dict(row) if row else None
+        try:
+            _ensure_storage_ready()
+            with _connect_postgres() as conn, conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT email, hashed_password, is_admin, is_approved, created_at
+                    FROM kb_users
+                    WHERE email = %s
+                    """,
+                    (normalized_email,),
+                )
+                row = cur.fetchone()
+                return _normalize_user_dict(row) if row else None
+        except Exception as exc:
+            logger.warning("Postgres query failed, falling back to JSON (error: %s)", exc)
 
     user = _load_users_from_json().get(normalized_email)
     return _normalize_user_dict(user) if user else None
@@ -250,27 +259,30 @@ def _get_user(email: str) -> Optional[dict[str, Any]]:
 def _upsert_user(user: dict[str, Any]) -> dict[str, Any]:
     normalized = _normalize_user_dict(user)
     if _is_postgres_enabled():
-        _ensure_storage_ready()
-        with _connect_postgres() as conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO kb_users (email, hashed_password, is_admin, is_approved, created_at)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (email) DO UPDATE SET
-                    hashed_password = EXCLUDED.hashed_password,
-                    is_admin = EXCLUDED.is_admin,
-                    is_approved = EXCLUDED.is_approved,
-                    created_at = COALESCE(kb_users.created_at, EXCLUDED.created_at)
-                """,
-                (
-                    normalized["email"],
-                    normalized["hashed_password"],
-                    normalized["is_admin"],
-                    normalized["is_approved"],
-                    normalized["created_at"],
-                ),
-            )
-        return normalized
+        try:
+            _ensure_storage_ready()
+            with _connect_postgres() as conn, conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO kb_users (email, hashed_password, is_admin, is_approved, created_at)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (email) DO UPDATE SET
+                        hashed_password = EXCLUDED.hashed_password,
+                        is_admin = EXCLUDED.is_admin,
+                        is_approved = EXCLUDED.is_approved,
+                        created_at = COALESCE(kb_users.created_at, EXCLUDED.created_at)
+                    """,
+                    (
+                        normalized["email"],
+                        normalized["hashed_password"],
+                        normalized["is_admin"],
+                        normalized["is_approved"],
+                        normalized["created_at"],
+                    ),
+                )
+            return normalized
+        except Exception as exc:
+            logger.warning("Postgres insert failed, falling back to JSON (error: %s)", exc)
 
     users = _load_users_from_json()
     users[normalized["email"]] = normalized
