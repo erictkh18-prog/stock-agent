@@ -14,3 +14,7 @@ pytest==8.4.2
 lxml==6.0.2
 beautifulsoup4==4.14.0
 httpx==0.28.1
+python-jose[cryptography]==3.4.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.22
+bcrypt==4.3.0

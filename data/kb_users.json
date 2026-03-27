@@ -1,0 +1,16 @@
+{
+  "erictkh18@gmail.com": {
+    "email": "erictkh18@gmail.com",
+    "hashed_password": "",
+    "is_admin": true,
+    "is_approved": true,
+    "created_at": "2026-03-27T05:26:34.083386+00:00"
+  },
+  "admin@test.com": {
+    "email": "admin@test.com",
+    "hashed_password": "",
+    "is_admin": true,
+    "is_approved": true,
+    "created_at": "2026-03-27T05:27:20.092571+00:00"
+  }
+}
