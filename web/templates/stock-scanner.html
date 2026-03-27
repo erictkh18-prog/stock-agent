@@ -745,7 +745,7 @@ async function runRecommendationScan() {
       [
         ['Current', '$' + Number(s.current_price).toFixed(2), ''],
         ['Signal', chSign, s.recommendation === 'BUY' ? 'up' : s.recommendation === 'SELL' ? 'down' : ''],
-        ['Rating', s.recommendation, s.recommendation === 'BUY' ? 'up' : s.recommendation === 'SELL' ? 'down' : ''],
+        ['AI Score', Number(s.overall_score).toFixed(1), s.overall_score >= 75 ? 'up' : s.overall_score >= 60 ? '' : 'down'],
         ['Upside', upsidePct != null ? '+' + Number(upsidePct).toFixed(1) + '%' : 'N/A', upsidePct > 0 ? 'up' : ''],
         ['Stop Loss %', s.stop_loss_pct != null ? '-' + Number(s.stop_loss_pct).toFixed(1) + '%' : 'N/A', 'down'],
         ['Confidence', Math.round(s.confidence * 100) + '%', '']
