@@ -296,7 +296,7 @@
 
   <div class="hero" style="padding:30px 0 20px;">
     <div class="hero-tag">AI-Powered Price Target Analysis</div>
-    <h1 style="font-size:clamp(22px,4vw,40px);">Find Stocks That Can<br><span>Hit Your Target</span></h1>
+    <h2 style="font-size:clamp(22px,4vw,40px);">Find Stocks That Can<br><span>Hit Your Target</span></h2>
     <p class="hero-desc">Set your desired gain percentage and time horizon. Our AI screens the US market and surfaces the best candidates — complete with target price, stop loss, and plain-English rationale.</p>
   </div>
 
@@ -686,10 +686,10 @@ async function runRecommendationScan() {
   safeText(document.getElementById('recLoadingText'), 'Scanning ' + maxSymbols + ' symbols from ' + universe.toUpperCase() + '...');
 
   try {
-    let url = '/recommend-stocks?universe=' + encodeURIComponent(universe)
+    let url = '/stock-recommendations?universe=' + encodeURIComponent(universe)
       + '&max_symbols=' + encodeURIComponent(maxSymbols)
       + '&duration_days=' + encodeURIComponent(duration)
-      + '&target_pct=' + encodeURIComponent(targetPct);
+      + '&target_percentage=' + encodeURIComponent(targetPct);
     if (sector) url += '&sector=' + encodeURIComponent(sector);
 
     setRecStep(2);
@@ -721,8 +721,8 @@ async function runRecommendationScan() {
 
     data.results.forEach((s, i) => {
       const scC = s.overall_score >= 75 ? 'score-high' : s.overall_score >= 60 ? 'score-mid' : 'score-low';
-      const chSign = s.technical_trend === 'uptrend' ? '↑ Uptrend' : s.technical_trend === 'downtrend' ? '↓ Downtrend' : '→ Sideways';
-      const rsiText = s.rsi != null ? 'RSI ' + s.rsi : 'RSI N/A';
+      const chSign = s.recommendation === 'BUY' ? '↑ Bullish' : s.recommendation === 'SELL' ? '↓ Bearish' : '→ Neutral';
+      const upsidePct = s.adjusted_upside_pct != null ? s.adjusted_upside_pct : s.expected_upside_pct;
 
       const card = document.createElement('div');
       card.className = 'stock-card';
@@ -740,14 +740,14 @@ async function runRecommendationScan() {
       scoreBadge.appendChild(scoreLabel); scoreBadge.appendChild(scoreVal);
       cardTop.appendChild(tickerDiv); cardTop.appendChild(scoreBadge);
 
-      // Metrics row: current price, trend, RSI
+      // Metrics row: current price, signal, upside, stop loss %, confidence
       const metricsRow = document.createElement('div'); metricsRow.className = 'metrics-row';
       [
         ['Current', '$' + Number(s.current_price).toFixed(2), ''],
-        ['Trend', chSign, s.technical_trend === 'uptrend' ? 'up' : s.technical_trend === 'downtrend' ? 'down' : ''],
-        [rsiText, s.recommendation, s.recommendation === 'BUY' ? 'up' : s.recommendation === 'SELL' ? 'down' : ''],
-        ['P/E', s.pe_ratio ? Number(s.pe_ratio).toFixed(1) + 'x' : 'N/A', ''],
-        ['Rev Growth', s.revenue_growth != null ? (s.revenue_growth >= 0 ? '+' : '') + (s.revenue_growth * 100).toFixed(1) + '%' : 'N/A', ''],
+        ['Signal', chSign, s.recommendation === 'BUY' ? 'up' : s.recommendation === 'SELL' ? 'down' : ''],
+        ['Rating', s.recommendation, s.recommendation === 'BUY' ? 'up' : s.recommendation === 'SELL' ? 'down' : ''],
+        ['Upside', upsidePct != null ? '+' + Number(upsidePct).toFixed(1) + '%' : 'N/A', upsidePct > 0 ? 'up' : ''],
+        ['Stop Loss %', s.stop_loss_pct != null ? '-' + Number(s.stop_loss_pct).toFixed(1) + '%' : 'N/A', 'down'],
         ['Confidence', Math.round(s.confidence * 100) + '%', '']
       ].forEach(([label, val, cls]) => {
         const m = document.createElement('div'); m.className = 'metric';
@@ -759,12 +759,12 @@ async function runRecommendationScan() {
       // Exit strategy block
       const exitDiv = document.createElement('div'); exitDiv.className = 'exit-strategy';
       const exitTitle = document.createElement('div'); exitTitle.className = 'exit-strategy-title';
-      safeText(exitTitle, '🎯 Exit Strategy — ' + s.duration_days + '-day target');
+      safeText(exitTitle, '🎯 Exit Strategy — ' + data.duration_days + '-day target');
       const exitRow = document.createElement('div'); exitRow.className = 'exit-row';
       [
         ['Target Price', '$' + Number(s.target_price).toFixed(2), 'exit-value target-price'],
-        ['Stop Loss', '$' + Number(s.stop_loss).toFixed(2), 'exit-value stop-loss'],
-        ['Upside', '+' + Number(s.expected_gain_pct).toFixed(1) + '%', 'exit-value up']
+        ['Stop Loss', '$' + Number(s.stop_loss_price).toFixed(2), 'exit-value stop-loss'],
+        ['Upside', '+' + Number(upsidePct || s.expected_upside_pct || 0).toFixed(1) + '%', 'exit-value up']
       ].forEach(([label, val, cls]) => {
         const item = document.createElement('div'); item.className = 'exit-item';
         const lbl = document.createElement('div'); lbl.className = 'exit-label'; safeText(lbl, label);
@@ -775,16 +775,16 @@ async function runRecommendationScan() {
 
       // Why recommended
       const whyEl = document.createElement('div'); whyEl.className = 'why-section';
-      safeText(whyEl, s.why_recommended || 'Meets AI screening criteria for your target parameters.');
+      safeText(whyEl, s.reason || 'Meets AI screening criteria for your target parameters.');
 
-      // Risk tags
+      // Learning adjustment tag
       let riskTagsDiv = null;
-      if (s.risk_factors && s.risk_factors.length) {
+      if (s.learning_adjustment && Math.abs(s.learning_adjustment) >= 0.5) {
         riskTagsDiv = document.createElement('div'); riskTagsDiv.className = 'risk-tags';
-        s.risk_factors.forEach(r => {
-          const sp = document.createElement('span'); sp.className = 'risk-tag';
-          safeText(sp, '⚠ ' + r); riskTagsDiv.appendChild(sp);
-        });
+        const sp = document.createElement('span');
+        sp.className = s.learning_adjustment > 0 ? 'risk-tag' : 'risk-tag';
+        safeText(sp, s.learning_adjustment > 0 ? '📈 Historically favorable' : '⚠ Historically weaker');
+        riskTagsDiv.appendChild(sp);
       }
 
       card.appendChild(cardTop);
@@ -795,7 +795,7 @@ async function runRecommendationScan() {
       grid.appendChild(card);
     });
 
-    const scannedInfo = 'Top ' + data.results.length + ' picks from ' + (data.scanned_count || '?') + ' scanned · ' + data.duration_days + '-day / +' + data.target_pct + '% target';
+    const scannedInfo = 'Top ' + data.results.length + ' picks from ' + (data.scanned_count || '?') + ' scanned · ' + data.duration_days + '-day / +' + data.target_percentage + '% target';
     safeText(document.getElementById('recResultsCount'), scannedInfo);
     results.classList.add('visible');
 

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stock Analysis Agent</title>
     <link rel="preconnect" href="https://cdn.jsdelivr.net">
-    <link rel="stylesheet" href="../static/style.css?v=20260326a">
+    <link rel="stylesheet" href="../static/style.css?v=20260327b">
     <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
 </head>
 <body>
@@ -144,7 +144,7 @@
                 </select>
                 <input type="number" id="marketMinScore" min="0" max="100" step="1" value="65" placeholder="Min score" aria-label="Min score">
                 <input type="number" id="marketTopN" min="1" max="100" step="1" value="20" placeholder="Top N" aria-label="Top N">
-                <input type="number" id="marketMaxSymbols" min="25" max="800" step="5" value="80" placeholder="Max symbols" aria-label="Max symbols">
+                <input type="number" id="marketMaxSymbols" min="5" max="800" step="1" value="10" placeholder="Max symbols" aria-label="Max symbols">
                 <button id="marketScanBtn">Scan US Market</button>
             </div>
 
@@ -164,6 +164,87 @@
                 </div>
             </div>
         </div>
+
+        <!-- SECTION 4: Stock Recommendation -->
+        <div class="card">
+            <h2>⭐ Stock Recommendation</h2>
+            <p class="description">Recommend stocks with potential to reach your target gain within your selected duration</p>
+
+            <div class="input-group">
+                <select id="recommendUniverse" aria-label="Recommendation universe">
+                    <option value="sp500" selected>S&amp;P 500</option>
+                    <option value="nasdaq100">Nasdaq-100</option>
+                    <option value="combined">Combined (S&amp;P 500 + Nasdaq-100)</option>
+                </select>
+                <select id="recommendSector" aria-label="Recommendation sector">
+                    <option value="all" selected>All Sectors</option>
+                    <option value="technology">Technology</option>
+                    <option value="financial services">Financial Services</option>
+                    <option value="healthcare">Healthcare</option>
+                    <option value="consumer cyclical">Consumer Cyclical</option>
+                    <option value="consumer defensive">Consumer Defensive</option>
+                    <option value="industrials">Industrials</option>
+                    <option value="energy">Energy</option>
+                    <option value="communication services">Communication Services</option>
+                    <option value="real estate">Real Estate</option>
+                    <option value="basic materials">Basic Materials</option>
+                    <option value="utilities">Utilities</option>
+                </select>
+                <input type="number" id="recommendMinScore" min="0" max="100" step="1" value="65" placeholder="Min score" aria-label="Recommendation min score">
+                <input type="number" id="recommendTopN" min="1" max="50" step="1" value="10" placeholder="Top N" aria-label="Recommendation top N">
+                <input type="number" id="recommendMaxSymbols" min="5" max="800" step="1" value="10" placeholder="Max symbols" aria-label="Recommendation max symbols">
+                <input type="number" id="recommendDurationDays" min="1" max="365" step="1" value="30" placeholder="Duration (days)" aria-label="Duration in days">
+                <input type="number" id="recommendTargetPct" min="1" max="100" step="0.5" value="8" placeholder="Target %" aria-label="Target percentage">
+                <button id="recommendScanBtn">Scan US Market</button>
+            </div>
+
+            <div class="field-labels recommendation-field-labels" aria-hidden="true">
+                <span>Universe</span>
+                <span>Sector</span>
+                <span>Min Score</span>
+                <span>Top N</span>
+                <span>Max Symbols</span>
+                <span>Duration (Days)</span>
+                <span>% Percentage</span>
+                <span>Action</span>
+            </div>
+
+            <div id="recommendResult" class="result hidden">
+                <p id="recommendMeta" class="description"></p>
+                <div id="recommendTable" class="table-container">
+                    <!-- Recommendation results will be inserted here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- SECTION 5: Trade Outcome Tracker -->
+        <div class="card">
+            <h2>🧠 Trade Outcome Tracker</h2>
+            <p class="description">Log completed trade outcomes so the recommendation model can learn from real results</p>
+
+            <div class="input-group">
+                <input type="text" id="outcomeSymbol" placeholder="Symbol (e.g., AAPL)" maxlength="10" aria-label="Outcome symbol">
+                <select id="outcomeType" aria-label="Outcome type">
+                    <option value="target_hit">Target Hit</option>
+                    <option value="stop_hit">Stop Hit</option>
+                    <option value="timeout">Timeout</option>
+                    <option value="manual_close">Manual Close</option>
+                </select>
+                <input type="number" id="outcomeEntryPrice" min="0" step="0.01" placeholder="Entry Price" aria-label="Entry price">
+                <input type="number" id="outcomeExitPrice" min="0" step="0.01" placeholder="Exit Price (optional)" aria-label="Exit price">
+                <input type="number" id="outcomeTargetPrice" min="0" step="0.01" placeholder="Target Price (optional)" aria-label="Target price">
+                <input type="number" id="outcomeStopPrice" min="0" step="0.01" placeholder="Stop Loss Price (optional)" aria-label="Stop loss price">
+                <button id="logOutcomeBtn">Log Outcome</button>
+            </div>
+
+            <div id="outcomeTrackerMeta" class="description">No outcomes logged yet.</div>
+
+            <div id="outcomeResult" class="result hidden">
+                <div id="outcomeTable" class="table-container">
+                    <!-- Outcome history table -->
+                </div>
+            </div>
+        </div>
     </div>
 
     <div class="footer">
@@ -171,6 +252,6 @@
         <p>Data powered by Yahoo Finance • Updated in real-time</p>
     </div>
 
-    <script src="../static/script.js?v=20260326a" defer></script>
+    <script src="../static/script.js?v=20260327b" defer></script>
 </body>
 </html>

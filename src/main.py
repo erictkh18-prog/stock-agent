@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict, deque
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 import pandas as pd
 import requests
@@ -174,6 +174,9 @@ CLAIM_NOISE_PATTERNS = [
     "url source:",
     "bloomberg the company",
 ]
+TRADE_OUTCOMES_PATH = Path(__file__).parent.parent / "data" / "trade_outcomes.json"
+TRADE_OUTCOME_STATUSES = {"target_hit", "stop_hit", "timeout", "manual_close"}
+_trade_outcomes_lock = threading.Lock()
 
 
 def _should_rate_limit(path: str) -> bool:
@@ -182,7 +185,7 @@ def _should_rate_limit(path: str) -> bool:
         or path.startswith("/screen")
         or path.startswith("/fetch-top-performers")
         or path.startswith("/scan-us-market")
-        or path.startswith("/recommend-stocks")
+        or path.startswith("/stock-recommendations")
     )
 
 
@@ -358,6 +361,25 @@ class KnowledgeChapterStatusResponse(BaseModel):
     path: str
     chapter_status: str
     message: str
+
+
+class TradeOutcomeRequest(BaseModel):
+    symbol: str
+    outcome: str
+    entry_price: float
+    exit_price: Optional[float] = None
+    target_price: Optional[float] = None
+    stop_loss_price: Optional[float] = None
+    duration_days: Optional[int] = None
+    target_percentage: Optional[float] = None
+    recommendation_id: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class TradeOutcomeResponse(BaseModel):
+    status: str
+    message: str
+    record: Dict[str, Any]
 
 
 def _safe_rel_path(path: Path, root: Path) -> str:
@@ -1519,10 +1541,29 @@ async def analyze_stock(symbol: str):
 async def screen_stocks(
     symbols: List[str] = Query(..., description="List of stock symbols to screen"),
     min_overall_score: Optional[float] = Query(60, ge=0, le=100),
-    max_pe_ratio: Optional[float] = Query(None),
-    min_dividend_yield: Optional[float] = Query(None),
-    max_debt_to_equity: Optional[float] = Query(None),
-    trend: Optional[str] = Query(None),
+    max_pe_ratio: Optional[float] = Query(None, description="Max trailing P/E ratio"),
+    max_forward_pe: Optional[float] = Query(None, description="Max forward P/E ratio"),
+    min_dividend_yield: Optional[float] = Query(None, description="Min dividend yield (e.g. 0.02 = 2%)"),
+    max_debt_to_equity: Optional[float] = Query(None, description="Max debt-to-equity ratio"),
+    min_revenue_growth: Optional[float] = Query(None, description="Min revenue growth (e.g. 0.10 = 10%)"),
+    min_roe: Optional[float] = Query(None, description="Min return on equity (e.g. 0.15 = 15%)"),
+    min_roa: Optional[float] = Query(None, description="Min return on assets (e.g. 0.05 = 5%)"),
+    min_profit_margin: Optional[float] = Query(None, description="Min net profit margin"),
+    min_operating_margin: Optional[float] = Query(None, description="Min operating margin"),
+    max_peg_ratio: Optional[float] = Query(None, description="Max PEG ratio (e.g. 1.5)"),
+    max_pb_ratio: Optional[float] = Query(None, description="Max price-to-book ratio"),
+    max_price_to_sales: Optional[float] = Query(None, description="Max price-to-sales ratio"),
+    max_ev_ebitda: Optional[float] = Query(None, description="Max EV/EBITDA"),
+    min_current_ratio: Optional[float] = Query(None, description="Min current ratio (e.g. 1.0)"),
+    min_quick_ratio: Optional[float] = Query(None, description="Min quick ratio (e.g. 0.8)"),
+    min_eps: Optional[float] = Query(None, description="Min EPS (e.g. 0 to exclude loss-makers)"),
+    min_fcf_yield: Optional[float] = Query(None, description="Min free cash flow yield (e.g. 0.02)"),
+    max_beta: Optional[float] = Query(None, description="Max beta (e.g. 1.5 for lower volatility)"),
+    min_beta: Optional[float] = Query(None, description="Min beta (e.g. 0.5 for minimum activity)"),
+    min_price_change_3m: Optional[float] = Query(None, description="Min 3-month price change (e.g. 0.05 = 5%)"),
+    min_price_change_1m: Optional[float] = Query(None, description="Min 1-month price change"),
+    min_volume_ratio: Optional[float] = Query(None, description="Min volume ratio vs 20-day avg (e.g. 1.2)"),
+    trend: Optional[str] = Query(None, description="Price trend: uptrend, downtrend, or sideways"),
     top_n: Optional[int] = Query(10, ge=1, le=100),
 ):
     """Screen multiple stocks and return top candidates"""
@@ -1534,8 +1575,27 @@ async def screen_stocks(
         filters = ScreeningFilter(
             min_overall_score=min_overall_score,
             max_pe_ratio=max_pe_ratio,
+            max_forward_pe=max_forward_pe,
             min_dividend_yield=min_dividend_yield,
             max_debt_to_equity=max_debt_to_equity,
+            min_revenue_growth=min_revenue_growth,
+            min_roe=min_roe,
+            min_roa=min_roa,
+            min_profit_margin=min_profit_margin,
+            min_operating_margin=min_operating_margin,
+            max_peg_ratio=max_peg_ratio,
+            max_pb_ratio=max_pb_ratio,
+            max_price_to_sales=max_price_to_sales,
+            max_ev_ebitda=max_ev_ebitda,
+            min_current_ratio=min_current_ratio,
+            min_quick_ratio=min_quick_ratio,
+            min_eps=min_eps,
+            min_fcf_yield=min_fcf_yield,
+            max_beta=max_beta,
+            min_beta=min_beta,
+            min_price_change_3m=min_price_change_3m,
+            min_price_change_1m=min_price_change_1m,
+            min_volume_ratio=min_volume_ratio,
             trend=trend,
         )
         return screener.screen_stocks(normalized_symbols, filters, top_n)
@@ -1550,10 +1610,29 @@ async def screen_stocks(
 async def screen_stocks_async(
     symbols: List[str] = Query(..., description="List of stock symbols to screen"),
     min_overall_score: Optional[float] = Query(60, ge=0, le=100),
-    max_pe_ratio: Optional[float] = Query(None),
-    min_dividend_yield: Optional[float] = Query(None),
-    max_debt_to_equity: Optional[float] = Query(None),
-    trend: Optional[str] = Query(None),
+    max_pe_ratio: Optional[float] = Query(None, description="Max trailing P/E ratio"),
+    max_forward_pe: Optional[float] = Query(None, description="Max forward P/E ratio"),
+    min_dividend_yield: Optional[float] = Query(None, description="Min dividend yield (e.g. 0.02 = 2%)"),
+    max_debt_to_equity: Optional[float] = Query(None, description="Max debt-to-equity ratio"),
+    min_revenue_growth: Optional[float] = Query(None, description="Min revenue growth (e.g. 0.10 = 10%)"),
+    min_roe: Optional[float] = Query(None, description="Min return on equity (e.g. 0.15 = 15%)"),
+    min_roa: Optional[float] = Query(None, description="Min return on assets (e.g. 0.05 = 5%)"),
+    min_profit_margin: Optional[float] = Query(None, description="Min net profit margin"),
+    min_operating_margin: Optional[float] = Query(None, description="Min operating margin"),
+    max_peg_ratio: Optional[float] = Query(None, description="Max PEG ratio (e.g. 1.5)"),
+    max_pb_ratio: Optional[float] = Query(None, description="Max price-to-book ratio"),
+    max_price_to_sales: Optional[float] = Query(None, description="Max price-to-sales ratio"),
+    max_ev_ebitda: Optional[float] = Query(None, description="Max EV/EBITDA"),
+    min_current_ratio: Optional[float] = Query(None, description="Min current ratio (e.g. 1.0)"),
+    min_quick_ratio: Optional[float] = Query(None, description="Min quick ratio (e.g. 0.8)"),
+    min_eps: Optional[float] = Query(None, description="Min EPS (e.g. 0 to exclude loss-makers)"),
+    min_fcf_yield: Optional[float] = Query(None, description="Min free cash flow yield (e.g. 0.02)"),
+    max_beta: Optional[float] = Query(None, description="Max beta (e.g. 1.5 for lower volatility)"),
+    min_beta: Optional[float] = Query(None, description="Min beta (e.g. 0.5 for minimum activity)"),
+    min_price_change_3m: Optional[float] = Query(None, description="Min 3-month price change (e.g. 0.05 = 5%)"),
+    min_price_change_1m: Optional[float] = Query(None, description="Min 1-month price change"),
+    min_volume_ratio: Optional[float] = Query(None, description="Min volume ratio vs 20-day avg (e.g. 1.2)"),
+    trend: Optional[str] = Query(None, description="Price trend: uptrend, downtrend, or sideways"),
     top_n: Optional[int] = Query(10, ge=1, le=100),
 ):
     """Async-friendly screening endpoint that offloads CPU/network work from event loop."""
@@ -1565,8 +1644,27 @@ async def screen_stocks_async(
         filters = ScreeningFilter(
             min_overall_score=min_overall_score,
             max_pe_ratio=max_pe_ratio,
+            max_forward_pe=max_forward_pe,
             min_dividend_yield=min_dividend_yield,
             max_debt_to_equity=max_debt_to_equity,
+            min_revenue_growth=min_revenue_growth,
+            min_roe=min_roe,
+            min_roa=min_roa,
+            min_profit_margin=min_profit_margin,
+            min_operating_margin=min_operating_margin,
+            max_peg_ratio=max_peg_ratio,
+            max_pb_ratio=max_pb_ratio,
+            max_price_to_sales=max_price_to_sales,
+            max_ev_ebitda=max_ev_ebitda,
+            min_current_ratio=min_current_ratio,
+            min_quick_ratio=min_quick_ratio,
+            min_eps=min_eps,
+            min_fcf_yield=min_fcf_yield,
+            max_beta=max_beta,
+            min_beta=min_beta,
+            min_price_change_3m=min_price_change_3m,
+            min_price_change_1m=min_price_change_1m,
+            min_volume_ratio=min_volume_ratio,
             trend=trend,
         )
 
@@ -1635,6 +1733,208 @@ async def screen_text(symbols: List[str] = Query(..., description="List of stock
         ],
     }
 
+
+def _estimate_upside_percent(analysis: StockAnalysis, duration_days: int) -> float:
+    """Estimate upside potential from score quality, trend, sentiment, and horizon."""
+    base = max(0.0, analysis.overall_score - 50.0) * 0.25
+
+    trend = (getattr(analysis.technical, "trend", "") or "").lower()
+    if trend == "uptrend":
+        trend_bonus = 2.0
+    elif trend == "sideways":
+        trend_bonus = 0.5
+    elif trend == "downtrend":
+        trend_bonus = -2.0
+    else:
+        trend_bonus = 0.0
+
+    sentiment_score = float(getattr(analysis.sentiment, "score", 50.0) or 50.0)
+    sentiment_bonus = max(-3.0, min(3.0, (sentiment_score - 50.0) / 10.0))
+
+    rsi = getattr(analysis.technical, "rsi", None)
+    rsi_penalty = 1.0 if (rsi is not None and rsi > 75) else 0.0
+
+    horizon_scale = max(0.6, min(1.6, duration_days / 30.0))
+    projected = (base + trend_bonus + sentiment_bonus - rsi_penalty) * horizon_scale
+    return round(max(1.0, min(35.0, projected)), 2)
+
+
+def _build_simple_reason(analysis: StockAnalysis, duration_days: int, target_percentage: float) -> str:
+    """Explain recommendation in non-technical language."""
+    factors = analysis.top_contributing_factors or []
+    trend = (getattr(analysis.technical, "trend", "") or "no clear trend").lower()
+    lead_factor = factors[0] if factors else "its overall quality score is stronger than many peers"
+    return (
+        f"{analysis.symbol} is recommended because {lead_factor}. "
+        f"Trend is currently {trend}, and the model projects a realistic chance of roughly "
+        f"{target_percentage:.1f}% upside within {duration_days} days."
+    )
+
+
+def _build_exit_strategy(current_price: float, target_percentage: float) -> dict:
+    """Build practical target and stop-loss values for risk control."""
+    target_price = round(current_price * (1 + (target_percentage / 100.0)), 2)
+    stop_loss_pct = max(4.0, min(12.0, target_percentage * 0.6))
+    stop_loss_price = round(current_price * (1 - (stop_loss_pct / 100.0)), 2)
+    return {
+        "target_price": target_price,
+        "stop_loss_price": stop_loss_price,
+        "stop_loss_pct": round(stop_loss_pct, 2),
+    }
+
+
+def _build_recommendation_candidate(
+    analysis: StockAnalysis,
+    duration_days: int,
+    target_percentage: float,
+) -> dict:
+    """Convert analysis into a recommendation payload for the dashboard table."""
+    expected_upside = _estimate_upside_percent(analysis, duration_days)
+    exit_strategy = _build_exit_strategy(analysis.current_price, target_percentage)
+
+    return {
+        "symbol": analysis.symbol,
+        "name": analysis.name,
+        "current_price": round(analysis.current_price, 2),
+        "overall_score": round(analysis.overall_score, 2),
+        "recommendation": analysis.recommendation,
+        "confidence": round(analysis.confidence, 3),
+        "expected_upside_pct": expected_upside,
+        "target_price": exit_strategy["target_price"],
+        "stop_loss_price": exit_strategy["stop_loss_price"],
+        "stop_loss_pct": exit_strategy["stop_loss_pct"],
+        "reason": _build_simple_reason(analysis, duration_days, target_percentage),
+    }
+
+
+def _ensure_trade_outcomes_file() -> None:
+    """Ensure trade outcome store exists as a JSON list."""
+    TRADE_OUTCOMES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if TRADE_OUTCOMES_PATH.exists():
+        return
+    TRADE_OUTCOMES_PATH.write_text("[]", encoding="utf-8")
+
+
+def _load_trade_outcomes() -> list[dict]:
+    """Load all trade outcomes from local storage."""
+    _ensure_trade_outcomes_file()
+    with _trade_outcomes_lock:
+        try:
+            payload = json.loads(TRADE_OUTCOMES_PATH.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            payload = []
+    return payload if isinstance(payload, list) else []
+
+
+def _save_trade_outcomes(records: list[dict]) -> None:
+    """Persist trade outcomes to local JSON storage."""
+    _ensure_trade_outcomes_file()
+    with _trade_outcomes_lock:
+        TRADE_OUTCOMES_PATH.write_text(json.dumps(records, indent=2), encoding="utf-8")
+
+
+def _calculate_outcome_return_pct(
+    outcome: str,
+    entry_price: float,
+    exit_price: Optional[float],
+    target_price: Optional[float],
+    stop_loss_price: Optional[float],
+) -> float:
+    """Calculate realized return percentage for outcome logs."""
+    effective_exit = exit_price
+    if effective_exit is None and outcome == "target_hit" and target_price is not None:
+        effective_exit = target_price
+    if effective_exit is None and outcome == "stop_hit" and stop_loss_price is not None:
+        effective_exit = stop_loss_price
+    if effective_exit is None:
+        return 0.0
+
+    return round(((effective_exit - entry_price) / entry_price) * 100.0, 2)
+
+
+def _summarize_trade_outcomes(records: list[dict]) -> dict:
+    """Build aggregate outcome stats for reporting and UI display."""
+    if not records:
+        return {
+            "total": 0,
+            "target_hits": 0,
+            "stop_hits": 0,
+            "timeouts": 0,
+            "manual_closes": 0,
+            "win_rate_pct": 0.0,
+            "average_return_pct": 0.0,
+            "by_symbol": {},
+        }
+
+    target_hits = sum(1 for r in records if r.get("outcome") == "target_hit")
+    stop_hits = sum(1 for r in records if r.get("outcome") == "stop_hit")
+    timeouts = sum(1 for r in records if r.get("outcome") == "timeout")
+    manual_closes = sum(1 for r in records if r.get("outcome") == "manual_close")
+    avg_return = round(
+        sum(float(r.get("return_pct", 0.0)) for r in records) / len(records),
+        2,
+    )
+    win_rate = round((target_hits / len(records)) * 100.0, 2)
+
+    by_symbol: dict[str, dict] = {}
+    for record in records:
+        symbol = (record.get("symbol") or "").upper()
+        if not symbol:
+            continue
+
+        bucket = by_symbol.setdefault(
+            symbol,
+            {
+                "total": 0,
+                "target_hits": 0,
+                "stop_hits": 0,
+                "average_return_pct": 0.0,
+                "return_sum": 0.0,
+            },
+        )
+        bucket["total"] += 1
+        if record.get("outcome") == "target_hit":
+            bucket["target_hits"] += 1
+        if record.get("outcome") == "stop_hit":
+            bucket["stop_hits"] += 1
+        bucket["return_sum"] += float(record.get("return_pct", 0.0))
+
+    for symbol, summary in by_symbol.items():
+        total = summary["total"]
+        summary["average_return_pct"] = round(summary["return_sum"] / total, 2) if total else 0.0
+        del summary["return_sum"]
+
+    return {
+        "total": len(records),
+        "target_hits": target_hits,
+        "stop_hits": stop_hits,
+        "timeouts": timeouts,
+        "manual_closes": manual_closes,
+        "win_rate_pct": win_rate,
+        "average_return_pct": avg_return,
+        "by_symbol": by_symbol,
+    }
+
+
+def _learning_adjustment_for_symbol(symbol: str, outcome_summary: dict) -> float:
+    """Return score/upside adjustment for a symbol based on tracked outcomes."""
+    symbol_stats = (outcome_summary.get("by_symbol") or {}).get(symbol.upper())
+    if not symbol_stats:
+        return 0.0
+
+    sample_size = int(symbol_stats.get("total", 0))
+    if sample_size < 2:
+        return 0.0
+
+    target_hits = float(symbol_stats.get("target_hits", 0))
+    stop_hits = float(symbol_stats.get("stop_hits", 0))
+    win_rate = target_hits / sample_size
+    stop_rate = stop_hits / sample_size
+    avg_return = float(symbol_stats.get("average_return_pct", 0.0))
+
+    adjustment = ((win_rate - stop_rate) * 6.0) + (avg_return * 0.12)
+    return round(max(-4.0, min(6.0, adjustment)), 2)
+
 @app.get("/fetch-top-performers")
 async def fetch_top_performers(top_n: int = Query(10, ge=1, le=50)):
     """Analyze a curated list of popular stocks and return top picks."""
@@ -1683,7 +1983,7 @@ async def scan_us_market(
     sector: Optional[str] = Query(None),
     min_overall_score: float = Query(65, ge=0, le=100),
     top_n: int = Query(20, ge=1, le=100),
-    max_symbols: int = Query(80, ge=25, le=800),
+    max_symbols: int = Query(10, ge=5, le=800),
     seed: Optional[int] = Query(None, description="Supply an integer seed to enable deterministic mode. Same inputs plus the same seed produce stable ordering, and different seeds can change the order of tied scores."),
 ):
     """Scan a broad US market universe and return potential opportunities.
@@ -1760,138 +2060,170 @@ async def scan_us_market(
     return payload
 
 
-def _build_recommendation_text(stock, target_pct: float, duration_days: int) -> str:
-    """Build a plain-language recommendation explanation for a stock."""
-    parts = []
-
-    # Opening sentence
-    parts.append(
-        f"{stock.symbol} is recommended as a potential {target_pct:.0f}% gainer "
-        f"within {duration_days} day{'s' if duration_days != 1 else ''}."
-    )
-
-    # Use pre-built reason from screener if available
-    if stock.reason:
-        parts.append(stock.reason.capitalize() + ".")
-
-    # Contributing factors
-    factors = stock.top_contributing_factors or []
-    if factors:
-        factor_str = ", ".join(factors)
-        parts.append(f"Key strengths: {factor_str}.")
-
-    # Risk factors
-    risks = stock.top_risk_factors or []
-    if risks:
-        risk_str = ", ".join(risks)
-        parts.append(f"Key risks to watch: {risk_str}.")
-
-    # Technical context
-    if stock.technical:
-        trend = stock.technical.trend
-        rsi = stock.technical.rsi
-        if trend == "uptrend":
-            parts.append("The stock is currently in an uptrend, supporting near-term momentum.")
-        elif trend == "downtrend":
-            parts.append("The stock is in a downtrend — confirm reversal before entry.")
-        if rsi is not None:
-            if rsi < 35:
-                parts.append(f"RSI of {rsi:.0f} indicates oversold conditions — a potential rebound opportunity.")
-            elif rsi > 65:
-                parts.append(f"RSI of {rsi:.0f} suggests the stock may be overbought; consider waiting for a pullback.")
-
-    return " ".join(parts)
-
-
-@app.get("/recommend-stocks")
-async def recommend_stocks(
+@app.get("/stock-recommendations")
+async def stock_recommendations(
     universe: str = Query("sp500", pattern="^(sp500|nasdaq100|combined)$"),
     sector: Optional[str] = Query(None),
-    max_symbols: int = Query(80, ge=10, le=800),
+    min_overall_score: float = Query(65, ge=0, le=100),
     top_n: int = Query(10, ge=1, le=50),
+    max_symbols: int = Query(10, ge=5, le=800),
     duration_days: int = Query(30, ge=1, le=365),
-    target_pct: float = Query(10.0, ge=0.1, le=100.0),
-    min_overall_score: float = Query(60, ge=0, le=100),
+    target_percentage: float = Query(8.0, ge=1, le=100),
+    seed: Optional[int] = Query(None),
 ):
-    """Scan the US market and return stock recommendations with target price and stop loss.
-
-    Each result includes:
-    - ``target_price``: the price that represents the desired ``target_pct`` gain
-    - ``stop_loss``: a protective exit price (uses technical support when available,
-      otherwise ``target_pct / 2`` below current price)
-    - ``why_recommended``: a plain-language explanation of why this stock was chosen
-    """
+    """Recommend stocks with projected upside target within user-selected duration."""
     normalized_sector = _normalize_sector(sector) if sector else "all"
-    symbols = _get_us_market_universe(universe)[:max_symbols]
+    all_symbols = _get_us_market_universe(universe)
 
     if normalized_sector != "all":
-        symbols = await asyncio.to_thread(_filter_symbols_by_sector, symbols, normalized_sector)
+        symbols = await asyncio.to_thread(_filter_symbols_by_sector, all_symbols, normalized_sector)
+    else:
+        symbols = all_symbols
+
+    symbols = symbols[:max_symbols]
 
     if not symbols:
         return {
             "universe": universe,
             "sector": normalized_sector,
             "duration_days": duration_days,
-            "target_pct": target_pct,
+            "target_percentage": target_percentage,
             "scanned_count": 0,
+            "recommended_count": 0,
             "results": [],
-            "screening_timestamp": datetime.now().isoformat(),
+            "summary": "No symbols available for the selected universe and sector.",
         }
 
     filters = ScreeningFilter(min_overall_score=min_overall_score)
-    result = await asyncio.to_thread(
+    screen_result = await asyncio.to_thread(
         screener.screen_stocks,
         symbols,
         filters,
-        top_n,
-        None,
+        max(top_n * 3, top_n),
+        seed,
         True,
     )
 
-    recommendations = []
-    for stock in result.top_picks:
-        price = stock.current_price
-        target_price = round(price * (1 + target_pct / 100), 2)
+    candidates = [
+        _build_recommendation_candidate(analysis, duration_days, target_percentage)
+        for analysis in screen_result.top_picks
+    ]
 
-        # Stop loss: use technical support when it sits between 50%–99% of current price;
-        # otherwise fall back to half the expected gain as the maximum loss budget.
-        stop_loss_fallback = round(price * (1 - (target_pct / 2) / 100), 2)
-        support = stock.technical.support_level if stock.technical else None
-        if support is not None and price * 0.50 < support < price:
-            stop_loss = round(support, 2)
-        else:
-            stop_loss = stop_loss_fallback
+    outcome_summary = _summarize_trade_outcomes(_load_trade_outcomes())
+    for candidate in candidates:
+        learning_adj = _learning_adjustment_for_symbol(candidate["symbol"], outcome_summary)
+        adjusted_upside = round(candidate["expected_upside_pct"] + learning_adj, 2)
+        candidate["learning_adjustment"] = learning_adj
+        candidate["adjusted_upside_pct"] = max(0.0, adjusted_upside)
+        if learning_adj > 0:
+            candidate["reason"] += " Past tracked outcomes for this symbol have been favorable."
+        elif learning_adj < 0:
+            candidate["reason"] += " Past tracked outcomes for this symbol have been weaker, so confidence is trimmed."
 
-        recommendations.append({
-            "symbol": stock.symbol,
-            "name": stock.name,
-            "current_price": price,
-            "target_price": target_price,
-            "stop_loss": stop_loss,
-            "expected_gain_pct": target_pct,
-            "duration_days": duration_days,
-            "overall_score": round(stock.overall_score, 1),
-            "recommendation": stock.recommendation,
-            "confidence": round(stock.confidence, 2),
-            "why_recommended": _build_recommendation_text(stock, target_pct, duration_days),
-            "contributing_factors": stock.top_contributing_factors or [],
-            "risk_factors": stock.top_risk_factors or [],
-            "technical_trend": stock.technical.trend if stock.technical else None,
-            "rsi": round(stock.technical.rsi, 1) if (stock.technical and stock.technical.rsi is not None) else None,
-            "pe_ratio": stock.fundamental.pe_ratio if stock.fundamental else None,
-            "revenue_growth": stock.fundamental.revenue_growth if stock.fundamental else None,
-        })
+    qualified = [
+        candidate
+        for candidate in candidates
+        if candidate["adjusted_upside_pct"] >= target_percentage
+    ]
+
+    ranked = sorted(
+        qualified,
+        key=lambda item: (item["adjusted_upside_pct"], item["overall_score"], item["confidence"]),
+        reverse=True,
+    )[:top_n]
+
+    if ranked:
+        summary = (
+            f"Found {len(ranked)} stocks with projected upside >= {target_percentage:.1f}% "
+            f"within {duration_days} days."
+        )
+    else:
+        summary = (
+            "No stocks currently meet your requested upside and duration target. "
+            "Try lowering target percentage, increasing duration, or broadening the universe."
+        )
 
     return {
         "universe": universe,
         "sector": normalized_sector,
         "duration_days": duration_days,
-        "target_pct": target_pct,
+        "target_percentage": target_percentage,
         "scanned_count": len(symbols),
-        "total_candidates": result.total_candidates,
-        "filtered_count": result.filtered_count,
-        "results": recommendations,
-        "screening_timestamp": result.screening_timestamp.isoformat(),
+        "recommended_count": len(ranked),
+        "results": ranked,
+        "summary": summary,
+        "learning": {
+            "total_tracked_outcomes": outcome_summary.get("total", 0),
+            "win_rate_pct": outcome_summary.get("win_rate_pct", 0.0),
+            "average_return_pct": outcome_summary.get("average_return_pct", 0.0),
+        },
+    }
+
+
+@app.post("/trade-outcomes", response_model=TradeOutcomeResponse)
+async def log_trade_outcome(payload: TradeOutcomeRequest):
+    """Store realized trade outcome so recommendations can improve over time."""
+    normalized_symbol = _normalize_symbol(payload.symbol)
+    if not normalized_symbol:
+        raise HTTPException(status_code=400, detail="Invalid symbol format")
+
+    normalized_outcome = payload.outcome.strip().lower()
+    if normalized_outcome not in TRADE_OUTCOME_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail="Outcome must be one of: target_hit, stop_hit, timeout, manual_close",
+        )
+
+    if payload.entry_price <= 0:
+        raise HTTPException(status_code=400, detail="Entry price must be greater than zero")
+
+    if payload.exit_price is not None and payload.exit_price <= 0:
+        raise HTTPException(status_code=400, detail="Exit price must be greater than zero when provided")
+
+    records = _load_trade_outcomes()
+    now = datetime.now().isoformat()
+    return_pct = _calculate_outcome_return_pct(
+        normalized_outcome,
+        payload.entry_price,
+        payload.exit_price,
+        payload.target_price,
+        payload.stop_loss_price,
+    )
+
+    record = {
+        "recorded_at": now,
+        "symbol": normalized_symbol,
+        "outcome": normalized_outcome,
+        "entry_price": round(payload.entry_price, 4),
+        "exit_price": round(payload.exit_price, 4) if payload.exit_price is not None else None,
+        "target_price": round(payload.target_price, 4) if payload.target_price is not None else None,
+        "stop_loss_price": round(payload.stop_loss_price, 4) if payload.stop_loss_price is not None else None,
+        "duration_days": payload.duration_days,
+        "target_percentage": payload.target_percentage,
+        "recommendation_id": payload.recommendation_id,
+        "notes": payload.notes,
+        "return_pct": return_pct,
+    }
+    records.append(record)
+    _save_trade_outcomes(records)
+
+    return TradeOutcomeResponse(
+        status="ok",
+        message="Trade outcome logged",
+        record=record,
+    )
+
+
+@app.get("/trade-outcomes")
+async def trade_outcomes(limit: int = Query(200, ge=1, le=5000)):
+    """Return recent trade outcomes with aggregate performance summary."""
+    records = _load_trade_outcomes()
+    ordered = sorted(records, key=lambda item: item.get("recorded_at", ""), reverse=True)
+    limited = ordered[:limit]
+    return {
+        "count": len(limited),
+        "summary": _summarize_trade_outcomes(records),
+        "records": limited,
     }
 
 

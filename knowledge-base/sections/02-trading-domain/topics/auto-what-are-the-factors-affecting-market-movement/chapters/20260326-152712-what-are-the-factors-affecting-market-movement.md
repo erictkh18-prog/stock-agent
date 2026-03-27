@@ -1,7 +1,7 @@
 ---
 chapter_id: CH-AUTO-20260326152712
 title: what are the factors affecting market movement
-status: Draft
+status: Rejected
 owner: Eric + Copilot
 last_reviewed: 2026-03-26
 confidence: Medium
@@ -52,3 +52,7 @@ sources:
 
 # Source Acquisition Mode
 - Auto multi-source topic research
+
+# Review Decision
+- Status updated to Rejected on 2026-03-26 15:50:52.
+- Note: content is rubbish
