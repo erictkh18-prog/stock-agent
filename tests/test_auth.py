@@ -271,8 +271,8 @@ def test_chapter_status_approve_allowed_for_admin(monkeypatch, tmp_path):
     monkeypatch.setattr("src.knowledge_base._safe_rel_path", lambda *a: rel_path)
     monkeypatch.setattr("src.knowledge_base._apply_chapter_status_update", lambda *a, **kw: None)
     monkeypatch.setattr("src.knowledge_base._append_kb_changelog", lambda *a: None)
-    monkeypatch.setattr("src.routers.knowledge_base.threading.Thread", _NoOpThread)
-    monkeypatch.setattr("src.routers.knowledge_base.asyncio.to_thread", _noop_to_thread)
+    monkeypatch.setattr("src.routers.kb_admin.threading.Thread", _NoOpThread)
+    monkeypatch.setattr("src.routers.kb_admin.asyncio.to_thread", _noop_to_thread)
 
     resp = client.post(
         "/knowledge-base/chapter-status",

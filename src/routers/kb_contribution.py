@@ -1,129 +1,22 @@
-"""Router: Knowledge Base API endpoints.
+"""Router: KB content contribution (1.1).
 
-Page-serving endpoints (/knowledge-base, /knowledge-base-builder) are defined in
-main.py so they can easily access the shared templates_dir path.
+Handles the POST /knowledge-base/ingest endpoint that allows authenticated
+contributors to create new knowledge-base chapters from a URL or topic.
 """
 
 import asyncio
 import logging
 import threading
 from datetime import datetime
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 
 import src.knowledge_base as kb
 from src.auth import UserInfo, get_current_user
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
-
-
-# ── API endpoints ─────────────────────────────────────────────────────────────
-
-@router.get("/knowledge-base/index")
-async def knowledge_base_index():
-    """Return section/topic/chapter tree for knowledge-base browsing."""
-    if not kb.KB_ROOT.exists():
-        raise HTTPException(status_code=404, detail="Knowledge base root not found")
-    return kb._build_kb_tree()
-
-
-@router.get("/knowledge-base/chapter")
-async def knowledge_base_chapter(
-    path: str = Query(..., description="Knowledge-base relative markdown path"),
-):
-    """Return chapter markdown content and metadata for viewer rendering."""
-    if not path.strip():
-        raise HTTPException(status_code=400, detail="Chapter path is required")
-
-    chapter_path = kb._validate_kb_relative_path(path.strip())
-    content = chapter_path.read_text(encoding="utf-8")
-
-    return {
-        "path": kb._safe_rel_path(chapter_path, kb.KB_ROOT),
-        "title": chapter_path.stem,
-        "updated_at": datetime.fromtimestamp(chapter_path.stat().st_mtime).isoformat(),
-        "content": content,
-    }
-
-
-@router.post("/knowledge-base/open-explorer", response_model=kb.KnowledgeOpenExplorerResponse)
-async def knowledge_base_open_explorer(payload: kb.KnowledgeOpenExplorerRequest):
-    """Open chapter file location in local file explorer for quick editing."""
-    relative_path = payload.path.strip()
-    if not relative_path:
-        raise HTTPException(status_code=400, detail="Chapter path is required")
-
-    chapter_path = kb._validate_kb_relative_path(relative_path)
-
-    try:
-        await asyncio.to_thread(kb._open_in_explorer, chapter_path)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Could not open explorer: {exc}") from exc
-
-    return kb.KnowledgeOpenExplorerResponse(
-        status="ok",
-        path=kb._safe_rel_path(chapter_path, kb.KB_ROOT),
-        message="Explorer opened for chapter path",
-    )
-
-
-@router.post("/knowledge-base/chapter-status", response_model=kb.KnowledgeChapterStatusResponse)
-async def knowledge_base_chapter_status(
-    payload: kb.KnowledgeChapterStatusRequest,
-    current_user: UserInfo = Depends(get_current_user),
-):
-    """Approve/reject/draft a chapter by updating frontmatter status.
-
-    Setting status to Approved or Rejected is restricted to admins.
-    Any authenticated contributor may revert a chapter to Draft.
-    """
-    relative_path = payload.path.strip()
-    requested_status = payload.status.strip().title()
-    note = payload.note.strip() if payload.note else ""
-
-    if not relative_path:
-        raise HTTPException(status_code=400, detail="Chapter path is required")
-
-    allowed_statuses = {"Approved", "Rejected", "Draft"}
-    if requested_status not in allowed_statuses:
-        raise HTTPException(status_code=400, detail="Status must be one of: Approved, Rejected, Draft")
-
-    if requested_status in {"Approved", "Rejected"} and not current_user.is_admin:
-        raise HTTPException(
-            status_code=403,
-            detail="Only the admin can approve or reject content",
-        )
-
-    chapter_path = kb._validate_kb_relative_path(relative_path)
-    await asyncio.to_thread(kb._apply_chapter_status_update, chapter_path, requested_status, note)
-
-    rel_chapter = kb._safe_rel_path(chapter_path, kb.KB_ROOT)
-    kb._append_kb_changelog(f"Chapter status set to {requested_status}: {chapter_path.as_posix()}")
-
-    chapter_repo_path = "knowledge-base/" + rel_chapter
-    changelog_repo_path = "knowledge-base/" + kb._safe_rel_path(kb.KB_CHANGELOG_PATH, kb.KB_ROOT)
-
-    def _do_github_status_writeback() -> None:
-        files_to_commit = {
-            chapter_repo_path: chapter_path.read_text(encoding="utf-8"),
-            changelog_repo_path: kb.KB_CHANGELOG_PATH.read_text(encoding="utf-8"),
-        }
-        kb._github_commit_files(
-            files_to_commit,
-            f"kb: set chapter status '{requested_status}' for {rel_chapter}",
-        )
-
-    threading.Thread(target=_do_github_status_writeback, daemon=True).start()
-
-    return kb.KnowledgeChapterStatusResponse(
-        status="ok",
-        path=rel_chapter,
-        chapter_status=requested_status,
-        message="Chapter status updated",
-    )
+router = APIRouter(tags=["KB - Content Contribution"])
 
 
 @router.post("/knowledge-base/ingest", response_model=kb.KnowledgeIngestResponse)
@@ -133,7 +26,9 @@ async def knowledge_base_ingest(
 ):
     """Ingest website content into section/topic/chapter structure.
 
-    Requires a valid authenticated session (Bearer token).
+    Requires a valid authenticated session (Bearer token). Supply a URL to
+    extract content from a specific page, or omit the URL to trigger
+    auto-discovery across Reuters, Bloomberg, and Investopedia.
     """
     import requests as _requests
 

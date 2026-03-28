@@ -1,12 +1,24 @@
 """Main FastAPI application for Stock Analysis Agent.
 
-This module wires together all feature modules and routers:
-- market_universe: symbol fetching, caching, and sector filtering
-- knowledge_base:  KB ingestion, auto-research, and chapter management
-- trade_outcomes:  trade outcome persistence and summary helpers
-- recommendations: recommendation building and scan job management
+Router-to-feature mapping (aligned with project hierarchy):
 
-Each router lives in src/routers/ and handles one feature area.
+Knowledge Base (1)
+  1.1 KB Content Contribution  → src/routers/kb_contribution.py
+  1.2 KB Content Viewer        → src/routers/kb_viewer.py
+  1.3 Admin
+      1.3.1 Account Maintenance  → src/routers/auth.py
+      1.3.2 KB Content Maintenance → src/routers/kb_admin.py
+
+Stock Screening (2)
+  2.1 Single Stock Analysis    → src/routers/stock_analysis.py
+  2.2 Multiple Stock Analysis  → src/routers/stock_screening.py
+  2.3 Top Performers           → src/routers/market.py
+  2.4 Stock Recommendations    → src/routers/recommendations.py
+  2.5 Transaction Log          → src/routers/trade_outcomes.py
+
+Feature logic (non-HTTP) lives in the corresponding src/ modules:
+  src/market_universe.py  src/knowledge_base.py  src/trade_outcomes.py
+  src/recommendations.py
 """
 
 import os
@@ -34,12 +46,18 @@ import src.knowledge_base as _knowledge_base_module
 import src.trade_outcomes as _trade_outcomes_module
 
 # ── Routers ───────────────────────────────────────────────────────────────────
-from src.routers import analysis as _analysis_router
-from src.routers import market as _market_router
-from src.routers import recommendations as _recommendations_router
-from src.routers import knowledge_base as _kb_router
-from src.routers import auth as _auth_router
-from src.routers import trade_outcomes as _trade_outcomes_router
+# Knowledge base
+from src.routers import kb_contribution as _kb_contribution_router  # 1.1
+from src.routers import kb_viewer as _kb_viewer_router               # 1.2
+from src.routers import kb_admin as _kb_admin_router                 # 1.3.2
+from src.routers import auth as _auth_router                         # 1.3.1
+
+# Stock screening
+from src.routers import stock_analysis as _stock_analysis_router     # 2.1
+from src.routers import stock_screening as _stock_screening_router   # 2.2
+from src.routers import market as _market_router                     # 2.3
+from src.routers import recommendations as _recommendations_router   # 2.4
+from src.routers import trade_outcomes as _trade_outcomes_router     # 2.5
 
 # ── Configure logging ─────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -98,7 +116,9 @@ if static_dir.exists():
 
 screener = StockScreener()
 
-_analysis_router.set_screener(screener)
+# Stock screening routers need the shared screener instance
+_stock_analysis_router.set_screener(screener)
+_stock_screening_router.set_screener(screener)
 _market_router.set_screener(screener)
 _recommendations_router.set_screener(screener)
 
@@ -185,13 +205,18 @@ async def request_timing_middleware(request: Request, call_next):
 
 
 # ── Register feature routers ──────────────────────────────────────────────────
+# Knowledge base
+app.include_router(_kb_contribution_router.router)   # 1.1 KB Content Contribution
+app.include_router(_kb_viewer_router.router)          # 1.2 KB Content Viewer
+app.include_router(_kb_admin_router.router)           # 1.3.2 KB Admin - Content Maintenance
+app.include_router(_auth_router.router)               # 1.3.1 Admin - Account Maintenance
 
-app.include_router(_analysis_router.router)
-app.include_router(_market_router.router)
-app.include_router(_recommendations_router.router)
-app.include_router(_kb_router.router)
-app.include_router(_auth_router.router)
-app.include_router(_trade_outcomes_router.router)
+# Stock screening
+app.include_router(_stock_analysis_router.router)    # 2.1 Single Stock Analysis
+app.include_router(_stock_screening_router.router)   # 2.2 Multiple Stock Analysis
+app.include_router(_market_router.router)             # 2.3 Top Performers
+app.include_router(_recommendations_router.router)    # 2.4 Stock Recommendations
+app.include_router(_trade_outcomes_router.router)     # 2.5 Transaction Log
 
 
 # ── Page-serving endpoints ────────────────────────────────────────────────────
