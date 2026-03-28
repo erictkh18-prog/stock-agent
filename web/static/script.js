@@ -657,29 +657,6 @@ async function checkAndClosePositions(buttonEl) {
     }
 }
 
-async function manualClosePosition(positionId, symbol, buttonEl) {
-    if (!confirm(`Close ${symbol} position now at current market price?`)) return;
-    buttonEl.disabled = true;
-    buttonEl.textContent = '…';
-    try {
-        const response = await fetch(`${API_URL}/paper-trading/positions/${encodeURIComponent(positionId)}/close`, { method: 'POST' });
-        if (!response.ok) {
-            const msg = await parseApiError(response, 'Close failed');
-            throw new Error(msg);
-        }
-        const data = await response.json();
-        const meta = document.getElementById('paperTradingMeta');
-        if (meta) {
-            meta.textContent = `Manually closed ${data.trade.symbol} @ $${Number(data.trade.exit_price).toFixed(2)} | Return: ${Number(data.trade.return_pct).toFixed(2)}%`;
-        }
-        await loadPaperTrading();
-    } catch (error) {
-        alert(`Error: ${error.message}`);
-        buttonEl.disabled = false;
-        buttonEl.textContent = 'Close';
-    }
-}
-
 async function loadPaperTrading() {
     const openTable = document.getElementById('openPositionsTable');
     const closedTable = document.getElementById('closedTradesTable');
@@ -704,7 +681,7 @@ async function loadPaperTrading() {
                     <thead><tr>
                         <th>Symbol</th><th>Shares</th><th>Entry $</th>
                         <th>Target $</th><th>Stop $</th>
-                        <th>Current $</th><th>P&amp;L</th><th>Days Left</th><th></th>
+                        <th>Current $</th><th>P&L</th><th>Days Left</th>
                     </tr></thead><tbody>`;
                 positions.forEach((p) => {
                     const pnlClass = (p.unrealized_pnl || 0) >= 0 ? 'style="color:green"' : 'style="color:red"';
@@ -717,7 +694,6 @@ async function loadPaperTrading() {
                         <td>${p.current_price != null ? `$${Number(p.current_price).toFixed(2)}` : '—'}</td>
                         <td ${pnlClass}>${p.unrealized_pnl != null ? `$${Number(p.unrealized_pnl).toFixed(2)} (${Number(p.unrealized_pct).toFixed(2)}%)` : '—'}</td>
                         <td>${p.days_remaining}</td>
-                        <td><button class="mini-btn" onclick="manualClosePosition('${escapeHtml(p.id)}','${escapeHtml(p.symbol)}',this)">Close</button></td>
                     </tr>`;
                 });
                 html += '</tbody></table>';

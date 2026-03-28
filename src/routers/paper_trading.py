@@ -106,38 +106,6 @@ async def trigger_auto_buy(
     }
 
 
-# ── Manual close ──────────────────────────────────────────────────────────────
-
-@router.post("/paper-trading/positions/{position_id}/close")
-async def close_position_endpoint(
-    position_id: str,
-    exit_price: Optional[float] = Query(None, gt=0, description="Override exit price; defaults to current market price"),
-):
-    """Manually close an open position at current market price (or supplied price)."""
-    import yfinance as yf
-    from src.paper_trading import _load_positions, close_position
-
-    positions = _load_positions()
-    pos = next((p for p in positions if p["id"] == position_id), None)
-    if pos is None:
-        raise HTTPException(status_code=404, detail="Position not found")
-
-    if exit_price is None:
-        try:
-            hist = yf.Ticker(pos["symbol"]).history(period="1d")
-            exit_price = float(hist["Close"].iloc[-1]) if not hist.empty else None
-        except Exception:
-            exit_price = None
-
-    if exit_price is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Could not fetch current price. Provide exit_price as a query parameter.",
-        )
-
-    trade = close_position(position_id, exit_price, "manual")
-    return {"status": "ok", "trade": trade}
-
 
 # ── Check-and-close all positions ─────────────────────────────────────────────
 
