@@ -24,7 +24,7 @@ def set_screener(screener) -> None:
 
 @router.post("/paper-trading/auto-buy")
 async def trigger_auto_buy(
-    universe: str = Query("sp500", pattern="^(sp500|nasdaq100|combined)$"),
+    universe: str = Query("combined", pattern="^(sp500|nasdaq100|combined)$"),
     duration_days: int = Query(30, ge=1, le=365),
     target_pct: float = Query(8.0, ge=1.0, le=100.0),
     shares: int = Query(10, ge=1, le=10000),

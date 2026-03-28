@@ -27,7 +27,7 @@ def auto_buy_job(screener, shares: int = 10, duration_days: int = 30, target_pct
 
     logger.info("auto_buy_job: starting daily scan")
     try:
-        symbols = _get_us_market_universe("sp500")[:80]
+        symbols = _get_us_market_universe("combined")[:80]
         filters = ScreeningFilter(min_overall_score=50)
         result = screener.screen_stocks(symbols, filters, 25, None, True)
 
