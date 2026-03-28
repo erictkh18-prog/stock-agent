@@ -296,7 +296,7 @@ def test_auto_buy_guard_blocks_in_production_when_storage_not_persistent(monkeyp
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("AUTH_DATABASE_URL", raising=False)
 
-    with pytest.raises(RuntimeError, match="Auto-buy blocked"):
+    with pytest.raises(RuntimeError, match="Trading action blocked"):
         pt_module.assert_persistent_storage_ready_for_auto_buy()
 
 
@@ -444,6 +444,18 @@ def test_api_check_positions_closes_target(monkeypatch, tmp_path):
     assert data["closed"][0]["exit_reason"] == "target_hit"
 
 
+def test_api_check_positions_returns_503_when_persistent_storage_required(monkeypatch):
+    monkeypatch.setattr(
+        pt_module,
+        "assert_persistent_storage_ready_for_trading",
+        lambda: (_ for _ in ()).throw(RuntimeError("Trading action blocked: persistence unavailable")),
+    )
+
+    response = client.post("/paper-trading/check-positions")
+    assert response.status_code == 503
+    assert "Trading action blocked" in response.json().get("detail", "")
+
+
 # ── API: POST /paper-trading/auto-buy ────────────────────────────────────────
 
 def test_api_auto_buy_opens_position(monkeypatch, tmp_path):
@@ -542,13 +554,13 @@ def test_api_auto_buy_opens_multiple_positions(monkeypatch, tmp_path):
 def test_api_auto_buy_returns_503_when_persistent_storage_required(monkeypatch):
     monkeypatch.setattr(
         pt_module,
-        "assert_persistent_storage_ready_for_auto_buy",
-        lambda: (_ for _ in ()).throw(RuntimeError("Auto-buy blocked: persistence unavailable")),
+        "assert_persistent_storage_ready_for_trading",
+        lambda: (_ for _ in ()).throw(RuntimeError("Trading action blocked: persistence unavailable")),
     )
 
     response = client.post("/paper-trading/auto-buy")
     assert response.status_code == 503
-    assert "Auto-buy blocked" in response.json().get("detail", "")
+    assert "Trading action blocked" in response.json().get("detail", "")
 
 
 def test_api_auto_buy_returns_no_buy_when_none_qualify(monkeypatch, tmp_path):

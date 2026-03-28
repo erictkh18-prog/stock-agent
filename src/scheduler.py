@@ -24,14 +24,14 @@ def auto_buy_job(screener, shares: int = 10, duration_days: int = 30, target_pct
     from src.models import ScreeningFilter
     from src.recommendations import _build_exit_strategy
     from src.paper_trading import (
-        assert_persistent_storage_ready_for_auto_buy,
+        assert_persistent_storage_ready_for_trading,
         has_open_position,
         open_position,
     )
 
     logger.info("auto_buy_job: starting daily scan")
     try:
-        assert_persistent_storage_ready_for_auto_buy()
+        assert_persistent_storage_ready_for_trading()
 
         symbols = _get_us_market_universe("combined")[:80]
         filters = ScreeningFilter(min_overall_score=50)
@@ -75,10 +75,15 @@ def auto_buy_job(screener, shares: int = 10, duration_days: int = 30, target_pct
 
 def auto_close_job() -> None:
     """Check all open positions and close any that hit target / stop / timeout."""
-    from src.paper_trading import check_and_close_positions
+    from src.paper_trading import (
+        assert_persistent_storage_ready_for_trading,
+        check_and_close_positions,
+    )
 
     logger.info("auto_close_job: checking open positions")
     try:
+        assert_persistent_storage_ready_for_trading()
+
         closed = check_and_close_positions()
         if closed:
             for t in closed:

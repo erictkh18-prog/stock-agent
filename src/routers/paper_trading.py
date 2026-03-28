@@ -42,13 +42,13 @@ async def trigger_auto_buy(
     from src.models import ScreeningFilter
     from src.recommendations import _build_exit_strategy
     from src.paper_trading import (
-        assert_persistent_storage_ready_for_auto_buy,
+        assert_persistent_storage_ready_for_trading,
         has_open_position,
         open_position,
     )
 
     try:
-        assert_persistent_storage_ready_for_auto_buy()
+        assert_persistent_storage_ready_for_trading()
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -125,7 +125,15 @@ async def check_positions():
     Closes any position whose current price has reached the target, stop loss,
     or expiry date.
     """
-    from src.paper_trading import check_and_close_positions
+    from src.paper_trading import (
+        assert_persistent_storage_ready_for_trading,
+        check_and_close_positions,
+    )
+
+    try:
+        assert_persistent_storage_ready_for_trading()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     closed = await asyncio.to_thread(check_and_close_positions)
     return {

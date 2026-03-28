@@ -187,8 +187,8 @@ def get_storage_status() -> dict:
         }
 
 
-def assert_persistent_storage_ready_for_auto_buy() -> None:
-    """Raise when auto-buy should not run without healthy persistent storage."""
+def assert_persistent_storage_ready_for_trading() -> None:
+    """Raise when trading actions should not run without healthy persistent storage."""
     if not _require_persistent_storage_for_trading():
         return
 
@@ -197,9 +197,14 @@ def assert_persistent_storage_ready_for_auto_buy() -> None:
         return
 
     raise RuntimeError(
-        "Auto-buy blocked: persistent paper-trading storage is not healthy. "
+        "Trading action blocked: persistent paper-trading storage is not healthy. "
         "Configure PAPER_TRADING_DATABASE_URL/DATABASE_URL (or AUTH_DATABASE_URL) to Postgres."
     )
+
+
+def assert_persistent_storage_ready_for_auto_buy() -> None:
+    """Backward-compatible alias for existing auto-buy call sites/tests."""
+    assert_persistent_storage_ready_for_trading()
 
 
 def _load_positions() -> list[dict]:
