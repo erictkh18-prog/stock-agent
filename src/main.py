@@ -22,16 +22,30 @@ import yfinance as yf
 from bs4 import BeautifulSoup
 from pydantic import BaseModel
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 import logging
 
 from src.config import config
 from src.models import StockAnalysis, ScreeningFilter, ScreeningResult
 from src.stock_screener import StockScreener
+import src.auth as auth_module
+from src.auth import (
+    RegisterRequest,
+    LoginRequest,
+    TokenResponse,
+    UserInfo,
+    get_current_user,
+    require_admin,
+    register_user,
+    login_user,
+    approve_user,
+    list_pending_users,
+    list_all_users,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -1228,9 +1242,80 @@ async def stock_scanner():
     return {"message": "Stock scanner not available"}
 
 
+# ── Auth endpoints ────────────────────────────────────────────────────────────
+
+@app.get("/login")
+async def login_page():
+    """Serve the KB Builder login / register page."""
+    login_path = templates_dir / "login.html"
+    if login_path.exists():
+        return FileResponse(str(login_path))
+    return {"message": "Login page not available"}
+
+
+@app.get("/admin/approvals")
+async def admin_approvals_page():
+    """Serve the admin approvals UI for account request moderation."""
+    admin_path = templates_dir / "admin-approvals.html"
+    if admin_path.exists():
+        return FileResponse(str(admin_path))
+    return {"message": "Admin approvals page not available"}
+
+
+@app.post("/auth/register")
+async def auth_register(payload: RegisterRequest):
+    """Register a new account (pending admin approval).
+
+    The admin email is auto-approved and can log in immediately.
+    All other accounts require admin approval via /auth/approve/{email}.
+    """
+    result = register_user(payload.email, payload.password)
+    if result.get("approved") and payload.email.strip().lower() == auth_module.ADMIN_EMAIL:
+        token_resp = login_user(payload.email, payload.password)
+        result["token"] = token_resp.access_token
+    return result
+
+
+@app.post("/auth/login", response_model=TokenResponse)
+async def auth_login(payload: LoginRequest):
+    """Authenticate with email and password; returns a JWT Bearer token."""
+    return login_user(payload.email, payload.password)
+
+
+@app.get("/auth/me", response_model=UserInfo)
+async def auth_me(current_user: UserInfo = Depends(get_current_user)):
+    """Return the currently authenticated user's info."""
+    return current_user
+
+
+@app.post("/auth/approve/{email}")
+async def auth_approve(email: str, admin: UserInfo = Depends(require_admin)):
+    """Approve a pending user account (admin only)."""
+    return approve_user(email)
+
+
+@app.get("/auth/pending-users")
+async def auth_pending_users(admin: UserInfo = Depends(require_admin)):
+    """List accounts awaiting approval (admin only)."""
+    return list_pending_users()
+
+
+@app.get("/auth/users")
+async def auth_all_users(admin: UserInfo = Depends(require_admin)):
+    """List all registered users (admin only)."""
+    return list_all_users()
+
+
+# ── Knowledge Base Builder (auth-protected) ───────────────────────────────────
+
 @app.get("/knowledge-base-builder")
 async def knowledge_base_builder():
-    """Serve the 2-field knowledge-base ingestion UI."""
+    """Serve the 2-field knowledge-base ingestion UI (login required).
+
+    Auth is enforced client-side via localStorage token; the page redirects to
+    /login if no valid token is found. The /knowledge-base/ingest API endpoint
+    itself requires a valid Bearer token.
+    """
     builder_path = templates_dir / "knowledge-base-builder.html"
     if builder_path.exists():
         return FileResponse(str(builder_path))
@@ -1293,8 +1378,15 @@ async def knowledge_base_open_explorer(payload: KnowledgeOpenExplorerRequest):
 
 
 @app.post("/knowledge-base/chapter-status", response_model=KnowledgeChapterStatusResponse)
-async def knowledge_base_chapter_status(payload: KnowledgeChapterStatusRequest):
-    """Approve/reject/draft a chapter by updating frontmatter status."""
+async def knowledge_base_chapter_status(
+    payload: KnowledgeChapterStatusRequest,
+    current_user: UserInfo = Depends(get_current_user),
+):
+    """Approve/reject/draft a chapter by updating frontmatter status.
+
+    Setting status to Approved or Rejected is restricted to admins.
+    Any authenticated contributor may revert a chapter to Draft.
+    """
     relative_path = payload.path.strip()
     requested_status = payload.status.strip().title()
     note = payload.note.strip() if payload.note else ""
@@ -1305,6 +1397,13 @@ async def knowledge_base_chapter_status(payload: KnowledgeChapterStatusRequest):
     allowed_statuses = {"Approved", "Rejected", "Draft"}
     if requested_status not in allowed_statuses:
         raise HTTPException(status_code=400, detail="Status must be one of: Approved, Rejected, Draft")
+
+    # Only admin can approve or reject content
+    if requested_status in {"Approved", "Rejected"} and not current_user.is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Only the admin can approve or reject content",
+        )
 
     chapter_path = _validate_kb_relative_path(relative_path)
     await asyncio.to_thread(_apply_chapter_status_update, chapter_path, requested_status, note)
@@ -1336,8 +1435,14 @@ async def knowledge_base_chapter_status(payload: KnowledgeChapterStatusRequest):
 
 
 @app.post("/knowledge-base/ingest", response_model=KnowledgeIngestResponse)
-async def knowledge_base_ingest(payload: KnowledgeIngestRequest):
-    """Ingest website content into section/topic/chapter structure (steps 2-5)."""
+async def knowledge_base_ingest(
+    payload: KnowledgeIngestRequest,
+    current_user: UserInfo = Depends(get_current_user),
+):
+    """Ingest website content into section/topic/chapter structure (steps 2-5).
+
+    Requires a valid authenticated session (Bearer token).
+    """
     topic = payload.topic.strip()
     source_url = (payload.url or "").strip()
     if not topic:

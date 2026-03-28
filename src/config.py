@@ -36,4 +36,9 @@ class Config:
     GITHUB_REPO: str = os.getenv("GITHUB_REPO", "erictkh18-prog/stock-agent")
     GITHUB_BRANCH: str = os.getenv("GITHUB_BRANCH", "main")
 
+    # KB Builder authentication
+    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "change-me-in-production-use-a-long-random-string")
+    ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL", "erictkh18@gmail.com")
+    JWT_EXPIRE_MINUTES: int = int(os.getenv("JWT_EXPIRE_MINUTES", "480"))
+
 config = Config()

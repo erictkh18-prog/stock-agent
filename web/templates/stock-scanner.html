@@ -519,6 +519,60 @@ function safeText(el, text) {
   el.textContent = String(text || '');
 }
 
+// ── Shared card-rendering helpers (used by both scanner and recommendation sections) ──
+
+function renderScoreBadge(scoreClass, scoreValue) {
+  const scoreBadge = document.createElement('div');
+  scoreBadge.className = 'score-badge';
+  const scoreLabel = document.createElement('div');
+  scoreLabel.className = 'score-label';
+  safeText(scoreLabel, 'AI Score');
+  const scoreVal = document.createElement('div');
+  scoreVal.className = 'score-value ' + scoreClass;
+  safeText(scoreVal, scoreValue);
+  scoreBadge.appendChild(scoreLabel);
+  scoreBadge.appendChild(scoreVal);
+  return scoreBadge;
+}
+
+function renderMetricsRow(metricsConfig) {
+  const metricsRow = document.createElement('div');
+  metricsRow.className = 'metrics-row';
+  metricsConfig.forEach(([label, val, cls]) => {
+    const m = document.createElement('div');
+    m.className = 'metric';
+    const ml = document.createElement('div');
+    ml.className = 'metric-label';
+    safeText(ml, label);
+    const mv = document.createElement('div');
+    mv.className = 'metric-value' + (cls ? ' ' + cls : '');
+    safeText(mv, val);
+    m.appendChild(ml);
+    m.appendChild(mv);
+    metricsRow.appendChild(m);
+  });
+  return metricsRow;
+}
+
+function renderExitRow(exitConfig) {
+  const exitRow = document.createElement('div');
+  exitRow.className = 'exit-row';
+  exitConfig.forEach(([label, val, cls]) => {
+    const item = document.createElement('div');
+    item.className = 'exit-item';
+    const lbl = document.createElement('div');
+    lbl.className = 'exit-label';
+    safeText(lbl, label);
+    const v = document.createElement('div');
+    v.className = cls;
+    safeText(v, val);
+    item.appendChild(lbl);
+    item.appendChild(v);
+    exitRow.appendChild(item);
+  });
+  return exitRow;
+}
+
 async function runScan() {
   if (!apiKey) { showError('Please enter your Finnhub API key first. Get a free one at finnhub.io/register.'); return; }
 
@@ -597,27 +651,17 @@ async function runScan() {
       const tickerEl = document.createElement('div'); tickerEl.className = 'stock-ticker'; safeText(tickerEl, s.ticker);
       const nameEl = document.createElement('div'); nameEl.className = 'stock-name'; nameEl.title = s.name; safeText(nameEl, s.name);
       tickerDiv.appendChild(tickerEl); tickerDiv.appendChild(nameEl);
-      const scoreBadge = document.createElement('div'); scoreBadge.className = 'score-badge';
-      const scoreLabel = document.createElement('div'); scoreLabel.className = 'score-label'; safeText(scoreLabel, 'AI Score');
-      const scoreVal = document.createElement('div'); scoreVal.className = 'score-value ' + scC; safeText(scoreVal, s.score);
-      scoreBadge.appendChild(scoreLabel); scoreBadge.appendChild(scoreVal);
+      const scoreBadge = renderScoreBadge(scC, s.score);
       cardTop.appendChild(tickerDiv); cardTop.appendChild(scoreBadge);
 
-      const metricsRow = document.createElement('div'); metricsRow.className = 'metrics-row';
-      const metrics = [
+      const metricsRow = renderMetricsRow([
         ['Price', '$' + s.price.toFixed(2), ''],
         ['Today', ch, chC],
         ['P/E', s.pe ? s.pe.toFixed(1) + 'x' : 'N/A', ''],
         ['Dividend', s.dividendYield ? s.dividendYield.toFixed(2) + '%' : '—', ''],
         ['Rev Growth', s.revenueGrowth != null ? (s.revenueGrowth >= 0 ? '+' : '') + s.revenueGrowth.toFixed(1) + '%' : 'N/A', ''],
         ['ROE', s.roe != null ? s.roe.toFixed(1) + '%' : 'N/A', '']
-      ];
-      metrics.forEach(([label, val, cls]) => {
-        const m = document.createElement('div'); m.className = 'metric';
-        const ml = document.createElement('div'); ml.className = 'metric-label'; safeText(ml, label);
-        const mv = document.createElement('div'); mv.className = 'metric-value' + (cls ? ' ' + cls : ''); safeText(mv, val);
-        m.appendChild(ml); m.appendChild(mv); metricsRow.appendChild(m);
-      });
+      ]);
 
       const tagsDiv = document.createElement('div'); tagsDiv.className = 'strategy-labels';
       const labelMap = { value: 'label-value', growth: 'label-growth', dividend: 'label-dividend', momentum: 'label-momentum' };
@@ -734,43 +778,28 @@ async function runRecommendationScan() {
       const tickerEl = document.createElement('div'); tickerEl.className = 'stock-ticker'; safeText(tickerEl, s.symbol);
       const nameEl = document.createElement('div'); nameEl.className = 'stock-name'; nameEl.title = s.name; safeText(nameEl, s.name);
       tickerDiv.appendChild(tickerEl); tickerDiv.appendChild(nameEl);
-      const scoreBadge = document.createElement('div'); scoreBadge.className = 'score-badge';
-      const scoreLabel = document.createElement('div'); scoreLabel.className = 'score-label'; safeText(scoreLabel, 'AI Score');
-      const scoreVal = document.createElement('div'); scoreVal.className = 'score-value ' + scC; safeText(scoreVal, s.overall_score);
-      scoreBadge.appendChild(scoreLabel); scoreBadge.appendChild(scoreVal);
+      const scoreBadge = renderScoreBadge(scC, s.overall_score);
       cardTop.appendChild(tickerDiv); cardTop.appendChild(scoreBadge);
 
       // Metrics row: current price, signal, upside, stop loss %, confidence
-      const metricsRow = document.createElement('div'); metricsRow.className = 'metrics-row';
-      [
+      const metricsRow = renderMetricsRow([
         ['Current', '$' + Number(s.current_price).toFixed(2), ''],
         ['Signal', chSign, s.recommendation === 'BUY' ? 'up' : s.recommendation === 'SELL' ? 'down' : ''],
         ['AI Score', Number(s.overall_score).toFixed(1), s.overall_score >= 75 ? 'up' : s.overall_score >= 60 ? '' : 'down'],
         ['Upside', upsidePct != null ? '+' + Number(upsidePct).toFixed(1) + '%' : 'N/A', upsidePct > 0 ? 'up' : ''],
         ['Stop Loss %', s.stop_loss_pct != null ? '-' + Number(s.stop_loss_pct).toFixed(1) + '%' : 'N/A', 'down'],
         ['Confidence', Math.round(s.confidence * 100) + '%', '']
-      ].forEach(([label, val, cls]) => {
-        const m = document.createElement('div'); m.className = 'metric';
-        const ml = document.createElement('div'); ml.className = 'metric-label'; safeText(ml, label);
-        const mv = document.createElement('div'); mv.className = 'metric-value' + (cls ? ' ' + cls : ''); safeText(mv, val);
-        m.appendChild(ml); m.appendChild(mv); metricsRow.appendChild(m);
-      });
+      ]);
 
       // Exit strategy block
       const exitDiv = document.createElement('div'); exitDiv.className = 'exit-strategy';
       const exitTitle = document.createElement('div'); exitTitle.className = 'exit-strategy-title';
       safeText(exitTitle, '🎯 Exit Strategy — ' + data.duration_days + '-day target');
-      const exitRow = document.createElement('div'); exitRow.className = 'exit-row';
-      [
+      const exitRow = renderExitRow([
         ['Target Price', '$' + Number(s.target_price).toFixed(2), 'exit-value target-price'],
         ['Stop Loss', '$' + Number(s.stop_loss_price).toFixed(2), 'exit-value stop-loss'],
         ['Upside', '+' + Number(upsidePct || s.expected_upside_pct || 0).toFixed(1) + '%', 'exit-value up']
-      ].forEach(([label, val, cls]) => {
-        const item = document.createElement('div'); item.className = 'exit-item';
-        const lbl = document.createElement('div'); lbl.className = 'exit-label'; safeText(lbl, label);
-        const v = document.createElement('div'); v.className = cls; safeText(v, val);
-        item.appendChild(lbl); item.appendChild(v); exitRow.appendChild(item);
-      });
+      ]);
       exitDiv.appendChild(exitTitle); exitDiv.appendChild(exitRow);
 
       // Why recommended
