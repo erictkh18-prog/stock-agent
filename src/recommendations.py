@@ -104,6 +104,42 @@ def _build_simple_reason(
     return f"{analysis.symbol} is recommended because {lead_factor}. Trend is currently {trend}.{suffix}"
 
 
+def _build_technical_reason(analysis: StockAnalysis, target_price: float) -> str:
+    """Build concise technical explanation for recommendation rows."""
+    trend = (getattr(analysis.technical, "trend", None) or "unknown").lower()
+    rsi = getattr(analysis.technical, "rsi", None)
+    rs_spy = getattr(analysis.technical, "relative_strength_vs_spy", None)
+    score = round(float(getattr(analysis, "overall_score", 0.0) or 0.0), 1)
+    confidence = round(float(getattr(analysis, "confidence", 0.0) or 0.0) * 100.0, 1)
+
+    parts = [f"Trend={trend}", f"score={score}", f"confidence={confidence}%", f"target=${target_price:.2f}"]
+    if rsi is not None:
+        parts.append(f"RSI={float(rsi):.1f}")
+    if rs_spy is not None:
+        parts.append(f"RS vs SPY={float(rs_spy):.2f}%")
+    return ", ".join(parts)
+
+
+def _build_layman_reason(analysis: StockAnalysis, target_price: float, duration_days: Optional[int]) -> str:
+    """Build plain-language explanation focused on decision usefulness."""
+    symbol = analysis.symbol
+    trend = (getattr(analysis.technical, "trend", None) or "unclear").lower()
+    confidence = round(float(getattr(analysis, "confidence", 0.0) or 0.0) * 100.0, 1)
+    score = round(float(getattr(analysis, "overall_score", 0.0) or 0.0), 1)
+
+    if duration_days is not None:
+        window_text = f"The preferred window is {duration_days} days"
+    else:
+        window_text = "There is no fixed deadline"
+
+    lead_factor = (analysis.top_contributing_factors or ["its trend and quality signals are aligned"])[0]
+    return (
+        f"{symbol} is in an {trend} and rated BUY with score {score} and confidence {confidence}%. "
+        f"Main support for this setup: {lead_factor}. "
+        f"Target price is ${target_price:.2f}; {window_text}, and risk is managed with the stop-loss shown."
+    )
+
+
 def _build_exit_strategy(current_price: float, target_percentage: float) -> dict:
     """Build practical target and stop-loss values for risk control."""
     target_price = round(current_price * (1 + (target_percentage / 100.0)), 2)
@@ -127,6 +163,8 @@ def _build_recommendation_candidate(
     exit_strategy = _build_exit_strategy(analysis.current_price, target_pct_for_exit)
 
     conviction = round(getattr(analysis, "conviction_score", 0.0) or 0.0, 2)
+    layman_reason = _build_layman_reason(analysis, exit_strategy["target_price"], duration_days)
+    technical_reason = _build_technical_reason(analysis, exit_strategy["target_price"])
 
     return {
         "symbol": analysis.symbol,
@@ -139,10 +177,13 @@ def _build_recommendation_candidate(
         "expected_upside_pct": expected_upside,
         "target_pct_used": round(target_pct_for_exit, 2),
         "target_price": exit_strategy["target_price"],
+        "target_duration_days": duration_days,
         "stop_loss_price": exit_strategy["stop_loss_price"],
         "stop_loss_pct": exit_strategy["stop_loss_pct"],
         "conviction_score": conviction,
         "reason": _build_simple_reason(analysis, duration_days, target_percentage),
+        "technical_reason": technical_reason,
+        "layman_reason": layman_reason,
     }
 
 
@@ -194,8 +235,8 @@ def _recommendation_scan_worker(
     job_id: str,
     screener: StockScreener,
     symbols: list[str],
-    duration_days: int,
-    target_percentage: float,
+    duration_days: Optional[int],
+    target_percentage: Optional[float],
 ) -> None:
     """Background worker for progressive recommendation scanning."""
     try:

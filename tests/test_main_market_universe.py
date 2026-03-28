@@ -133,7 +133,7 @@ def test_scan_us_market_defaults_to_10_symbols(monkeypatch):
 
 
 def test_stock_recommendations_returns_reason_and_exit_strategy(monkeypatch):
-    """Recommendation endpoint should return simple reason plus stop-loss/target prices."""
+    """Recommendation endpoint should return detailed reasons plus target/stop metadata."""
     import src.main as main_module
 
     monkeypatch.setattr(market_universe_module, "_get_us_market_universe", lambda universe: ["AAPL", "MSFT"])
@@ -172,5 +172,48 @@ def test_stock_recommendations_returns_reason_and_exit_strategy(monkeypatch):
     first = payload["results"][0]
     assert first["symbol"] == "AAPL"
     assert "recommended because" in first["reason"].lower()
+    assert "technical_reason" in first and first["technical_reason"]
+    assert "layman_reason" in first and first["layman_reason"]
     assert first["target_price"] > first["current_price"]
     assert first["stop_loss_price"] < first["current_price"]
+    assert first["target_duration_days"] == 30
+
+
+def test_stock_recommendations_without_duration_or_target_still_returns_buy_uptrend(monkeypatch):
+    """When duration/target are omitted, recommendations should still show BUY uptrend stocks."""
+    import src.main as main_module
+
+    monkeypatch.setattr(market_universe_module, "_get_us_market_universe", lambda universe: ["AAPL", "MSFT"])
+
+    analyses = [
+        _make_analysis("AAPL", 88.0, "uptrend", 70.0),
+        _make_analysis("MSFT", 85.0, "sideways", 70.0),
+    ]
+
+    def fake_screen_stocks(symbols, filters, top_n, seed=None, fast_mode=False):
+        return ScreeningResult(
+            total_candidates=len(symbols),
+            filtered_count=len(analyses),
+            top_picks=analyses,
+            screening_timestamp=datetime.now(),
+            deterministic_mode=False,
+            seed=seed,
+        )
+
+    monkeypatch.setattr(main_module.screener, "screen_stocks", fake_screen_stocks)
+
+    response = client.get(
+        "/stock-recommendations",
+        params={
+            "universe": "sp500",
+            "max_symbols": 10,
+            "top_n": 5,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["recommended_count"] >= 1
+    first = payload["results"][0]
+    assert first["symbol"] == "AAPL"
+    assert first["target_duration_days"] is None

@@ -550,9 +550,10 @@ function displayRecommendationResults(results) {
                     <th>Price</th>
                     <th>Projected Upside</th>
                     <th>Learning Adj</th>
-                    <th>Target Price</th>
+                    <th>Target / Duration</th>
                     <th>Stop Loss</th>
-                    <th>Why Recommended</th>
+                    <th>Technical Reason</th>
+                    <th>Layman Explanation</th>
                 </tr>
             </thead>
             <tbody>
@@ -560,18 +561,27 @@ function displayRecommendationResults(results) {
 
     results.forEach((stock) => {
         const symbol = String(stock.symbol || '').toUpperCase();
+        const symbolUrl = `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}`;
         const currentPrice = Number(stock.current_price || 0);
         const targetPrice = Number(stock.target_price || 0);
         const stopLossPrice = Number(stock.stop_loss_price || 0);
+        const durationDays = stock.target_duration_days != null ? Number(stock.target_duration_days) : null;
+        const durationText = Number.isFinite(durationDays)
+            ? `${durationDays} day${durationDays === 1 ? '' : 's'}`
+            : 'No fixed duration';
+        const technicalReason = String(stock.technical_reason || '').trim();
+        const laymanReason = String(stock.layman_reason || stock.reason || '').trim();
+
         html += `
             <tr>
-                <td class="symbol">${escapeHtml(symbol)}</td>
+                <td class="symbol"><a href="${symbolUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(symbol)}</a></td>
                 <td>$${currentPrice.toFixed(2)}</td>
                 <td>${Number(stock.adjusted_upside_pct ?? stock.expected_upside_pct ?? 0).toFixed(2)}%</td>
                 <td>${Number(stock.learning_adjustment || 0).toFixed(2)}%</td>
-                <td>$${targetPrice.toFixed(2)}</td>
+                <td>$${targetPrice.toFixed(2)}<br><span class="description">${escapeHtml(durationText)}</span></td>
                 <td>$${stopLossPrice.toFixed(2)} (${Number(stock.stop_loss_pct || 0).toFixed(1)}%)</td>
-                <td>${escapeHtml(stock.reason || 'Model indicates this stock has favorable risk/reward for your target.')}</td>
+                <td>${escapeHtml(technicalReason || 'Trend and score alignment indicate favorable technical setup.')}</td>
+                <td>${escapeHtml(laymanReason || 'Model indicates this stock has favorable risk/reward right now.')}</td>
             </tr>
         `;
     });
