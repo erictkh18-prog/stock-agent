@@ -67,6 +67,7 @@ jobs:
         shell: bash
         run: |
           ET_NOW="$(TZ=America/New_York date +%H:%M)"
+          APP_BASE="${APP_URL%/}"
 
           # For scheduled runs, only run exactly at ET 09:35.
           if [ "${{ github.event_name }}" = "schedule" ] && [ "${ET_NOW}" != "09:35" ]; then
@@ -74,11 +75,27 @@ jobs:
             exit 0
           fi
 
+          URL="${APP_BASE}/paper-trading/auto-buy"
+          echo "Calling ${URL}"
+
           if [ -n "${CRON_TOKEN}" ]; then
-            curl -fsS -X POST "${APP_URL}/paper-trading/auto-buy" \
-              -H "X-Cron-Token: ${CRON_TOKEN}"
+            HTTP_CODE=$(curl -sS -L -X POST "${URL}" \
+              -H "X-Cron-Token: ${CRON_TOKEN}" \
+              --retry 4 --retry-delay 8 --retry-connrefused --connect-timeout 20 --max-time 120 \
+              -o /tmp/auto_buy_response.txt -w "%{http_code}")
           else
-            curl -fsS -X POST "${APP_URL}/paper-trading/auto-buy"
+            HTTP_CODE=$(curl -sS -L -X POST "${URL}" \
+              --retry 4 --retry-delay 8 --retry-connrefused --connect-timeout 20 --max-time 120 \
+              -o /tmp/auto_buy_response.txt -w "%{http_code}")
+          fi
+
+          echo "HTTP ${HTTP_CODE}"
+          cat /tmp/auto_buy_response.txt
+          echo
+
+          if [ "${HTTP_CODE}" -lt 200 ] || [ "${HTTP_CODE}" -ge 300 ]; then
+            echo "Auto-buy request failed with HTTP ${HTTP_CODE}"
+            exit 1
           fi
 
           echo "Auto-buy request sent successfully."
@@ -88,6 +105,7 @@ jobs:
         shell: bash
         run: |
           ET_NOW="$(TZ=America/New_York date +%H:%M)"
+          APP_BASE="${APP_URL%/}"
 
           # For scheduled runs, only run exactly at ET 16:05.
           if [ "${{ github.event_name }}" = "schedule" ] && [ "${ET_NOW}" != "16:05" ]; then
@@ -95,11 +113,27 @@ jobs:
             exit 0
           fi
 
+          URL="${APP_BASE}/paper-trading/check-positions"
+          echo "Calling ${URL}"
+
           if [ -n "${CRON_TOKEN}" ]; then
-            curl -fsS -X POST "${APP_URL}/paper-trading/check-positions" \
-              -H "X-Cron-Token: ${CRON_TOKEN}"
+            HTTP_CODE=$(curl -sS -L -X POST "${URL}" \
+              -H "X-Cron-Token: ${CRON_TOKEN}" \
+              --retry 4 --retry-delay 8 --retry-connrefused --connect-timeout 20 --max-time 120 \
+              -o /tmp/check_close_response.txt -w "%{http_code}")
           else
-            curl -fsS -X POST "${APP_URL}/paper-trading/check-positions"
+            HTTP_CODE=$(curl -sS -L -X POST "${URL}" \
+              --retry 4 --retry-delay 8 --retry-connrefused --connect-timeout 20 --max-time 120 \
+              -o /tmp/check_close_response.txt -w "%{http_code}")
+          fi
+
+          echo "HTTP ${HTTP_CODE}"
+          cat /tmp/check_close_response.txt
+          echo
+
+          if [ "${HTTP_CODE}" -lt 200 ] || [ "${HTTP_CODE}" -ge 300 ]; then
+            echo "Check-and-close request failed with HTTP ${HTTP_CODE}"
+            exit 1
           fi
 
           echo "Check-and-close request sent successfully."
