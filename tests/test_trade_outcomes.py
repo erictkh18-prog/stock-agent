@@ -1,5 +1,6 @@
-"""Tests for trade outcome tracker and learning-adjusted recommendations."""
+"""Tests for learning adjustments sourced from automated closed paper trades."""
 
+import json
 from datetime import datetime
 
 from fastapi.testclient import TestClient
@@ -35,38 +36,14 @@ def _make_analysis(symbol: str, score: float, trend: str, sentiment_score: float
     )
 
 
-def test_log_trade_outcome_and_fetch_summary(monkeypatch, tmp_path):
-    """Trade outcomes should persist and be reflected in summary stats."""
-    monkeypatch.setattr(trade_outcomes_module, "TRADE_OUTCOMES_PATH", tmp_path / "trade_outcomes.json")
-
-    response = client.post(
-        "/trade-outcomes",
-        json={
-            "symbol": "AAPL",
-            "outcome": "target_hit",
-            "entry_price": 100,
-            "target_price": 108,
-        },
-    )
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "ok"
-    assert payload["record"]["return_pct"] == 8.0
-
-    summary_response = client.get("/trade-outcomes")
-    assert summary_response.status_code == 200
-    body = summary_response.json()
-    assert body["summary"]["total"] == 1
-    assert body["summary"]["target_hits"] == 1
-
-
-def test_stock_recommendations_apply_learning_adjustment(monkeypatch, tmp_path):
-    """Positive history should boost adjusted upside while negative history penalizes it."""
+def test_stock_recommendations_apply_learning_adjustment_from_closed_trades(monkeypatch, tmp_path):
+    """Positive closed history should boost adjusted upside while negative history penalizes it."""
     import src.main as main_module
 
     monkeypatch.setattr(trade_outcomes_module, "TRADE_OUTCOMES_PATH", tmp_path / "trade_outcomes.json")
     monkeypatch.setattr(market_universe_module, "_get_us_market_universe", lambda universe: ["AAPL", "MSFT"])
 
+    closed_trades_path = tmp_path / "closed_trades.json"
     records = [
         {
             "recorded_at": datetime.now().isoformat(),
@@ -101,7 +78,7 @@ def test_stock_recommendations_apply_learning_adjustment(monkeypatch, tmp_path):
             "return_pct": -5.0,
         },
     ]
-    trade_outcomes_module._save_trade_outcomes(records)
+    closed_trades_path.write_text(json.dumps(records), encoding="utf-8")
 
     analyses = [
         _make_analysis("AAPL", 80.0, "uptrend", 65.0),

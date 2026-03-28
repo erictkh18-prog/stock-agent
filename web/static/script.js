@@ -534,7 +534,6 @@ function displayRecommendationResults(results) {
                     <th>Target Price</th>
                     <th>Stop Loss</th>
                     <th>Why Recommended</th>
-                    <th>Outcome Log</th>
                 </tr>
             </thead>
             <tbody>
@@ -545,9 +544,6 @@ function displayRecommendationResults(results) {
         const currentPrice = Number(stock.current_price || 0);
         const targetPrice = Number(stock.target_price || 0);
         const stopLossPrice = Number(stock.stop_loss_price || 0);
-        const durationDays = Number(document.getElementById('recommendDurationDays')?.value || 30);
-        const targetPercentage = Number(document.getElementById('recommendTargetPct')?.value || 8);
-
         html += `
             <tr>
                 <td class="symbol">${escapeHtml(symbol)}</td>
@@ -557,36 +553,6 @@ function displayRecommendationResults(results) {
                 <td>$${targetPrice.toFixed(2)}</td>
                 <td>$${stopLossPrice.toFixed(2)} (${Number(stock.stop_loss_pct || 0).toFixed(1)}%)</td>
                 <td>${escapeHtml(stock.reason || 'Model indicates this stock has favorable risk/reward for your target.')}</td>
-                <td>
-                    <div class="quick-outcome-actions">
-                        <button class="mini-btn mini-btn-target quick-log-btn" type="button"
-                            data-symbol="${escapeHtml(symbol)}"
-                            data-outcome="target_hit"
-                            data-entry="${currentPrice.toFixed(4)}"
-                            data-exit="${targetPrice.toFixed(4)}"
-                            data-target="${targetPrice.toFixed(4)}"
-                            data-stop="${stopLossPrice.toFixed(4)}"
-                            data-duration="${durationDays}"
-                            data-target-pct="${targetPercentage}">Target</button>
-                        <button class="mini-btn mini-btn-stop quick-log-btn" type="button"
-                            data-symbol="${escapeHtml(symbol)}"
-                            data-outcome="stop_hit"
-                            data-entry="${currentPrice.toFixed(4)}"
-                            data-exit="${stopLossPrice.toFixed(4)}"
-                            data-target="${targetPrice.toFixed(4)}"
-                            data-stop="${stopLossPrice.toFixed(4)}"
-                            data-duration="${durationDays}"
-                            data-target-pct="${targetPercentage}">Stop</button>
-                        <button class="mini-btn mini-btn-timeout quick-log-btn" type="button"
-                            data-symbol="${escapeHtml(symbol)}"
-                            data-outcome="timeout"
-                            data-entry="${currentPrice.toFixed(4)}"
-                            data-target="${targetPrice.toFixed(4)}"
-                            data-stop="${stopLossPrice.toFixed(4)}"
-                            data-duration="${durationDays}"
-                            data-target-pct="${targetPercentage}">Timeout</button>
-                    </div>
-                </td>
             </tr>
         `;
     });
@@ -598,54 +564,6 @@ function displayRecommendationResults(results) {
 
     tableDiv.innerHTML = html;
     resultDiv.classList.remove('hidden');
-
-    tableDiv.querySelectorAll('.quick-log-btn').forEach((button) => {
-        button.addEventListener('click', async () => {
-            const payload = {
-                symbol: button.dataset.symbol,
-                outcome: button.dataset.outcome,
-                entry_price: Number(button.dataset.entry),
-                exit_price: button.dataset.exit ? Number(button.dataset.exit) : null,
-                target_price: button.dataset.target ? Number(button.dataset.target) : null,
-                stop_loss_price: button.dataset.stop ? Number(button.dataset.stop) : null,
-                duration_days: button.dataset.duration ? Number(button.dataset.duration) : null,
-                target_percentage: button.dataset.targetPct ? Number(button.dataset.targetPct) : null,
-            };
-            await quickLogRecommendationOutcome(payload, button);
-        });
-    });
-}
-
-async function quickLogRecommendationOutcome(payload, buttonEl) {
-    const originalText = buttonEl.textContent;
-    buttonEl.disabled = true;
-    buttonEl.textContent = '...';
-
-    try {
-        const response = await fetch(`${API_URL}/trade-outcomes`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-        });
-
-        if (!response.ok) {
-            const errorMessage = await parseApiError(response, 'Could not log outcome');
-            throw new Error(errorMessage);
-        }
-
-        const result = await response.json();
-        const meta = document.getElementById('outcomeTrackerMeta');
-        if (meta) {
-            meta.textContent = `Logged ${result.record.symbol} (${result.record.outcome}) with return ${Number(result.record.return_pct || 0).toFixed(2)}%.`;
-        }
-        await loadTradeOutcomeHistory();
-
-        buttonEl.textContent = 'Logged';
-    } catch (error) {
-        alert(`Error: ${error.message}`);
-        buttonEl.disabled = false;
-        buttonEl.textContent = originalText;
-    }
 }
 
 // ============ TRADE OUTCOME TRACKER ============

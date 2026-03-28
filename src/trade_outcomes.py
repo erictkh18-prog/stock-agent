@@ -56,16 +56,7 @@ def _ensure_trade_outcomes_file() -> None:
 
 
 def _load_trade_outcomes() -> list[dict]:
-    """Load all trade outcomes from local storage."""
-    _ensure_trade_outcomes_file()
-    with _trade_outcomes_lock:
-        try:
-            payload = json.loads(TRADE_OUTCOMES_PATH.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            payload = []
-    manual = payload if isinstance(payload, list) else []
-
-    # Merge in closed paper trades so the learning system benefits from automated history
+    """Load outcomes used for learning from automated closed paper trades only."""
     closed_trades_path = TRADE_OUTCOMES_PATH.parent / "closed_trades.json"
     paper = []
     if closed_trades_path.exists():
@@ -75,7 +66,7 @@ def _load_trade_outcomes() -> list[dict]:
         except json.JSONDecodeError:
             paper = []
 
-    return manual + paper
+    return paper
 
 
 def _save_trade_outcomes(records: list[dict]) -> None:

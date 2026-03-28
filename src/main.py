@@ -14,10 +14,10 @@ Stock Screening (2)
   2.2 Multiple Stock Analysis  → src/routers/stock_screening.py
   2.3 Top Performers           → src/routers/market.py
   2.4 Stock Recommendations    → src/routers/recommendations.py
-  2.5 Transaction Log          → src/routers/trade_outcomes.py
+    2.5 Transaction Log          → automated paper trading outcomes
 
 Feature logic (non-HTTP) lives in the corresponding src/ modules:
-  src/market_universe.py  src/knowledge_base.py  src/trade_outcomes.py
+    src/market_universe.py  src/knowledge_base.py
   src/recommendations.py
 """
 
@@ -45,7 +45,6 @@ from src.scheduler import start_scheduler, stop_scheduler
 # ── Feature modules (imported for monkeypatching convenience in tests) ────────
 import src.market_universe as _market_universe_module
 import src.knowledge_base as _knowledge_base_module
-import src.trade_outcomes as _trade_outcomes_module
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 # Knowledge base
@@ -59,7 +58,6 @@ from src.routers import stock_analysis as _stock_analysis_router     # 2.1
 from src.routers import stock_screening as _stock_screening_router   # 2.2
 from src.routers import market as _market_router                     # 2.3
 from src.routers import recommendations as _recommendations_router   # 2.4
-from src.routers import trade_outcomes as _trade_outcomes_router     # 2.5
 from src.routers import paper_trading as _paper_trading_router        # 3.1 Paper Trading
 
 # ── Configure logging ─────────────────────────────────────────────────────────
@@ -228,7 +226,6 @@ app.include_router(_stock_analysis_router.router)    # 2.1 Single Stock Analysis
 app.include_router(_stock_screening_router.router)   # 2.2 Multiple Stock Analysis
 app.include_router(_market_router.router)             # 2.3 Top Performers
 app.include_router(_recommendations_router.router)    # 2.4 Stock Recommendations
-app.include_router(_trade_outcomes_router.router)     # 2.5 Transaction Log
 app.include_router(_paper_trading_router.router)       # 3.1 Paper Trading
 
 

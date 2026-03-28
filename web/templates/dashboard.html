@@ -253,37 +253,6 @@
             </div>
         </div>
 
-        <!-- MODULE 3: TRADE TRACKING -->
-        <!-- Section 3.1: Trade Outcome Tracker -->
-        <div class="card" id="section-outcomes">
-            <div class="card-module-header">
-                <h2>💰 3.1 Trade Outcome Tracker</h2>
-            </div>
-            <p class="description">Log completed trades so the recommendation model learns from real results and improves over time</p>
-
-            <div class="input-group">
-                <input type="text" id="outcomeSymbol" placeholder="Symbol (e.g., AAPL)" maxlength="10" aria-label="Outcome symbol">
-                <select id="outcomeType" aria-label="Outcome type">
-                    <option value="target_hit">Target Hit</option>
-                    <option value="stop_hit">Stop Hit</option>
-                    <option value="timeout">Timeout</option>
-                    <option value="manual_close">Manual Close</option>
-                </select>
-                <input type="number" id="outcomeEntryPrice" min="0" step="0.01" placeholder="Entry Price" aria-label="Entry price">
-                <input type="number" id="outcomeExitPrice" min="0" step="0.01" placeholder="Exit Price (optional)" aria-label="Exit price">
-                <input type="number" id="outcomeTargetPrice" min="0" step="0.01" placeholder="Target Price (optional)" aria-label="Target price">
-                <input type="number" id="outcomeStopPrice" min="0" step="0.01" placeholder="Stop Loss Price (optional)" aria-label="Stop loss price">
-                <button id="logOutcomeBtn">Log Outcome</button>
-            </div>
-
-            <div id="outcomeTrackerMeta" class="description">No outcomes logged yet.</div>
-
-            <div id="outcomeResult" class="result hidden">
-                <div id="outcomeTable" class="table-container">
-                    <!-- Outcome history table -->
-                </div>
-            </div>
-        </div>
         <!-- MODULE 3: PAPER TRADING -->
         <!-- Section 3.1: Automated Paper Trading -->
         <div class="card" id="section-paper-trading">
