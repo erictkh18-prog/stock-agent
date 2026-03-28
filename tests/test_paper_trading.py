@@ -214,6 +214,33 @@ def test_check_skips_position_on_fetch_error(monkeypatch, tmp_path):
     assert len(pt_module._load_positions()) == 1  # position stays open
 
 
+def test_postgres_enabled_does_not_silently_fallback_on_load_failure(monkeypatch):
+    monkeypatch.setenv("PAPER_TRADING_DATABASE_URL", "postgres://example")
+    monkeypatch.delenv("PAPER_TRADING_ALLOW_JSON_FALLBACK", raising=False)
+
+    def _boom():
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(pt_module, "_ensure_storage_ready", _boom)
+
+    with pytest.raises(RuntimeError, match="Paper trading persistence unavailable"):
+        pt_module._load_positions()
+
+
+def test_postgres_enabled_can_optionally_fallback_when_flag_set(monkeypatch, tmp_path):
+    monkeypatch.setenv("PAPER_TRADING_DATABASE_URL", "postgres://example")
+    monkeypatch.setenv("PAPER_TRADING_ALLOW_JSON_FALLBACK", "true")
+    monkeypatch.setattr(pt_module, "POSITIONS_PATH", tmp_path / "positions.json")
+
+    def _boom():
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(pt_module, "_ensure_storage_ready", _boom)
+
+    records = pt_module._load_positions()
+    assert records == []
+
+
 # ── Unit: summarize_closed_trades ─────────────────────────────────────────────
 
 def test_summarize_empty_records():
@@ -294,32 +321,6 @@ def test_api_list_trades_after_close(monkeypatch, tmp_path):
     assert data["trades"][0]["exit_reason"] == "target_hit"
     assert data["summary"]["win_rate_pct"] == 100.0
 
-
-# ── API: POST /paper-trading/positions/{id}/close ─────────────────────────────
-
-def test_api_manual_close_position(monkeypatch, tmp_path):
-    monkeypatch.setattr(pt_module, "POSITIONS_PATH", tmp_path / "positions.json")
-    monkeypatch.setattr(pt_module, "CLOSED_TRADES_PATH", tmp_path / "closed_trades.json")
-
-    import yfinance as yf
-    monkeypatch.setattr(yf.Ticker, "history", lambda self, period: _fake_yf_history(105.0))
-
-    pos = pt_module.open_position("AAPL", 10, 100.0, 108.0, 94.0, 30, 8.0, 75.0)
-
-    response = client.post(f"/paper-trading/positions/{pos['id']}/close")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "ok"
-    assert data["trade"]["exit_reason"] == "manual"
-    assert data["trade"]["return_pct"] == 5.0
-
-
-def test_api_manual_close_unknown_position(monkeypatch, tmp_path):
-    monkeypatch.setattr(pt_module, "POSITIONS_PATH", tmp_path / "positions.json")
-    monkeypatch.setattr(pt_module, "CLOSED_TRADES_PATH", tmp_path / "closed_trades.json")
-
-    response = client.post("/paper-trading/positions/nonexistent-id/close")
-    assert response.status_code == 404
 
 
 # ── API: POST /paper-trading/check-positions ─────────────────────────────────

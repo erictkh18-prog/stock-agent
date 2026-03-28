@@ -21,15 +21,23 @@ logger = logging.getLogger(__name__)
 
 POSITIONS_PATH = Path(__file__).parent.parent / "data" / "positions.json"
 CLOSED_TRADES_PATH = Path(__file__).parent.parent / "data" / "closed_trades.json"
-PAPER_TRADING_DATABASE_URL = os.getenv("PAPER_TRADING_DATABASE_URL", os.getenv("DATABASE_URL", "")).strip()
 
 _lock = threading.Lock()
 _schema_ready = False
 _schema_lock = threading.Lock()
 
 
+def _paper_trading_database_url() -> str:
+    return os.getenv("PAPER_TRADING_DATABASE_URL", os.getenv("DATABASE_URL", "")).strip()
+
+
+def _allow_json_fallback_when_postgres_enabled() -> bool:
+    # In production, silent fallback to ephemeral JSON can hide persistence failures.
+    return os.getenv("PAPER_TRADING_ALLOW_JSON_FALLBACK", "false").strip().lower() == "true"
+
+
 def _is_postgres_enabled() -> bool:
-    return bool(PAPER_TRADING_DATABASE_URL)
+    return bool(_paper_trading_database_url())
 
 
 def _import_psycopg():
@@ -44,7 +52,24 @@ def _import_psycopg():
 
 def _connect_postgres():
     psycopg = _import_psycopg()
-    return psycopg.connect(PAPER_TRADING_DATABASE_URL, connect_timeout=10, autocommit=True)
+    db_url = _paper_trading_database_url()
+    if not db_url:
+        raise RuntimeError("Postgres is not enabled for paper trading.")
+    return psycopg.connect(db_url, connect_timeout=10, autocommit=True)
+
+
+def _handle_postgres_failure(action: str, exc: Exception) -> None:
+    if _allow_json_fallback_when_postgres_enabled():
+        logger.warning("Postgres %s failed, using JSON fallback: %s", action, exc)
+        return
+    logger.error(
+        "Postgres %s failed while paper-trading DB is enabled. "
+        "Refusing JSON fallback to prevent persistence loss. Set PAPER_TRADING_ALLOW_JSON_FALLBACK=true "
+        "only for temporary recovery. Error: %s",
+        action,
+        exc,
+    )
+    raise RuntimeError("Paper trading persistence unavailable (Postgres error)") from exc
 
 
 def _ensure_postgres_schema() -> None:
@@ -125,7 +150,7 @@ def _load_positions() -> list[dict]:
                 )
                 return [row[0] for row in cur.fetchall()]
         except Exception as exc:
-            logger.warning("Postgres load positions failed, using JSON fallback: %s", exc)
+            _handle_postgres_failure("load positions", exc)
 
     _ensure_file(POSITIONS_PATH)
     with _lock:
@@ -161,7 +186,7 @@ def _save_positions(records: list[dict]) -> None:
                     )
             return
         except Exception as exc:
-            logger.warning("Postgres save positions failed, using JSON fallback: %s", exc)
+            _handle_postgres_failure("save positions", exc)
 
     _ensure_file(POSITIONS_PATH)
     with _lock:
@@ -182,7 +207,7 @@ def _load_closed_trades() -> list[dict]:
                 )
                 return [row[0] for row in cur.fetchall()]
         except Exception as exc:
-            logger.warning("Postgres load closed trades failed, using JSON fallback: %s", exc)
+            _handle_postgres_failure("load closed trades", exc)
 
     _ensure_file(CLOSED_TRADES_PATH)
     with _lock:
@@ -218,7 +243,7 @@ def _save_closed_trades(records: list[dict]) -> None:
                     )
             return
         except Exception as exc:
-            logger.warning("Postgres save closed trades failed, using JSON fallback: %s", exc)
+            _handle_postgres_failure("save closed trades", exc)
 
     _ensure_file(CLOSED_TRADES_PATH)
     with _lock:
