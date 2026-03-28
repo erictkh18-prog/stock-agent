@@ -5,6 +5,42 @@ const API_URL = window.location.origin.startsWith('http')
 
 let scoreChart = null;
 
+// ============ MOBILE MENU TOGGLE ============
+document.addEventListener('DOMContentLoaded', function() {
+    const sidebarToggle = document.getElementById('sidebarToggle');
+    const sidebar = document.getElementById('sidebar');
+    
+    if (sidebarToggle && sidebar) {
+        sidebarToggle.addEventListener('click', function() {
+            sidebar.classList.toggle('open');
+        });
+        
+        // Close sidebar when clicking on a link
+        sidebar.querySelectorAll('.sidebar-item').forEach(link => {
+            link.addEventListener('click', function() {
+                sidebar.classList.remove('open');
+            });
+        });
+        
+        // Close sidebar when clicking outside
+        document.addEventListener('click', function(e) {
+            if (!sidebar.contains(e.target) && !sidebarToggle.contains(e.target)) {
+                sidebar.classList.remove('open');
+            }
+        });
+    }
+});
+
+// Scroll to section helper
+function scrollToSection(sectionId) {
+    const section = document.getElementById(sectionId);
+    if (section) {
+        setTimeout(() => {
+            section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+    }
+}
+
 function setButtonState(buttonEl, isBusy, busyText, idleText) {
     if (!buttonEl) return;
     buttonEl.disabled = isBusy;

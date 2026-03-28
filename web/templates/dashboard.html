@@ -5,36 +5,67 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stock Analysis Agent</title>
     <link rel="preconnect" href="https://cdn.jsdelivr.net">
-    <link rel="stylesheet" href="../static/style.css?v=20260327b">
+    <link rel="stylesheet" href="../static/style.css?v=20260328">
     <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
 </head>
 <body>
-    <div class="header">
-        <h1>📊 Stock Analysis Agent</h1>
-        <p>Smart investing with AI-powered analysis</p>
-    </div>
+    <!-- NAVIGATION BAR -->
+    <nav class="navbar">
+        <a href="/" class="navbar-brand">📊 Stock Agent</a>
+        <button class="navbar-toggle" id="sidebarToggle">☰</button>
+    </nav>
 
-    <div class="container">
-        <!-- QUICK LINK: Stock Scanner -->
-        <div class="card stock-scanner-cta">
-            <div class="cta-row">
-                <div>
-                    <h2>✨ StockPulse Scanner</h2>
-                    <p class="description">Real-time market scanner powered by Finnhub. Filter by sector, market cap, and investment strategy.</p>
-                </div>
-                <div style="display: flex; gap: 10px;">
-                    <a href="/admin/approvals" class="cta-button">Admin Approvals →</a>
-                    <a href="/knowledge-base-builder" class="cta-button">Knowledge Base Builder →</a>
-                    <a href="/knowledge-base" class="cta-button">Knowledge Base Viewer →</a>
-                    <a href="/stock-scanner" class="cta-button">Open Scanner →</a>
-                </div>
-            </div>
+    <!-- SIDEBAR: Module Navigation -->
+    <aside class="sidebar" id="sidebar">
+        <!-- Module 1: Knowledge Base -->
+        <div class="sidebar-section">
+            <div class="sidebar-title">📚 Knowledge Base</div>
+            <a href="/login" class="sidebar-item">Account Management</a>
+            <a href="/admin/approvals" class="sidebar-item">Approvals</a>
+            <a href="/knowledge-base-builder" class="sidebar-item">Contribute Content</a>
+            <a href="/knowledge-base" class="sidebar-item">View Content</a>
         </div>
 
-        <!-- SECTION 1: Analyze Single Stock -->
-        <div class="card">
-            <h2>🔍 Analyze a Stock</h2>
-            <p class="description">Enter a stock symbol and get detailed analysis</p>
+        <!-- Module 2: Stock Screening -->
+        <div class="sidebar-section">
+            <div class="sidebar-title">📈 Stock Screening</div>
+            <a href="#section-analyze" class="sidebar-item" onclick="scrollToSection('section-analyze')">Analyze Single Stock</a>
+            <a href="#section-screen" class="sidebar-item" onclick="scrollToSection('section-screen')">Screen Multiple</a>
+            <a href="#section-market" class="sidebar-item" onclick="scrollToSection('section-market')">Market Scanner</a>
+            <a href="#section-recommend" class="sidebar-item" onclick="scrollToSection('section-recommend')">Recommendations</a>
+        </div>
+
+        <!-- Module 3: Trade Tracker -->
+        <div class="sidebar-section">
+            <div class="sidebar-title">💰 Trade Tracking</div>
+            <a href="#section-outcomes" class="sidebar-item" onclick="scrollToSection('section-outcomes')">Log Outcomes</a>
+        </div>
+
+        <!-- Quick Links -->
+        <div class="sidebar-section">
+            <div class="sidebar-title">🔗 Quick Links</div>
+            <a href="/stock-scanner" class="sidebar-item">StockPulse Scanner</a>
+            <a href="/docs" class="sidebar-item">API Docs</a>
+        </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+        <!-- PAGE HEADER -->
+        <div class="page-header">
+            <h1>Stock Analysis Dashboard</h1>
+            <p>AI-powered analysis, screening, and portfolio tracking</p>
+        </div>
+
+        <div class="container">
+
+        <!-- MODULE 2: STOCK SCREENING -->
+        <!-- Section 2.1: Single Stock Analysis -->
+        <div class="card" id="section-analyze">
+            <div class="card-module-header">
+                <h2>🔍 2.1 Analyze a Single Stock</h2>
+            </div>
+            <p class="description">Enter a stock symbol and get detailed fundamental, technical, and sentiment analysis</p>
             
             <div class="input-group">
                 <input type="text" id="singleSymbol" placeholder="Enter stock symbol (e.g., AAPL)" maxlength="10">
@@ -101,10 +132,12 @@
             </div>
         </div>
 
-        <!-- SECTION 2: Screen Multiple Stocks -->
-        <div class="card">
-            <h2>🎯 Screen Multiple Stocks</h2>
-            <p class="description">Compare several stocks and find the best opportunities</p>
+        <!-- Section 2.2: Screen Multiple Stocks -->
+        <div class="card" id="section-screen">
+            <div class="card-module-header">
+                <h2>🎯 2.2 Screen Multiple Stocks</h2>
+            </div>
+            <p class="description">Compare several stocks and rank them by investment quality</p>
             
             <div class="input-group">
                 <input type="text" id="multipleSymbols" placeholder="Enter symbols separated by commas (e.g., AAPL,MSFT,GOOGL)">
@@ -118,10 +151,12 @@
             </div>
         </div>
 
-        <!-- SECTION 3: US Market Scanner -->
-        <div class="card">
-            <h2>🇺🇸 US Market Scanner</h2>
-            <p class="description">Scan broad US stock universes and surface potential opportunities</p>
+        <!-- Section 2.3: Market Scanner -->
+        <div class="card" id="section-market">
+            <div class="card-module-header">
+                <h2>🇺🇸 2.3 Market Scanner (Top Performers)</h2>
+            </div>
+            <p class="description">Scan broad US stock universes and identify potential opportunities by sector and risk profile</p>
 
             <div class="input-group">
                 <select id="marketUniverse" aria-label="Universe">
@@ -166,10 +201,12 @@
             </div>
         </div>
 
-        <!-- SECTION 4: Stock Recommendation -->
-        <div class="card">
-            <h2>⭐ Stock Recommendation</h2>
-            <p class="description">Recommend stocks with potential to reach your target gain within your selected duration</p>
+        <!-- Section 2.4: Stock Recommendations -->
+        <div class="card" id="section-recommend">
+            <div class="card-module-header">
+                <h2>⭐ 2.4 Stock Recommendations</h2>
+            </div>
+            <p class="description">Get personalized stock recommendations targeting your desired upside within your timeframe</p>
 
             <div class="input-group">
                 <select id="recommendUniverse" aria-label="Recommendation universe">
@@ -214,10 +251,13 @@
             </div>
         </div>
 
-        <!-- SECTION 5: Trade Outcome Tracker -->
-        <div class="card">
-            <h2>🧠 Trade Outcome Tracker</h2>
-            <p class="description">Log completed trade outcomes so the recommendation model can learn from real results</p>
+        <!-- MODULE 3: TRADE TRACKING -->
+        <!-- Section 3.1: Trade Outcome Tracker -->
+        <div class="card" id="section-outcomes">
+            <div class="card-module-header">
+                <h2>💰 3.1 Trade Outcome Tracker</h2>
+            </div>
+            <p class="description">Log completed trades so the recommendation model learns from real results and improves over time</p>
 
             <div class="input-group">
                 <input type="text" id="outcomeSymbol" placeholder="Symbol (e.g., AAPL)" maxlength="10" aria-label="Outcome symbol">
@@ -249,6 +289,6 @@
         <p>Data powered by Yahoo Finance • Updated in real-time</p>
     </div>
 
-    <script src="../static/script.js?v=20260327c" defer></script>
+    <script src="../static/script.js?v=20260328" defer></script>
 </body>
 </html>
