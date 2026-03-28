@@ -77,6 +77,12 @@ def test_knowledge_base_builder_returns_html():
     assert "text/html" in resp.headers["content-type"]
 
 
+def test_admin_module_returns_html():
+    resp = client.get("/admin")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+
+
 def test_knowledge_base_viewer_returns_html():
     resp = client.get("/knowledge-base")
     assert resp.status_code == 200

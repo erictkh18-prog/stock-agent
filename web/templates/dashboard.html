@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stock Analysis Agent</title>
     <link rel="preconnect" href="https://cdn.jsdelivr.net">
-    <link rel="stylesheet" href="../static/style.css?v=20260328">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../static/style.css?v=20260330">
     <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
 </head>
 <body>
@@ -20,10 +23,14 @@
         <!-- Module 1: Knowledge Base -->
         <div class="sidebar-section">
             <div class="sidebar-title">📚 Knowledge Base</div>
-            <a href="/login" class="sidebar-item">Account Management</a>
-            <a href="/admin/approvals" class="sidebar-item">Approvals</a>
             <a href="/knowledge-base-builder" class="sidebar-item">Contribute Content</a>
             <a href="/knowledge-base" class="sidebar-item">View Content</a>
+        </div>
+
+        <!-- Module A: Admin -->
+        <div class="sidebar-section">
+            <div class="sidebar-title">🛡️ Admin Module</div>
+            <a href="/admin" class="sidebar-item">Admin Login &amp; Tools</a>
         </div>
 
         <!-- Module 2: Stock Screening -->
@@ -38,14 +45,13 @@
         <!-- Module 3: Trade Tracker -->
         <div class="sidebar-section">
             <div class="sidebar-title">💰 Trade Tracking</div>
-            <a href="#section-outcomes" class="sidebar-item" onclick="scrollToSection('section-outcomes')">Log Outcomes</a>
+            <a href="#section-paper-trading" class="sidebar-item" onclick="scrollToSection('section-paper-trading')">Paper Trading Tracker</a>
         </div>
 
         <!-- Quick Links -->
         <div class="sidebar-section">
             <div class="sidebar-title">🔗 Quick Links</div>
             <a href="/stock-scanner" class="sidebar-item">StockPulse Scanner</a>
-            <a href="/docs" class="sidebar-item">API Docs</a>
         </div>
     </aside>
 
@@ -54,7 +60,7 @@
         <!-- PAGE HEADER -->
         <div class="page-header">
             <h1>Stock Analysis Dashboard</h1>
-            <p>AI-powered analysis, screening, and portfolio tracking</p>
+            <p>Signal-driven stock intelligence, recommendation scoring, and automated paper trading</p>
         </div>
 
         <div class="container">
@@ -154,9 +160,9 @@
         <!-- Section 2.3: Market Scanner -->
         <div class="card" id="section-market">
             <div class="card-module-header">
-                <h2>🇺🇸 2.3 Market Scanner (Top Performers)</h2>
+                <h2>🇺🇸 2.3 Market Opportunity Scan</h2>
             </div>
-            <p class="description">Scan broad US stock universes and identify potential opportunities by sector and risk profile</p>
+            <p class="description">Run a broad market scan to shortlist strong candidates by universe, sector, and quality thresholds.</p>
 
             <div class="cta-row">
             <div class="input-group">
@@ -206,9 +212,9 @@
         <!-- Section 2.4: Stock Recommendations -->
         <div class="card" id="section-recommend">
             <div class="card-module-header">
-                <h2>⭐ 2.4 Stock Recommendations</h2>
+                <h2>⭐ 2.4 Recommendation Scan</h2>
             </div>
-            <p class="description">Scan for BUY candidates in uptrend. Duration and target % are optional filters.</p>
+            <p class="description">Run a focused BUY-uptrend recommendation scan with optional target and duration filters.</p>
 
             <div class="input-group">
                 <select id="recommendUniverse" aria-label="Recommendation universe">
@@ -239,8 +245,8 @@
             <div class="field-labels recommendation-field-labels" aria-hidden="true">
                 <span>Universe</span>
                 <span>Sector</span>
-                <span>Duration (Days)</span>
-                <span>% Percentage</span>
+                <span>Duration (Opt)</span>
+                <span>Target % (Opt)</span>
                 <span>Scan</span>
                 <span>Stop</span>
             </div>

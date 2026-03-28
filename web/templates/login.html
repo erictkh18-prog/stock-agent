@@ -232,7 +232,7 @@
         </div>
 
         <a href="/" class="back-link">← Back to Dashboard</a>
-        <a href="/admin/approvals" class="back-link">Open Admin Approvals</a>
+        <a href="/admin" class="back-link">Open Admin Module</a>
     </div>
 
     <script>
@@ -295,7 +295,7 @@
                         headers: { "Authorization": "Bearer " + data.access_token }
                     });
                     const me = meResp.ok ? await meResp.json() : null;
-                    const nextPath = me && me.is_admin ? "/admin/approvals" : "/knowledge-base-builder";
+                    const nextPath = me && me.is_admin ? "/admin" : "/knowledge-base-builder";
                     setTimeout(() => window.location.href = nextPath, 600);
                 }
             } catch (err) {

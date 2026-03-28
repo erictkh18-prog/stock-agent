@@ -258,6 +258,15 @@ async def login_page():
     return {"message": "Login page not available"}
 
 
+@app.get("/admin")
+async def admin_module_page():
+    """Serve admin module landing page (auth enforced client-side)."""
+    admin_module_path = templates_dir / "admin-module.html"
+    if admin_module_path.exists():
+        return FileResponse(str(admin_module_path))
+    return {"message": "Admin module page not available"}
+
+
 @app.get("/admin/approvals")
 async def admin_approvals_page():
     """Serve the admin approvals UI for account request moderation."""

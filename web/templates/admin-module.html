@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Module</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #f4f8fb;
+            --panel: #ffffff;
+            --text: #0f172a;
+            --muted: #526273;
+            --accent: #0e7490;
+            --accent-dark: #155e75;
+            --border: #d6dde5;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            font-family: "Space Grotesk", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at 15% 0%, #d1f5ff 0%, rgba(209, 245, 255, 0) 45%),
+                radial-gradient(circle at 100% 100%, #dff7ef 0%, rgba(223, 247, 239, 0) 40%),
+                var(--bg);
+            min-height: 100vh;
+            padding: 28px 16px 48px;
+        }
+
+        .container {
+            max-width: 980px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            margin-bottom: 18px;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: 1.95rem;
+            line-height: 1.2;
+        }
+
+        .subtitle {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.5;
+            max-width: 640px;
+        }
+
+        .top-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: #fff;
+            color: var(--text);
+            padding: 10px 14px;
+            font-size: 0.9rem;
+            font-weight: 700;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 42px;
+        }
+
+        .btn.primary {
+            background: linear-gradient(135deg, var(--accent), #0f766e);
+            color: #fff;
+            border: none;
+        }
+
+        .btn:hover { transform: translateY(-1px); }
+
+        .banner {
+            margin: 14px 0 20px;
+            background: #ecfeff;
+            border: 1px solid #a5f3fc;
+            color: #155e75;
+            border-radius: 12px;
+            padding: 12px 14px;
+            font-size: 0.92rem;
+            line-height: 1.5;
+            display: none;
+        }
+
+        .banner.show { display: block; }
+
+        .tools-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .tool-card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 18px;
+            box-shadow: 0 10px 24px rgba(2, 6, 23, 0.06);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            min-height: 200px;
+        }
+
+        .tool-card h2 {
+            margin: 0;
+            font-size: 1.2rem;
+        }
+
+        .tool-card p {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.45;
+            font-size: 0.94rem;
+            flex: 1;
+        }
+
+        .tool-card .actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        @media (max-width: 900px) {
+            .tools-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .header {
+                flex-direction: column;
+                align-items: stretch;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="container">
+        <div class="header">
+            <div>
+                <h1>🛡️ Admin Module</h1>
+                <p class="subtitle">
+                    Account Management, Approval Queue, and API Docs are grouped here.
+                    Access is restricted to authenticated admin accounts.
+                </p>
+            </div>
+            <div class="top-actions">
+                <a class="btn" href="/">Back to Dashboard</a>
+                <button id="logoutBtn" class="btn" type="button">Log Out</button>
+            </div>
+        </div>
+
+        <div id="statusBanner" class="banner">Checking admin access...</div>
+
+        <section id="adminTools" class="tools-grid" style="display:none;">
+            <article class="tool-card">
+                <h2>Account Management</h2>
+                <p>
+                    Sign in, request access, and manage contributor credentials.
+                    Use this module for all account-related operations.
+                </p>
+                <div class="actions">
+                    <a class="btn primary" href="/login">Open Account Module</a>
+                </div>
+            </article>
+
+            <article class="tool-card">
+                <h2>Approvals Queue</h2>
+                <p>
+                    Review and approve pending account requests for contributors.
+                    This tool is restricted to admin users.
+                </p>
+                <div class="actions">
+                    <a class="btn primary" href="/admin/approvals">Open Approvals</a>
+                </div>
+            </article>
+
+            <article class="tool-card">
+                <h2>API Documentation</h2>
+                <p>
+                    Review and test API endpoints via Swagger UI.
+                    Keep docs access centralized under the admin module.
+                </p>
+                <div class="actions">
+                    <a class="btn primary" href="/docs" target="_blank" rel="noopener noreferrer">Open API Docs</a>
+                </div>
+            </article>
+        </section>
+    </main>
+
+    <script>
+        const banner = document.getElementById("statusBanner");
+        const tools = document.getElementById("adminTools");
+
+        function setBanner(text, kind = "info") {
+            banner.className = "banner show";
+            banner.textContent = text;
+            if (kind === "error") {
+                banner.style.background = "#fef2f2";
+                banner.style.borderColor = "#fecaca";
+                banner.style.color = "#991b1b";
+            } else {
+                banner.style.background = "#ecfeff";
+                banner.style.borderColor = "#a5f3fc";
+                banner.style.color = "#155e75";
+            }
+        }
+
+        async function requireAdmin() {
+            const token = localStorage.getItem("kb_token");
+            if (!token) {
+                window.location.href = "/login?next=/admin";
+                return;
+            }
+
+            try {
+                const resp = await fetch("/auth/me", {
+                    headers: { "Authorization": "Bearer " + token },
+                });
+                if (!resp.ok) {
+                    localStorage.removeItem("kb_token");
+                    window.location.href = "/login?next=/admin";
+                    return;
+                }
+
+                const me = await resp.json();
+                if (!me || !me.is_admin) {
+                    setBanner("Admin privileges are required to access this module.", "error");
+                    setTimeout(() => { window.location.href = "/"; }, 1200);
+                    return;
+                }
+
+                banner.className = "banner";
+                banner.textContent = "";
+                tools.style.display = "grid";
+            } catch (err) {
+                setBanner("Could not verify admin session. Please sign in again.", "error");
+                setTimeout(() => { window.location.href = "/login?next=/admin"; }, 1200);
+            }
+        }
+
+        document.getElementById("logoutBtn").addEventListener("click", () => {
+            localStorage.removeItem("kb_token");
+            window.location.href = "/login";
+        });
+
+        requireAdmin();
+    </script>
+</body>
+</html>
