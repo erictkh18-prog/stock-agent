@@ -6,7 +6,14 @@ from unittest.mock import MagicMock
 import pandas as pd
 from fastapi.testclient import TestClient
 
-from src.main import app, _fetch_symbols_from_wikipedia, _get_us_market_universe, _market_universe_cache
+from src.main import app
+from src.market_universe import (
+    _fetch_symbols_from_wikipedia,
+    _get_us_market_universe,
+    _market_universe_cache,
+)
+import src.market_universe as market_universe_module
+import src.routers.market as market_router
 from src.models import (
     ScreeningResult,
     StockAnalysis,
@@ -55,8 +62,8 @@ def test_fetch_symbols_from_wikipedia_uses_explicit_http_request(monkeypatch):
             pd.DataFrame({"Symbol": ["BRK.B", " msft ", None]})
         ]
 
-    monkeypatch.setattr("src.main.requests.get", fake_get)
-    monkeypatch.setattr("src.main.pd.read_html", fake_read_html)
+    monkeypatch.setattr("src.market_universe.requests.get", fake_get)
+    monkeypatch.setattr("src.market_universe.pd.read_html", fake_read_html)
 
     symbols = _fetch_symbols_from_wikipedia(
         "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
@@ -83,9 +90,9 @@ def test_get_us_market_universe_uses_snapshot_when_wikipedia_fails(monkeypatch, 
         encoding="utf-8",
     )
 
-    monkeypatch.setattr("src.main._market_universe_snapshot_path", snapshot_path)
+    monkeypatch.setattr("src.market_universe._market_universe_snapshot_path", snapshot_path)
     monkeypatch.setattr(
-        "src.main._fetch_symbols_from_wikipedia",
+        "src.market_universe._fetch_symbols_from_wikipedia",
         lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("blocked")),
     )
 
@@ -99,8 +106,8 @@ def test_scan_us_market_defaults_to_10_symbols(monkeypatch):
     """Default scan-us-market should only scan 10 symbols unless overridden."""
     import src.main as main_module
 
-    main_module._market_scan_cache.clear()
-    monkeypatch.setattr(main_module, "_get_us_market_universe", lambda universe: [f"SYM{i}" for i in range(30)])
+    market_router._market_scan_cache.clear()
+    monkeypatch.setattr(market_universe_module, "_get_us_market_universe", lambda universe: [f"SYM{i}" for i in range(30)])
 
     captured = {"count": 0}
 
@@ -129,7 +136,7 @@ def test_stock_recommendations_returns_reason_and_exit_strategy(monkeypatch):
     """Recommendation endpoint should return simple reason plus stop-loss/target prices."""
     import src.main as main_module
 
-    monkeypatch.setattr(main_module, "_get_us_market_universe", lambda universe: ["AAPL", "MSFT"])
+    monkeypatch.setattr(market_universe_module, "_get_us_market_universe", lambda universe: ["AAPL", "MSFT"])
 
     analyses = [
         _make_analysis("AAPL", 88.0, "uptrend", 70.0),

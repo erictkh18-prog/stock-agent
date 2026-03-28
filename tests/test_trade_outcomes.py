@@ -4,6 +4,8 @@ from datetime import datetime
 
 from fastapi.testclient import TestClient
 
+import src.trade_outcomes as trade_outcomes_module
+import src.market_universe as market_universe_module
 from src.main import app
 from src.models import (
     FundamentalAnalysis,
@@ -35,9 +37,7 @@ def _make_analysis(symbol: str, score: float, trend: str, sentiment_score: float
 
 def test_log_trade_outcome_and_fetch_summary(monkeypatch, tmp_path):
     """Trade outcomes should persist and be reflected in summary stats."""
-    import src.main as main_module
-
-    monkeypatch.setattr(main_module, "TRADE_OUTCOMES_PATH", tmp_path / "trade_outcomes.json")
+    monkeypatch.setattr(trade_outcomes_module, "TRADE_OUTCOMES_PATH", tmp_path / "trade_outcomes.json")
 
     response = client.post(
         "/trade-outcomes",
@@ -64,8 +64,8 @@ def test_stock_recommendations_apply_learning_adjustment(monkeypatch, tmp_path):
     """Positive history should boost adjusted upside while negative history penalizes it."""
     import src.main as main_module
 
-    monkeypatch.setattr(main_module, "TRADE_OUTCOMES_PATH", tmp_path / "trade_outcomes.json")
-    monkeypatch.setattr(main_module, "_get_us_market_universe", lambda universe: ["AAPL", "MSFT"])
+    monkeypatch.setattr(trade_outcomes_module, "TRADE_OUTCOMES_PATH", tmp_path / "trade_outcomes.json")
+    monkeypatch.setattr(market_universe_module, "_get_us_market_universe", lambda universe: ["AAPL", "MSFT"])
 
     records = [
         {
@@ -101,7 +101,7 @@ def test_stock_recommendations_apply_learning_adjustment(monkeypatch, tmp_path):
             "return_pct": -5.0,
         },
     ]
-    main_module._save_trade_outcomes(records)
+    trade_outcomes_module._save_trade_outcomes(records)
 
     analyses = [
         _make_analysis("AAPL", 80.0, "uptrend", 65.0),

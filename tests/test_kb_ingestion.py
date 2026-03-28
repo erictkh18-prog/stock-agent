@@ -8,7 +8,8 @@ import requests
 from fastapi.testclient import TestClient
 
 import src.auth as _auth_module
-from src.main import (
+import src.knowledge_base as kb_module
+from src.knowledge_base import (
     _build_kb_tree,
     _discover_domain_links,
     _extract_webpage_text,
@@ -17,8 +18,8 @@ from src.main import (
     _is_low_quality_source_extract,
     _rank_and_deduplicate_claims,
     _source_domain_from_url,
-    app,
 )
+from src.main import app
 
 
 client = TestClient(app, raise_server_exceptions=True)
@@ -54,7 +55,7 @@ def test_extract_webpage_text_falls_back_to_mirror_on_402(monkeypatch):
             return mirror_response
         return blocked_response
 
-    monkeypatch.setattr("src.main.requests.get", fake_get)
+    monkeypatch.setattr("src.knowledge_base.requests.get", fake_get)
 
     result = _extract_webpage_text("https://www.investopedia.com/terms/m/macroeconomics.asp")
 
@@ -70,7 +71,7 @@ def test_extract_webpage_text_raises_for_non_retryable_errors(monkeypatch):
     bad_response.status_code = 500
     bad_response.raise_for_status = MagicMock(side_effect=requests.HTTPError("500"))
 
-    monkeypatch.setattr("src.main.requests.get", lambda url, headers, timeout: bad_response)
+    monkeypatch.setattr("src.knowledge_base.requests.get", lambda url, headers, timeout: bad_response)
 
     with pytest.raises(requests.HTTPError):
         _extract_webpage_text("https://example.com/broken")
@@ -88,7 +89,7 @@ def test_extract_webpage_text_returns_placeholder_when_all_mirrors_fail(monkeypa
             raise requests.RequestException("mirror unavailable")
         return blocked_response
 
-    monkeypatch.setattr("src.main.requests.get", fake_get)
+    monkeypatch.setattr("src.knowledge_base.requests.get", fake_get)
 
     result = _extract_webpage_text("https://www.investopedia.com/terms/m/macroeconomics.asp")
 
@@ -146,8 +147,8 @@ def test_github_commit_files_commits_new_file(monkeypatch):
             return get_resp
         return put_resp
 
-    with patch("src.main.requests.get", side_effect=lambda url, **kw: get_resp):
-        with patch("src.main.requests.put", side_effect=lambda url, **kw: put_resp):
+    with patch("src.knowledge_base.requests.get", side_effect=lambda url, **kw: get_resp):
+        with patch("src.knowledge_base.requests.put", side_effect=lambda url, **kw: put_resp):
             result = _github_commit_files({"knowledge-base/test.md": "# hello"}, "add test")
 
     assert result is True
@@ -161,8 +162,8 @@ def test_github_commit_files_handles_api_error_gracefully(monkeypatch):
     monkeypatch.setattr(main_module.config, "GITHUB_REPO", "owner/repo")
     monkeypatch.setattr(main_module.config, "GITHUB_BRANCH", "main")
 
-    with patch("src.main.requests.get", side_effect=requests.RequestException("network error")):
-        with patch("src.main.requests.put", side_effect=requests.RequestException("network error")):
+    with patch("src.knowledge_base.requests.get", side_effect=requests.RequestException("network error")):
+        with patch("src.knowledge_base.requests.put", side_effect=requests.RequestException("network error")):
             result = _github_commit_files({"knowledge-base/test.md": "# hello"}, "fail test")
 
     assert result is False
@@ -170,7 +171,6 @@ def test_github_commit_files_handles_api_error_gracefully(monkeypatch):
 
 def test_discover_domain_links_extracts_direct_urls_from_ddg_redirect(monkeypatch):
     """Domain discovery should unwrap DuckDuckGo redirect URLs."""
-    import src.main as main_module
 
     html = """
     <html><body>
@@ -183,7 +183,7 @@ def test_discover_domain_links_extracts_direct_urls_from_ddg_redirect(monkeypatc
     response.raise_for_status = MagicMock(return_value=None)
     response.text = html
 
-    monkeypatch.setattr(main_module.requests, "get", lambda *args, **kwargs: response)
+    monkeypatch.setattr(kb_module.requests, "get", lambda *args, **kwargs: response)
 
     links = _discover_domain_links("rates", "reuters.com", max_links=2)
 
@@ -193,11 +193,10 @@ def test_discover_domain_links_extracts_direct_urls_from_ddg_redirect(monkeypatc
 
 def test_knowledge_base_ingest_without_url_runs_auto_research(monkeypatch, tmp_path):
     """Topic-only ingestion should auto-research and create a trading-focused draft chapter."""
-    import src.main as main_module
 
-    monkeypatch.setattr(main_module, "KB_ROOT", tmp_path)
-    monkeypatch.setattr(main_module, "KB_CHANGELOG_PATH", tmp_path / "CHANGELOG.md")
-    monkeypatch.setattr(main_module, "_github_commit_files", lambda files, message: True)
+    monkeypatch.setattr(kb_module, "KB_ROOT", tmp_path)
+    monkeypatch.setattr(kb_module, "KB_CHANGELOG_PATH", tmp_path / "CHANGELOG.md")
+    monkeypatch.setattr(kb_module, "_github_commit_files", lambda files, message: True)
 
     auto_result = {
         "source_title": "Auto research synthesis from Reuters, Bloomberg, and Investopedia",
@@ -218,7 +217,7 @@ def test_knowledge_base_ingest_without_url_runs_auto_research(monkeypatch, tmp_p
         "source_labels": [],
     }
 
-    monkeypatch.setattr(main_module, "_auto_research_topic", lambda topic: auto_result)
+    monkeypatch.setattr(kb_module, "_auto_research_topic", lambda topic: auto_result)
 
     token = _kb_admin_token()
     response = client.post(
@@ -322,11 +321,10 @@ def test_is_claim_noise_blocks_navigation_fragments():
 
 def test_chapter_status_endpoint_updates_frontmatter(monkeypatch, tmp_path):
     """Approve/reject endpoint should update status and append review note."""
-    import src.main as main_module
 
-    monkeypatch.setattr(main_module, "KB_ROOT", tmp_path)
-    monkeypatch.setattr(main_module, "KB_CHANGELOG_PATH", tmp_path / "CHANGELOG.md")
-    monkeypatch.setattr(main_module, "_github_commit_files", lambda files, message: True)
+    monkeypatch.setattr(kb_module, "KB_ROOT", tmp_path)
+    monkeypatch.setattr(kb_module, "KB_CHANGELOG_PATH", tmp_path / "CHANGELOG.md")
+    monkeypatch.setattr(kb_module, "_github_commit_files", lambda files, message: True)
 
     chapter_rel = "sections/02-trading-domain/topics/auto-test/chapters/ch1.md"
     chapter_path = tmp_path / chapter_rel
@@ -376,9 +374,8 @@ def test_chapter_status_endpoint_updates_frontmatter(monkeypatch, tmp_path):
 
 def test_build_kb_tree_includes_chapter_status(monkeypatch, tmp_path):
     """Tree endpoint payload should include chapter status for UI badges."""
-    import src.main as main_module
 
-    monkeypatch.setattr(main_module, "KB_ROOT", tmp_path)
+    monkeypatch.setattr(kb_module, "KB_ROOT", tmp_path)
     chapter_rel = "sections/02-trading-domain/topics/auto-test/chapters/chapter-a.md"
     chapter_path = tmp_path / chapter_rel
     chapter_path.parent.mkdir(parents=True, exist_ok=True)

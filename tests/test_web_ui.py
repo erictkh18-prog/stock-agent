@@ -103,7 +103,7 @@ def test_knowledge_base_open_explorer_rejects_invalid_path_traversal():
 
 
 def test_knowledge_base_open_explorer_accepts_valid_path(monkeypatch):
-    monkeypatch.setattr("src.main._open_in_explorer", lambda path: None)
+    monkeypatch.setattr("src.knowledge_base._open_in_explorer", lambda path: None)
     resp = client.post("/knowledge-base/open-explorer", json={"path": "INDEX.md"})
     assert resp.status_code == 200
     body = resp.json()

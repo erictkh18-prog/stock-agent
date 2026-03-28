@@ -267,12 +267,12 @@ def test_chapter_status_approve_allowed_for_admin(monkeypatch, tmp_path):
     async def _noop_to_thread(func, *args, **kwargs):
         return None
 
-    monkeypatch.setattr("src.main._validate_kb_relative_path", lambda p: fake_chapter)
-    monkeypatch.setattr("src.main._safe_rel_path", lambda *a: rel_path)
-    monkeypatch.setattr("src.main._apply_chapter_status_update", lambda *a, **kw: None)
-    monkeypatch.setattr("src.main._append_kb_changelog", lambda *a: None)
-    monkeypatch.setattr("src.main.threading.Thread", _NoOpThread)
-    monkeypatch.setattr("src.main.asyncio.to_thread", _noop_to_thread)
+    monkeypatch.setattr("src.knowledge_base._validate_kb_relative_path", lambda p: fake_chapter)
+    monkeypatch.setattr("src.knowledge_base._safe_rel_path", lambda *a: rel_path)
+    monkeypatch.setattr("src.knowledge_base._apply_chapter_status_update", lambda *a, **kw: None)
+    monkeypatch.setattr("src.knowledge_base._append_kb_changelog", lambda *a: None)
+    monkeypatch.setattr("src.routers.kb_admin.threading.Thread", _NoOpThread)
+    monkeypatch.setattr("src.routers.kb_admin.asyncio.to_thread", _noop_to_thread)
 
     resp = client.post(
         "/knowledge-base/chapter-status",
