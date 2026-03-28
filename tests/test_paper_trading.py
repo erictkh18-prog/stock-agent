@@ -251,6 +251,44 @@ def test_storage_status_json_local_when_postgres_not_enabled(monkeypatch):
     assert status["postgres_enabled"] is False
 
 
+def test_storage_status_uses_auth_database_url_as_fallback(monkeypatch):
+    monkeypatch.delenv("PAPER_TRADING_DATABASE_URL", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("AUTH_DATABASE_URL", "postgres://example")
+
+    monkeypatch.setattr(pt_module, "_ensure_storage_ready", lambda: None)
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, _query):
+            return None
+
+        def fetchone(self):
+            return (1,)
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return _Cursor()
+
+    monkeypatch.setattr(pt_module, "_connect_postgres", lambda: _Conn())
+
+    status = pt_module.get_storage_status()
+    assert status["mode"] == "postgres"
+    assert status["healthy"] is True
+    assert status["postgres_enabled"] is True
+
+
 def test_storage_status_postgres_error_when_health_check_fails(monkeypatch):
     monkeypatch.setenv("PAPER_TRADING_DATABASE_URL", "postgres://example")
 

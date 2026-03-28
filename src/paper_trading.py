@@ -28,7 +28,10 @@ _schema_lock = threading.Lock()
 
 
 def _paper_trading_database_url() -> str:
-    return os.getenv("PAPER_TRADING_DATABASE_URL", os.getenv("DATABASE_URL", "")).strip()
+    return os.getenv(
+        "PAPER_TRADING_DATABASE_URL",
+        os.getenv("DATABASE_URL", os.getenv("AUTH_DATABASE_URL", "")),
+    ).strip()
 
 
 def _allow_json_fallback_when_postgres_enabled() -> bool:
