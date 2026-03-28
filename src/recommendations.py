@@ -35,17 +35,25 @@ _recommendation_scan_jobs: dict[str, dict] = {}
 # ── Upside and exit-strategy helpers ─────────────────────────────────────────
 
 def _estimate_upside_percent(analysis: StockAnalysis, duration_days: int) -> float:
-    """Estimate upside potential from score quality, trend, sentiment, and horizon.
+    """Estimate upside potential using analyst consensus target as the primary anchor.
 
-    Calibration notes:
-    - Base uses a lower anchor (48) and a slightly higher multiplier (0.30) so
-      stocks in the 50-65 score range still produce meaningful upside estimates.
-    - Downtrend is penalised modestly (-1.0) rather than harshly (-2.0); it is
-      one risk signal, not an automatic disqualifier over a longer horizon.
-    - horizon_scale is capped at 2.0 (≈60+ days) instead of 1.6 so that
-      longer-duration requests surface more candidates.
-    - RSI overbought threshold raised to 80 to avoid penalising mildly hot stocks.
+    Stage 3 upgrade:
+    - When an analyst mean target price is available, it becomes the primary
+      anchor (discounted to 80% of consensus to account for analyst optimism
+      bias) scaled by the fraction of a 12-month horizon requested.
+    - Falls back to the original score-based formula when no target is present.
     """
+    # --- Stage 3: Analyst consensus target (primary anchor) ---
+    analyst_target = getattr(analysis, "analyst_target_price", None)
+    current_price = getattr(analysis, "current_price", 0.0) or 0.0
+    if analyst_target and current_price > 0 and analyst_target > current_price:
+        raw_upside_pct = (analyst_target - current_price) / current_price * 100.0
+        horizon_fraction = min(1.0, duration_days / 365.0)
+        # 80% haircut on analyst consensus (analysts systematically over-estimate)
+        projected = raw_upside_pct * 0.80 * horizon_fraction
+        return round(max(1.0, min(50.0, projected)), 2)
+
+    # --- Fallback: original score-based formula ---
     base = max(0.5, (analysis.overall_score - 48.0) * 0.30)
 
     trend = (getattr(analysis.technical, "trend", "") or "").lower()
@@ -102,6 +110,8 @@ def _build_recommendation_candidate(
     expected_upside = _estimate_upside_percent(analysis, duration_days)
     exit_strategy = _build_exit_strategy(analysis.current_price, target_percentage)
 
+    conviction = round(getattr(analysis, "conviction_score", 0.0) or 0.0, 2)
+
     return {
         "symbol": analysis.symbol,
         "name": analysis.name,
@@ -113,15 +123,30 @@ def _build_recommendation_candidate(
         "target_price": exit_strategy["target_price"],
         "stop_loss_price": exit_strategy["stop_loss_price"],
         "stop_loss_pct": exit_strategy["stop_loss_pct"],
+        "conviction_score": conviction,
         "reason": _build_simple_reason(analysis, duration_days, target_percentage),
     }
 
 
 def _rank_recommendation_candidates(candidates: list[dict], top_n: int) -> list[dict]:
-    """Sort recommendation candidates by upside then quality."""
+    """Sort recommendation candidates by conviction-weighted upside then quality.
+
+    Stage 3: Conviction score (0-1) amplifies the adjusted upside estimate by
+    up to 20% so that stocks with consistent multi-factor alignment rank higher
+    than single-signal outliers with similar raw upside.
+    """
+    for c in candidates:
+        conviction = c.get("conviction_score") or 0.0
+        c["conviction_weighted_upside"] = round(
+            c["adjusted_upside_pct"] * (1.0 + conviction * 0.2), 2
+        )
     ranked = sorted(
         candidates,
-        key=lambda item: (item["adjusted_upside_pct"], item["overall_score"], item["confidence"]),
+        key=lambda item: (
+            item["conviction_weighted_upside"],
+            item["overall_score"],
+            item["confidence"],
+        ),
         reverse=True,
     )
     return ranked[:top_n]

@@ -1,4 +1,5 @@
 """Technical analysis module for stocks"""
+import threading
 import yfinance as yf
 import pandas as pd
 import logging
@@ -8,13 +9,37 @@ from src.models import TechnicalAnalysis
 
 logger = logging.getLogger(__name__)
 
+# ── Sector ETF mapping (Stage 2: relative strength vs sector) ─────────────────
+
+SECTOR_ETF_MAP: Dict[str, str] = {
+    "technology": "XLK",
+    "financial services": "XLF",
+    "healthcare": "XLV",
+    "consumer cyclical": "XLY",
+    "consumer defensive": "XLP",
+    "industrials": "XLI",
+    "energy": "XLE",
+    "communication services": "XLC",
+    "real estate": "XLRE",
+    "basic materials": "XLB",
+    "utilities": "XLU",
+    "financials": "XLF",          # yfinance alternate label
+    "consumer staples": "XLP",    # yfinance alternate label
+    "materials": "XLB",           # yfinance alternate label
+}
+
+# Module-level benchmark return cache (avoids re-fetching for every stock in a scan)
+_benchmark_cache: Dict[str, tuple] = {}
+_benchmark_cache_lock = threading.Lock()
+BENCHMARK_CACHE_TTL_SECONDS = 300  # 5 minutes
+
 class TechnicalAnalyzer:
     """Analyzes technical indicators of stocks"""
     
     def __init__(self):
         self.logger = logger
     
-    def analyze(self, symbol: str, lookback_days: int = 365, stock: Optional[yf.Ticker] = None) -> Optional[TechnicalAnalysis]:
+    def analyze(self, symbol: str, lookback_days: int = 365, stock: Optional[yf.Ticker] = None, sector: Optional[str] = None) -> Optional[TechnicalAnalysis]:
         """
         Analyze technical indicators for a stock
 
@@ -24,6 +49,8 @@ class TechnicalAnalyzer:
             stock: Optional pre-created yf.Ticker instance. A fresh instance is
                    always used for the history fetch to avoid stale internal state
                    (e.g. a previously-failed info call that sets _already_fetched=True).
+            sector: Optional sector string (e.g. 'technology') used to compute
+                    relative strength vs the matching sector ETF (Stage 2).
 
         Returns:
             TechnicalAnalysis object with indicators
@@ -83,12 +110,32 @@ class TechnicalAnalyzer:
                 price_pct_from_52w_high = (current_price - high_52w) / high_52w
             if current_price and low_52w and low_52w > 0:
                 price_pct_from_52w_low = (current_price - low_52w) / low_52w
-            
+
+            # Stage 2: Relative strength vs SPY and sector ETF
+            relative_strength_vs_spy: Optional[float] = None
+            relative_strength_vs_sector: Optional[float] = None
+            sector_etf: Optional[str] = None
+
+            if price_change_3m is not None:
+                spy_return = self._get_benchmark_3m_return("SPY")
+                if spy_return is not None:
+                    relative_strength_vs_spy = round(price_change_3m - spy_return, 4)
+
+                if sector:
+                    normalized = sector.lower().strip()
+                    sector_etf = SECTOR_ETF_MAP.get(normalized)
+                    if sector_etf:
+                        sector_return = self._get_benchmark_3m_return(sector_etf)
+                        if sector_return is not None:
+                            relative_strength_vs_sector = round(price_change_3m - sector_return, 4)
+
             # Calculate technical score
             score = self._calculate_technical_score(
                 sma_50, sma_200, rsi, trend, current_price, support, resistance,
                 macd, volume_ratio, price_change_1m, price_change_3m,
-                price_pct_from_52w_high, atr_pct
+                price_pct_from_52w_high, atr_pct,
+                relative_strength_vs_spy=relative_strength_vs_spy,
+                relative_strength_vs_sector=relative_strength_vs_sector,
             )
             
             return TechnicalAnalysis(
@@ -111,12 +158,42 @@ class TechnicalAnalyzer:
                 low_52w=low_52w,
                 price_pct_from_52w_high=price_pct_from_52w_high,
                 price_pct_from_52w_low=price_pct_from_52w_low,
+                relative_strength_vs_spy=relative_strength_vs_spy,
+                relative_strength_vs_sector=relative_strength_vs_sector,
+                sector_etf=sector_etf,
                 score=score
             )
         
         except Exception as e:
             self.logger.error(f"Error analyzing technicals for {symbol}: {e}")
             return None
+
+    def _get_benchmark_3m_return(self, etf_symbol: str) -> Optional[float]:
+        """Fetch 3-month price return for a benchmark ETF, with TTL caching.
+
+        Results are cached for BENCHMARK_CACHE_TTL_SECONDS so that scanning
+        hundreds of stocks does not trigger hundreds of duplicate API calls.
+        """
+        now = datetime.now()
+        with _benchmark_cache_lock:
+            if etf_symbol in _benchmark_cache:
+                cached_at, cached_val = _benchmark_cache[etf_symbol]
+                if (now - cached_at).total_seconds() < BENCHMARK_CACHE_TTL_SECONDS:
+                    return cached_val
+
+        result: Optional[float] = None
+        try:
+            ticker = yf.Ticker(etf_symbol)
+            bm_hist = ticker.history(period="4mo", interval="1d")
+            if bm_hist is not None and not bm_hist.empty:
+                result = self._calculate_price_change(bm_hist, 63)
+        except Exception as exc:
+            self.logger.debug("Benchmark fetch failed for %s: %s", etf_symbol, exc)
+
+        with _benchmark_cache_lock:
+            _benchmark_cache[etf_symbol] = (now, result)
+
+        return result
     
     def _calculate_sma(self, df: pd.DataFrame, period: int) -> Optional[float]:
         """Calculate Simple Moving Average"""
@@ -276,7 +353,8 @@ class TechnicalAnalyzer:
         self, sma_50, sma_200, rsi, trend, current_price,
         support, resistance, macd=None, volume_ratio=None,
         price_change_1m=None, price_change_3m=None,
-        price_pct_from_52w_high=None, atr_pct=None
+        price_pct_from_52w_high=None, atr_pct=None,
+        relative_strength_vs_spy=None, relative_strength_vs_sector=None
     ) -> float:
         """
         Calculate technical score (0-100) using competitive screener criteria.
@@ -392,5 +470,32 @@ class TechnicalAnalyzer:
         # Volatility penalty (very high ATR% increases risk)
         if atr_pct is not None and atr_pct > 0.05:
             score -= 3  # High daily volatility adds risk
+
+        # Stage 2: Relative strength vs S&P 500
+        # Outperforming the broad market is the #1 technical quality filter.
+        if relative_strength_vs_spy is not None:
+            if relative_strength_vs_spy > 0.10:    # Strongly beating the market
+                score += 10
+            elif relative_strength_vs_spy > 0.05:  # Moderately outperforming
+                score += 6
+            elif relative_strength_vs_spy > 0:     # Slightly ahead
+                score += 3
+            elif relative_strength_vs_spy > -0.05: # Slight underperformance
+                score -= 3
+            elif relative_strength_vs_spy > -0.10: # Moderate underperformance
+                score -= 6
+            else:                                   # Strongly lagging market
+                score -= 10
+
+        # Relative strength vs sector ETF (sector leadership signal)
+        if relative_strength_vs_sector is not None:
+            if relative_strength_vs_sector > 0.05:  # Sector leader
+                score += 4
+            elif relative_strength_vs_sector > 0:   # Slight sector leader
+                score += 2
+            elif relative_strength_vs_sector < -0.10: # Sector laggard
+                score -= 4
+            elif relative_strength_vs_sector < -0.05: # Mild laggard
+                score -= 2
 
         return max(0, min(100, score))

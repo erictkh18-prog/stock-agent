@@ -24,6 +24,9 @@ class FundamentalAnalysis(BaseModel):
     free_cash_flow: Optional[float] = None        # Free cash flow (absolute)
     fcf_yield: Optional[float] = None             # FCF / market cap
     beta: Optional[float] = None                  # Volatility relative to market
+    roic: Optional[float] = None                  # Return on Invested Capital (net income / invested capital)
+    eps_acceleration: Optional[float] = None      # QoQ EPS acceleration (positive = improving momentum)
+    fcf_conversion: Optional[float] = None        # FCF / Net Income ratio (>1.0 = high quality earnings)
     score: Optional[float] = Field(None, description="Score 0-100")
 
 class TechnicalAnalysis(BaseModel):
@@ -47,6 +50,9 @@ class TechnicalAnalysis(BaseModel):
     low_52w: Optional[float] = None                     # 52-week low
     price_pct_from_52w_high: Optional[float] = None     # % below 52-week high (negative = below)
     price_pct_from_52w_low: Optional[float] = None      # % above 52-week low
+    relative_strength_vs_spy: Optional[float] = None    # 3-month return vs SPY (positive = outperforming market)
+    relative_strength_vs_sector: Optional[float] = None # 3-month return vs sector ETF (positive = sector leader)
+    sector_etf: Optional[str] = None                    # Sector ETF used for relative strength comparison
     score: Optional[float] = Field(None, description="Score 0-100")
 
 class SentimentAnalysis(BaseModel):
@@ -73,6 +79,9 @@ class StockAnalysis(BaseModel):
     reason: Optional[str] = Field(None, description="Plain-language summary of key ranking factors")
     top_contributing_factors: Optional[List[str]] = Field(None, description="Top positive factors")
     top_risk_factors: Optional[List[str]] = Field(None, description="Top risk factors")
+    analyst_target_price: Optional[float] = Field(None, description="Analyst consensus 12-month price target")
+    analyst_target_upside_pct: Optional[float] = Field(None, description="% upside to analyst consensus target")
+    conviction_score: Optional[float] = Field(None, description="0-1 score: how aligned are fundamental+technical+RS signals")
 
 class ScreeningFilter(BaseModel):
     """Stock screening filters"""

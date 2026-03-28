@@ -69,11 +69,20 @@ class StockScreener:
 
             current_price = self._get_current_price(stock, info, symbol)
             name = info.get('longName') or info.get('shortName') or symbol
-            
+
             if not current_price:
                 self.logger.warning(f"Could not fetch price for {symbol}")
                 return None
-            
+
+            # Stage 2/3: sector and analyst target from info dict
+            sector_for_rs = (info.get('sector') or '').lower().strip()
+            analyst_target_price: Optional[float] = info.get('targetMeanPrice') if info else None
+            analyst_target_upside_pct: Optional[float] = None
+            if analyst_target_price and current_price and current_price > 0:
+                analyst_target_upside_pct = round(
+                    (analyst_target_price - current_price) / current_price * 100.0, 2
+                )
+
             # In fast_mode, skip live sentiment feed calls to reduce broad-scan latency.
             analysis_workers = 2 if fast_mode else 3
             with ThreadPoolExecutor(max_workers=analysis_workers) as analysis_executor:
@@ -85,7 +94,7 @@ class StockScreener:
                     enable_web_fallback=not fast_mode,
                 )
                 future_technical = analysis_executor.submit(
-                    self.technical_analyzer.analyze, symbol
+                    self.technical_analyzer.analyze, symbol, sector=sector_for_rs
                 )
                 future_sentiment = None
                 if not fast_mode:
@@ -123,7 +132,24 @@ class StockScreener:
             reason, contributing_factors, risk_factors = self._build_explanation(
                 fundamental, technical, sentiment
             )
-            
+
+            # Stage 4: Conviction score — how many independent factors align?
+            conviction_factors = 0
+            if fundamental and fundamental.score is not None and fundamental.score > 60:
+                conviction_factors += 1
+            if technical and technical.score is not None and technical.score > 60:
+                conviction_factors += 1
+            if technical and getattr(technical, 'relative_strength_vs_spy', None) is not None:
+                if technical.relative_strength_vs_spy > 0:
+                    conviction_factors += 1
+            if fundamental and getattr(fundamental, 'roic', None) is not None:
+                if fundamental.roic > 0.12:
+                    conviction_factors += 1
+            if fundamental and getattr(fundamental, 'eps_acceleration', None) is not None:
+                if fundamental.eps_acceleration > 0:
+                    conviction_factors += 1
+            conviction_score_val = round(conviction_factors / 5.0, 2)
+
             analysis = StockAnalysis(
                 symbol=symbol,
                 name=name,
@@ -138,6 +164,9 @@ class StockScreener:
                 reason=reason,
                 top_contributing_factors=contributing_factors,
                 top_risk_factors=risk_factors,
+                analyst_target_price=analyst_target_price,
+                analyst_target_upside_pct=analyst_target_upside_pct,
+                conviction_score=conviction_score_val,
             )
 
             with self._cache_lock:
@@ -590,6 +619,30 @@ class StockScreener:
             if roa is not None and roa > 0.08:
                 contributing.append("efficient asset utilisation")
 
+            # Stage 1: Advanced quality metrics
+            roic = getattr(fundamental, 'roic', None)
+            if roic is not None:
+                if roic > 0.20:
+                    contributing.append("excellent capital allocation (high ROIC)")
+                elif roic > 0.12:
+                    contributing.append("strong return on invested capital")
+                elif roic < 0:
+                    risks.append("negative return on invested capital")
+
+            eps_acceleration = getattr(fundamental, 'eps_acceleration', None)
+            if eps_acceleration is not None:
+                if eps_acceleration > 0.05:
+                    contributing.append("accelerating earnings growth")
+                elif eps_acceleration < -0.05:
+                    risks.append("decelerating earnings momentum")
+
+            fcf_conversion = getattr(fundamental, 'fcf_conversion', None)
+            if fcf_conversion is not None:
+                if fcf_conversion > 1.0:
+                    contributing.append("high-quality earnings (strong FCF conversion)")
+                elif fcf_conversion < 0:
+                    risks.append("poor earnings quality (negative FCF vs net income)")
+
             if profit_margin is not None:
                 if profit_margin > 0.15:
                     contributing.append("strong profit margins")
@@ -661,6 +714,21 @@ class StockScreener:
                     contributing.append("near 52-week high — breakout zone")
                 elif price_pct_from_52w_high < -0.40:
                     risks.append("deep below 52-week high")
+
+            # Stage 2: Relative strength signals
+            rs_spy = getattr(technical, 'relative_strength_vs_spy', None)
+            if rs_spy is not None:
+                if rs_spy > 0.05:
+                    contributing.append("outperforming the broader market")
+                elif rs_spy < -0.05:
+                    risks.append("underperforming the broader market")
+
+            rs_sector = getattr(technical, 'relative_strength_vs_sector', None)
+            if rs_sector is not None:
+                if rs_sector > 0.05:
+                    contributing.append("sector leadership — outperforming peers")
+                elif rs_sector < -0.05:
+                    risks.append("lagging sector peers")
 
         # --- Sentiment factors ---
         if sentiment:

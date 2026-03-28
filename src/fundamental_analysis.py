@@ -247,13 +247,19 @@ class FundamentalAnalyzer:
             # Keep expensive financial-statement lookup only when info is available.
             revenue_growth = self._calculate_revenue_growth(stock) if info else None
             profit_margin = info.get('profitMargins')
-            
-            # Calculate score
+
+            # Stage 1: Advanced quality metrics
+            roic = self._calculate_roic(info)
+            eps_acceleration = self._calculate_eps_acceleration(stock)
+            fcf_conversion = self._calculate_fcf_conversion(info)
+
+            # Calculate score (now includes ROIC, EPS acceleration, FCF conversion)
             score = self._calculate_fundamental_score(
                 pe_ratio, forward_pe, eps, dividend_yield, debt_to_equity,
                 current_ratio, quick_ratio, roa, roe, revenue_growth,
                 profit_margin, operating_margin, peg_ratio, pb_ratio,
-                price_to_sales, ev_ebitda, fcf_yield, beta
+                price_to_sales, ev_ebitda, fcf_yield, beta,
+                roic=roic, eps_acceleration=eps_acceleration, fcf_conversion=fcf_conversion
             )
             
             return FundamentalAnalysis(
@@ -277,6 +283,9 @@ class FundamentalAnalyzer:
                 free_cash_flow=free_cash_flow,
                 fcf_yield=fcf_yield,
                 beta=beta,
+                roic=roic,
+                eps_acceleration=eps_acceleration,
+                fcf_conversion=fcf_conversion,
                 score=score
             )
         
@@ -303,13 +312,84 @@ class FundamentalAnalyzer:
             return None
         except Exception:
             return None
-    
+
+    @staticmethod
+    def _calculate_roic(info: dict) -> Optional[float]:
+        """Return on Invested Capital = Net Income / (Total Equity + Total Debt - Cash).
+
+        ROIC > 15% signals a company that efficiently allocates capital and
+        sustainably compounds shareholder wealth (Warren Buffett's key metric).
+        """
+        try:
+            net_income = info.get('netIncomeToCommon')
+            if not net_income:
+                return None
+            total_debt = info.get('totalDebt') or 0
+            total_cash = info.get('totalCash') or 0
+            book_value_per_share = info.get('bookValue')
+            shares = info.get('sharesOutstanding') or info.get('impliedSharesOutstanding')
+            if not (book_value_per_share and shares):
+                return None
+            total_equity = book_value_per_share * shares
+            invested_capital = total_equity + total_debt - total_cash
+            if invested_capital <= 0:
+                return None
+            return round(net_income / invested_capital, 4)
+        except Exception:
+            return None
+
+    def _calculate_eps_acceleration(self, stock) -> Optional[float]:
+        """Measure whether earnings growth is accelerating quarter-over-quarter.
+
+        Returns the change in QoQ growth rate (recent_growth - prior_growth).
+        Positive = earnings momentum strengthening; negative = cooling off.
+        """
+        try:
+            qi = stock.quarterly_income_stmt
+            if qi is None or not hasattr(qi, 'empty') or qi.empty:
+                return None
+            net_income_row = None
+            for key in ('Net Income', 'NetIncome', 'Net Income Common Stockholders'):
+                if key in qi.index:
+                    net_income_row = qi.loc[key].dropna()
+                    break
+            if net_income_row is None or len(net_income_row) < 4:
+                return None
+            q0 = float(net_income_row.iloc[0])  # most recent quarter
+            q1 = float(net_income_row.iloc[1])  # one quarter ago
+            q2 = float(net_income_row.iloc[2])  # two quarters ago
+            if q1 == 0 or q2 == 0:
+                return None
+            recent_growth = (q0 - q1) / abs(q1)
+            prior_growth = (q1 - q2) / abs(q2)
+            return round(recent_growth - prior_growth, 4)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _calculate_fcf_conversion(info: dict) -> Optional[float]:
+        """FCF Conversion = Free Cash Flow / Net Income.
+
+        Ratio > 1.0 means the company generates more real cash than reported
+        net income — a sign of high earnings quality and conservative accounting.
+        Ratio < 0 while net income is positive is a red flag.
+        """
+        try:
+            fcf = info.get('freeCashflow')
+            net_income = info.get('netIncomeToCommon')
+            if fcf is None or not net_income or net_income <= 0:
+                return None
+            return round(fcf / net_income, 3)
+        except Exception:
+            return None
+
     def _calculate_fundamental_score(
         self, pe_ratio=None, forward_pe=None, eps=None, dividend_yield=None,
         debt_to_equity=None, current_ratio=None, quick_ratio=None,
         roa=None, roe=None, revenue_growth=None, profit_margin=None,
         operating_margin=None, peg_ratio=None, pb_ratio=None,
-        price_to_sales=None, ev_ebitda=None, fcf_yield=None, beta=None
+        price_to_sales=None, ev_ebitda=None, fcf_yield=None, beta=None,
+        roic=None, eps_acceleration=None, fcf_conversion=None
     ) -> float:
         """
         Calculate a fundamental score (0-100) using 18 competitive screening criteria.
@@ -512,6 +592,46 @@ class FundamentalAnalyzer:
                 score -= 4
             elif beta < 0:
                 score -= 2
+
+        # --- Stage 1: Advanced Quality Metrics (max ±23 pts) ---
+
+        # ROIC — best single metric for capital allocation efficiency
+        # Elite companies (MSFT, AAPL, V) regularly exceed 25%.
+        if roic is not None:
+            if roic > 0.25:        # Elite capital allocator
+                score += 10
+            elif roic > 0.15:      # Very good
+                score += 7
+            elif roic > 0.10:      # Above average
+                score += 4
+            elif roic > 0:         # Positive but modest
+                score += 1
+            else:                  # Destroying capital
+                score -= 5
+
+        # EPS Acceleration — is earnings momentum improving or cooling?
+        # Positive = growth rate speeding up QoQ (very bullish signal).
+        if eps_acceleration is not None:
+            if eps_acceleration > 0.10:    # Strong acceleration
+                score += 8
+            elif eps_acceleration > 0:     # Improving trend
+                score += 4
+            elif eps_acceleration < -0.10: # Sharp deceleration
+                score -= 5
+            elif eps_acceleration < 0:     # Mild slowdown
+                score -= 2
+
+        # FCF Conversion = FCF / Net Income. > 1.0 means real cash > paper profits.
+        # High conversion = management cannot easily manipulate these earnings.
+        if fcf_conversion is not None:
+            if fcf_conversion > 1.2:    # Exceptional cash generation
+                score += 5
+            elif fcf_conversion >= 0.8: # Solid quality
+                score += 3
+            elif fcf_conversion >= 0.5: # Acceptable
+                score += 1
+            elif fcf_conversion < 0:    # Negative FCF despite profits (red flag)
+                score -= 4
 
         # Clamp score between 0 and 100
         return max(0, min(100, score))
