@@ -373,7 +373,8 @@ def _extract_webpage_text(url: str) -> dict:
 def _resolve_ddg_result_url(href: str) -> str:
     """Resolve direct URL from DuckDuckGo redirect links when needed."""
     parsed = urlparse(href)
-    if "duckduckgo.com" in parsed.netloc and parsed.path.startswith("/l/"):
+    netloc = parsed.netloc.lower()
+    if (netloc == "duckduckgo.com" or netloc.endswith(".duckduckgo.com")) and parsed.path.startswith("/l/"):
         query = parse_qs(parsed.query)
         if "uddg" in query and query["uddg"]:
             return unquote(query["uddg"][0])
