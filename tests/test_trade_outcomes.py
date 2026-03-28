@@ -39,8 +39,11 @@ def _make_analysis(symbol: str, score: float, trend: str, sentiment_score: float
 def test_stock_recommendations_apply_learning_adjustment_from_closed_trades(monkeypatch, tmp_path):
     """Positive closed history should boost adjusted upside while negative history penalizes it."""
     import src.main as main_module
+    import src.paper_trading as paper_trading_module
 
     monkeypatch.setattr(trade_outcomes_module, "TRADE_OUTCOMES_PATH", tmp_path / "trade_outcomes.json")
+    monkeypatch.setattr(paper_trading_module, "POSITIONS_PATH", tmp_path / "positions.json")
+    monkeypatch.setattr(paper_trading_module, "CLOSED_TRADES_PATH", tmp_path / "closed_trades.json")
     monkeypatch.setattr(market_universe_module, "_get_us_market_universe", lambda universe: ["AAPL", "MSFT"])
 
     closed_trades_path = tmp_path / "closed_trades.json"

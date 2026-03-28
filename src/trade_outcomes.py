@@ -57,16 +57,13 @@ def _ensure_trade_outcomes_file() -> None:
 
 def _load_trade_outcomes() -> list[dict]:
     """Load outcomes used for learning from automated closed paper trades only."""
-    closed_trades_path = TRADE_OUTCOMES_PATH.parent / "closed_trades.json"
-    paper = []
-    if closed_trades_path.exists():
-        try:
-            raw = json.loads(closed_trades_path.read_text(encoding="utf-8"))
-            paper = raw if isinstance(raw, list) else []
-        except json.JSONDecodeError:
-            paper = []
-
-    return paper
+    try:
+        from src.paper_trading import _load_closed_trades as _load_paper_closed_trades
+        data = _load_paper_closed_trades()
+        return data if isinstance(data, list) else []
+    except Exception as exc:
+        logger.warning("Failed to load paper closed trades for learning: %s", exc)
+        return []
 
 
 def _save_trade_outcomes(records: list[dict]) -> None:

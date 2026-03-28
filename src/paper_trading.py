@@ -6,6 +6,7 @@ Closed trades (with P&L) are stored in data/closed_trades.json.
 
 import json
 import logging
+import os
 import threading
 import uuid
 from datetime import datetime, timedelta
@@ -20,8 +21,86 @@ logger = logging.getLogger(__name__)
 
 POSITIONS_PATH = Path(__file__).parent.parent / "data" / "positions.json"
 CLOSED_TRADES_PATH = Path(__file__).parent.parent / "data" / "closed_trades.json"
+PAPER_TRADING_DATABASE_URL = os.getenv("PAPER_TRADING_DATABASE_URL", os.getenv("DATABASE_URL", "")).strip()
 
 _lock = threading.Lock()
+_schema_ready = False
+_schema_lock = threading.Lock()
+
+
+def _is_postgres_enabled() -> bool:
+    return bool(PAPER_TRADING_DATABASE_URL)
+
+
+def _import_psycopg():
+    try:
+        import psycopg
+    except ImportError as exc:
+        raise RuntimeError(
+            "PAPER_TRADING_DATABASE_URL/DATABASE_URL is set but psycopg is not installed."
+        ) from exc
+    return psycopg
+
+
+def _connect_postgres():
+    psycopg = _import_psycopg()
+    return psycopg.connect(PAPER_TRADING_DATABASE_URL, connect_timeout=10, autocommit=True)
+
+
+def _ensure_postgres_schema() -> None:
+    with _connect_postgres() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS paper_positions (
+                id TEXT PRIMARY KEY,
+                symbol TEXT NOT NULL,
+                opened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                payload JSONB NOT NULL
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_paper_positions_opened_at
+            ON paper_positions (opened_at DESC)
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS paper_closed_trades (
+                id TEXT PRIMARY KEY,
+                symbol TEXT NOT NULL,
+                closed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                payload JSONB NOT NULL
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_paper_closed_trades_closed_at
+            ON paper_closed_trades (closed_at DESC)
+            """
+        )
+
+
+def _ensure_storage_ready() -> None:
+    global _schema_ready
+    if not _is_postgres_enabled() or _schema_ready:
+        return
+    with _schema_lock:
+        if _schema_ready:
+            return
+        _ensure_postgres_schema()
+        _schema_ready = True
+
+
+def _parse_iso_or_now(value: Optional[str]) -> datetime:
+    if value:
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return datetime.now()
+    return datetime.now()
 
 
 # ── Persistence helpers ───────────────────────────────────────────────────────
@@ -33,6 +112,21 @@ def _ensure_file(path: Path) -> None:
 
 
 def _load_positions() -> list[dict]:
+    if _is_postgres_enabled():
+        try:
+            _ensure_storage_ready()
+            with _connect_postgres() as conn, conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT payload
+                    FROM paper_positions
+                    ORDER BY opened_at ASC, id ASC
+                    """
+                )
+                return [row[0] for row in cur.fetchall()]
+        except Exception as exc:
+            logger.warning("Postgres load positions failed, using JSON fallback: %s", exc)
+
     _ensure_file(POSITIONS_PATH)
     with _lock:
         try:
@@ -43,12 +137,53 @@ def _load_positions() -> list[dict]:
 
 
 def _save_positions(records: list[dict]) -> None:
+    if _is_postgres_enabled():
+        try:
+            _ensure_storage_ready()
+            with _connect_postgres() as conn, conn.cursor() as cur:
+                cur.execute("DELETE FROM paper_positions")
+                for record in records:
+                    cur.execute(
+                        """
+                        INSERT INTO paper_positions (id, symbol, opened_at, payload)
+                        VALUES (%s, %s, %s, %s::jsonb)
+                        ON CONFLICT (id) DO UPDATE SET
+                            symbol = EXCLUDED.symbol,
+                            opened_at = EXCLUDED.opened_at,
+                            payload = EXCLUDED.payload
+                        """,
+                        (
+                            str(record.get("id", "")),
+                            str(record.get("symbol", "")).upper(),
+                            _parse_iso_or_now(record.get("opened_at")),
+                            json.dumps(record),
+                        ),
+                    )
+            return
+        except Exception as exc:
+            logger.warning("Postgres save positions failed, using JSON fallback: %s", exc)
+
     _ensure_file(POSITIONS_PATH)
     with _lock:
         POSITIONS_PATH.write_text(json.dumps(records, indent=2), encoding="utf-8")
 
 
 def _load_closed_trades() -> list[dict]:
+    if _is_postgres_enabled():
+        try:
+            _ensure_storage_ready()
+            with _connect_postgres() as conn, conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT payload
+                    FROM paper_closed_trades
+                    ORDER BY closed_at DESC, id ASC
+                    """
+                )
+                return [row[0] for row in cur.fetchall()]
+        except Exception as exc:
+            logger.warning("Postgres load closed trades failed, using JSON fallback: %s", exc)
+
     _ensure_file(CLOSED_TRADES_PATH)
     with _lock:
         try:
@@ -59,6 +194,32 @@ def _load_closed_trades() -> list[dict]:
 
 
 def _save_closed_trades(records: list[dict]) -> None:
+    if _is_postgres_enabled():
+        try:
+            _ensure_storage_ready()
+            with _connect_postgres() as conn, conn.cursor() as cur:
+                cur.execute("DELETE FROM paper_closed_trades")
+                for record in records:
+                    cur.execute(
+                        """
+                        INSERT INTO paper_closed_trades (id, symbol, closed_at, payload)
+                        VALUES (%s, %s, %s, %s::jsonb)
+                        ON CONFLICT (id) DO UPDATE SET
+                            symbol = EXCLUDED.symbol,
+                            closed_at = EXCLUDED.closed_at,
+                            payload = EXCLUDED.payload
+                        """,
+                        (
+                            str(record.get("id", "")),
+                            str(record.get("symbol", "")).upper(),
+                            _parse_iso_or_now(record.get("closed_at")),
+                            json.dumps(record),
+                        ),
+                    )
+            return
+        except Exception as exc:
+            logger.warning("Postgres save closed trades failed, using JSON fallback: %s", exc)
+
     _ensure_file(CLOSED_TRADES_PATH)
     with _lock:
         CLOSED_TRADES_PATH.write_text(json.dumps(records, indent=2), encoding="utf-8")
