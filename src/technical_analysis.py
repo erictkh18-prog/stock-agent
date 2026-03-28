@@ -129,6 +129,21 @@ class TechnicalAnalyzer:
                         if sector_return is not None:
                             relative_strength_vs_sector = round(price_change_3m - sector_return, 4)
 
+            # Item 5: Breakout pattern
+            # A valid breakout = price within 3% of the 20-day high AND volume
+            # is materially above its 20-day average (institutional participation).
+            is_breakout: Optional[bool] = None
+            breakout_strength: Optional[float] = None
+            if current_price is not None and len(hist) >= 20:
+                high_20d = float(hist["High"].tail(20).max())
+                pct_from_20d_high = (current_price - high_20d) / high_20d if high_20d > 0 else None
+                if pct_from_20d_high is not None and volume_ratio is not None:
+                    if pct_from_20d_high >= -0.03 and volume_ratio >= 1.5:
+                        is_breakout = True
+                        breakout_strength = round(volume_ratio, 2)
+                    else:
+                        is_breakout = False
+
             # Calculate technical score
             score = self._calculate_technical_score(
                 sma_50, sma_200, rsi, trend, current_price, support, resistance,
@@ -136,8 +151,9 @@ class TechnicalAnalyzer:
                 price_pct_from_52w_high, atr_pct,
                 relative_strength_vs_spy=relative_strength_vs_spy,
                 relative_strength_vs_sector=relative_strength_vs_sector,
+                is_breakout=is_breakout,
             )
-            
+
             return TechnicalAnalysis(
                 sma_50=sma_50,
                 sma_200=sma_200,
@@ -161,9 +177,11 @@ class TechnicalAnalyzer:
                 relative_strength_vs_spy=relative_strength_vs_spy,
                 relative_strength_vs_sector=relative_strength_vs_sector,
                 sector_etf=sector_etf,
+                is_breakout=is_breakout,
+                breakout_strength=breakout_strength,
                 score=score
             )
-        
+
         except Exception as e:
             self.logger.error(f"Error analyzing technicals for {symbol}: {e}")
             return None
@@ -354,7 +372,8 @@ class TechnicalAnalyzer:
         support, resistance, macd=None, volume_ratio=None,
         price_change_1m=None, price_change_3m=None,
         price_pct_from_52w_high=None, atr_pct=None,
-        relative_strength_vs_spy=None, relative_strength_vs_sector=None
+        relative_strength_vs_spy=None, relative_strength_vs_sector=None,
+        is_breakout=None
     ) -> float:
         """
         Calculate technical score (0-100) using competitive screener criteria.
@@ -497,5 +516,11 @@ class TechnicalAnalyzer:
                 score -= 4
             elif relative_strength_vs_sector < -0.05: # Mild laggard
                 score -= 2
+
+        # Item 5: Breakout pattern
+        # Breaking out of 20-day high on heavy volume = institutional buying confirmed.
+        # This is the #1 entry signal used by William O'Neil (CANSLIM) and IBD.
+        if is_breakout is True:
+            score += 10
 
         return max(0, min(100, score))

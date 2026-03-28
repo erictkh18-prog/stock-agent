@@ -202,3 +202,84 @@ def test_fundamental_analyze_returns_new_fields(analyzer, monkeypatch):
     assert result.beta == 1.1
     assert result.fcf_yield == pytest.approx(0.05, rel=1e-3)
     assert result.eps_growth is not None  # forward_eps > trailing_eps
+
+
+# ── Item 2: Forward EPS revision ──────────────────────────────────────────────
+
+def test_eps_forward_revision_positive_raises_score(analyzer):
+    """Positive forward EPS revision should raise score compared to baseline."""
+    base = analyzer._calculate_fundamental_score(eps=2.0)
+    upgraded = analyzer._calculate_fundamental_score(eps=2.0, eps_forward_revision=0.15)
+    assert upgraded > base, "Positive EPS revision should increase score"
+
+
+def test_eps_forward_revision_negative_lowers_score(analyzer):
+    """Negative forward EPS revision should lower score."""
+    base = analyzer._calculate_fundamental_score(eps=2.0)
+    downgraded = analyzer._calculate_fundamental_score(eps=2.0, eps_forward_revision=-0.15)
+    assert downgraded < base, "Negative EPS revision should decrease score"
+
+
+def test_eps_forward_revision_strong_positive_bonus(analyzer):
+    """Revision > 20% should get higher bonus than revision of 5%."""
+    mild = analyzer._calculate_fundamental_score(eps=2.0, eps_forward_revision=0.05)
+    strong = analyzer._calculate_fundamental_score(eps=2.0, eps_forward_revision=0.25)
+    assert strong > mild
+
+
+def test_eps_forward_revision_populated_in_analyze(analyzer, monkeypatch):
+    """analyze() should compute eps_forward_revision when both EPS values are present."""
+    stock = MagicMock()
+    stock.info = {
+        "trailingEps": 4.0,
+        "forwardEps": 5.0,    # +25% revision
+        "marketCap": 1_000_000_000,
+    }
+    stock.quarterly_financials = None
+    monkeypatch.setattr(analyzer, "_fetch_quote_fallback", lambda s: {})
+    monkeypatch.setattr(analyzer, "_fetch_web_fallback", lambda s: {})
+    result = analyzer.analyze("TEST", stock=stock, info=stock.info)
+    assert result is not None
+    assert result.eps_forward_revision is not None
+    assert result.eps_forward_revision == pytest.approx(0.25, rel=1e-3)
+
+
+# ── Item 6: Short interest ────────────────────────────────────────────────────
+
+def test_high_short_float_lowers_score(analyzer):
+    """Very high short float (>25%) should lower the score."""
+    base = analyzer._calculate_fundamental_score(eps=2.0)
+    shorted = analyzer._calculate_fundamental_score(eps=2.0, short_float_pct=0.30)
+    assert shorted < base, "Heavy short interest should decrease score"
+
+
+def test_low_short_float_slightly_raises_score(analyzer):
+    """Low short float (<3%) signals institutional confidence and should add points."""
+    base = analyzer._calculate_fundamental_score(eps=2.0)
+    low_short = analyzer._calculate_fundamental_score(eps=2.0, short_float_pct=0.02)
+    assert low_short > base
+
+
+def test_high_short_ratio_lowers_score(analyzer):
+    """Days-to-cover > 10 should penalise score."""
+    base = analyzer._calculate_fundamental_score(eps=2.0)
+    hard_to_cover = analyzer._calculate_fundamental_score(eps=2.0, short_ratio=12.0)
+    assert hard_to_cover < base
+
+
+def test_short_interest_fields_populated_in_analyze(analyzer, monkeypatch):
+    """analyze() should populate short_float_pct and short_ratio from info dict."""
+    stock = MagicMock()
+    stock.info = {
+        "trailingEps": 2.0,
+        "shortPercentOfFloat": 0.08,
+        "shortRatio": 4.5,
+        "marketCap": 1_000_000_000,
+    }
+    stock.quarterly_financials = None
+    monkeypatch.setattr(analyzer, "_fetch_quote_fallback", lambda s: {})
+    monkeypatch.setattr(analyzer, "_fetch_web_fallback", lambda s: {})
+    result = analyzer.analyze("TEST", stock=stock, info=stock.info)
+    assert result is not None
+    assert result.short_float_pct == 0.08
+    assert result.short_ratio == 4.5

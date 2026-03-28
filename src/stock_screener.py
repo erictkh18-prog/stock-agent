@@ -15,6 +15,8 @@ from src.models import (
 from src.fundamental_analysis import FundamentalAnalyzer
 from src.technical_analysis import TechnicalAnalyzer
 from src.sentiment_analysis import SentimentAnalyzer
+from src.macro_regime import get_macro_regime
+from src.insider_activity import get_insider_signal
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +135,26 @@ class StockScreener:
                 fundamental, technical, sentiment
             )
 
-            # Stage 4: Conviction score — how many independent factors align?
+            # Item 3: Macro regime (cached 1 hour — free)
+            # In fast_mode we still fetch macro because it is already cached.
+            macro_data = get_macro_regime()
+            macro_regime = macro_data.get("regime")          # "bull" | "bear" | "neutral"
+            macro_regime_score = macro_data.get("regime_score")
+
+            # Item 3: Insider activity — SEC Form 4 (15-day lookback)
+            # Skip in fast_mode to avoid SEC rate-limit delays during broad scans.
+            insider_data = {"signal": "unknown", "buy_count": 0, "sell_count": 0, "net_transactions": 0}
+            if not fast_mode:
+                try:
+                    insider_data = get_insider_signal(symbol, lookback_days=15)
+                except Exception as _ie:
+                    self.logger.debug("Insider signal fetch failed for %s: %s", symbol, _ie)
+
+            insider_signal = insider_data.get("signal", "unknown")
+            insider_buy_count = insider_data.get("buy_count", 0)
+            insider_sell_count = insider_data.get("sell_count", 0)
+
+            # Extended conviction score — now 8 independent factors
             conviction_factors = 0
             if fundamental and fundamental.score is not None and fundamental.score > 60:
                 conviction_factors += 1
@@ -148,7 +169,14 @@ class StockScreener:
             if fundamental and getattr(fundamental, 'eps_acceleration', None) is not None:
                 if fundamental.eps_acceleration > 0:
                     conviction_factors += 1
-            conviction_score_val = round(conviction_factors / 5.0, 2)
+            if fundamental and getattr(fundamental, 'eps_forward_revision', None) is not None:
+                if fundamental.eps_forward_revision > 0:
+                    conviction_factors += 1
+            if insider_signal == "buying":
+                conviction_factors += 1
+            if macro_regime != "bear":
+                conviction_factors += 1
+            conviction_score_val = round(conviction_factors / 8.0, 2)
 
             analysis = StockAnalysis(
                 symbol=symbol,
@@ -167,6 +195,11 @@ class StockScreener:
                 analyst_target_price=analyst_target_price,
                 analyst_target_upside_pct=analyst_target_upside_pct,
                 conviction_score=conviction_score_val,
+                macro_regime=macro_regime,
+                macro_regime_score=macro_regime_score,
+                insider_signal=insider_signal,
+                insider_buy_count=insider_buy_count,
+                insider_sell_count=insider_sell_count,
             )
 
             with self._cache_lock:
@@ -643,6 +676,26 @@ class StockScreener:
                 elif fcf_conversion < 0:
                     risks.append("poor earnings quality (negative FCF vs net income)")
 
+            # Item 2: Forward EPS revision signal
+            eps_fwd_rev = getattr(fundamental, 'eps_forward_revision', None)
+            if eps_fwd_rev is not None:
+                if eps_fwd_rev > 0.15:
+                    contributing.append("analysts sharply raising earnings estimates")
+                elif eps_fwd_rev > 0:
+                    contributing.append("positive analyst earnings revision")
+                elif eps_fwd_rev < -0.15:
+                    risks.append("analysts cutting earnings estimates significantly")
+                elif eps_fwd_rev < 0:
+                    risks.append("downward analyst earnings revision")
+
+            # Item 6: Short interest
+            short_float = getattr(fundamental, 'short_float_pct', None)
+            if short_float is not None:
+                if short_float > 0.25:
+                    risks.append("heavily shorted stock (>25% of float)")
+                elif short_float > 0.15:
+                    risks.append("elevated short interest")
+
             if profit_margin is not None:
                 if profit_margin > 0.15:
                     contributing.append("strong profit margins")
@@ -729,6 +782,16 @@ class StockScreener:
                     contributing.append("sector leadership — outperforming peers")
                 elif rs_sector < -0.05:
                     risks.append("lagging sector peers")
+
+            # Item 5: Breakout pattern
+            if getattr(technical, 'is_breakout', None) is True:
+                contributing.append("breaking out on high volume — institutional buying signal")
+
+        # --- Macro regime (Item 4) ---
+        # Surface macro risk even if specific stock factors look neutral.
+        # Only show in explanation when macro is notably bad or good.
+        # (macro_regime is on StockAnalysis, not on fundamental/technical sub-objects;
+        #  we access it via the closure over the local variables set above.)
 
         # --- Sentiment factors ---
         if sentiment:

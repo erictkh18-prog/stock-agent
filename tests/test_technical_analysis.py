@@ -124,3 +124,72 @@ def test_technical_score_volume_confirmation(analyzer, sample_data_200):
         volume_ratio=2.0
     )
     assert score_high_vol > score_no_vol, "High volume should raise score"
+
+
+# ── Item 5: Breakout detection ──────────────────────────────────────────────────────
+
+def test_breakout_raises_score(analyzer):
+    """is_breakout=True should increase score vs baseline."""
+    base = analyzer._calculate_technical_score(None, None, 55.0, "uptrend", 100.0, None, None)
+    with_breakout = analyzer._calculate_technical_score(
+        None, None, 55.0, "uptrend", 100.0, None, None, is_breakout=True
+    )
+    assert with_breakout > base, "Breakout flag should raise technical score"
+
+
+def test_no_breakout_does_not_raise_score(analyzer):
+    """is_breakout=False should not add breakout bonus."""
+    base = analyzer._calculate_technical_score(None, None, 55.0, "uptrend", 100.0, None, None)
+    no_breakout = analyzer._calculate_technical_score(
+        None, None, 55.0, "uptrend", 100.0, None, None, is_breakout=False
+    )
+    assert no_breakout == base, "is_breakout=False should not change score vs None"
+
+
+def test_breakout_detected_in_data(analyzer):
+    """Construct data where current price is at 20-day high and volume is elevated."""
+    import pandas as pd
+    import numpy as np
+
+    n = 100
+    dates = pd.date_range('2024-01-01', periods=n)
+    base_price = 100.0
+    closes = [base_price] * n
+    # Make last bar the highest close in the 20-day window
+    closes[-1] = base_price + 1.0
+    volumes = [1_000_000.0] * n
+    # Spike volume on the last bar to 2.5x average
+    volumes[-1] = 2_500_000.0
+    hist = pd.DataFrame({
+        'Open': closes, 'High': closes, 'Low': closes, 'Close': closes, 'Volume': volumes
+    }, index=dates)
+
+    volume_ratio = analyzer._calculate_volume_ratio(hist, 20)
+    current_price = float(hist['Close'].iloc[-1])
+    high_20d = float(hist['High'].tail(20).max())
+    pct_from_20d_high = (current_price - high_20d) / high_20d
+
+    # Verify the conditions that the analyzer checks
+    assert pct_from_20d_high >= -0.03
+    assert volume_ratio is not None
+    assert volume_ratio >= 1.5
+
+
+def test_relative_strength_vs_spy_raises_score(analyzer):
+    """Stocks outperforming SPY by > 10% should get the maximum RS bonus."""
+    base = analyzer._calculate_technical_score(None, None, 55.0, "uptrend", 100.0, None, None)
+    with_rs = analyzer._calculate_technical_score(
+        None, None, 55.0, "uptrend", 100.0, None, None,
+        relative_strength_vs_spy=0.12
+    )
+    assert with_rs > base
+
+
+def test_relative_strength_vs_spy_lowers_score_when_negative(analyzer):
+    """Stocks lagging SPY by > 10% should be penalised."""
+    base = analyzer._calculate_technical_score(None, None, 55.0, "uptrend", 100.0, None, None)
+    lagging = analyzer._calculate_technical_score(
+        None, None, 55.0, "uptrend", 100.0, None, None,
+        relative_strength_vs_spy=-0.15
+    )
+    assert lagging < base

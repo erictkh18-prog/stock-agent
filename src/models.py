@@ -27,6 +27,9 @@ class FundamentalAnalysis(BaseModel):
     roic: Optional[float] = None                  # Return on Invested Capital (net income / invested capital)
     eps_acceleration: Optional[float] = None      # QoQ EPS acceleration (positive = improving momentum)
     fcf_conversion: Optional[float] = None        # FCF / Net Income ratio (>1.0 = high quality earnings)
+    eps_forward_revision: Optional[float] = None  # (forwardEps - trailingEps) / |trailingEps| (positive = analysts raising estimates)
+    short_float_pct: Optional[float] = None       # Short interest as % of float (high + uptrend = squeeze potential)
+    short_ratio: Optional[float] = None           # Days to cover short interest (high = hard to exit, bearish)
     score: Optional[float] = Field(None, description="Score 0-100")
 
 class TechnicalAnalysis(BaseModel):
@@ -53,6 +56,8 @@ class TechnicalAnalysis(BaseModel):
     relative_strength_vs_spy: Optional[float] = None    # 3-month return vs SPY (positive = outperforming market)
     relative_strength_vs_sector: Optional[float] = None # 3-month return vs sector ETF (positive = sector leader)
     sector_etf: Optional[str] = None                    # Sector ETF used for relative strength comparison
+    is_breakout: Optional[bool] = None                  # True if price near 20d high with elevated volume
+    breakout_strength: Optional[float] = None           # volume_ratio at breakout (higher = stronger confirmation)
     score: Optional[float] = Field(None, description="Score 0-100")
 
 class SentimentAnalysis(BaseModel):
@@ -82,6 +87,11 @@ class StockAnalysis(BaseModel):
     analyst_target_price: Optional[float] = Field(None, description="Analyst consensus 12-month price target")
     analyst_target_upside_pct: Optional[float] = Field(None, description="% upside to analyst consensus target")
     conviction_score: Optional[float] = Field(None, description="0-1 score: how aligned are fundamental+technical+RS signals")
+    macro_regime: Optional[str] = Field(None, description="Current macro environment: bull | bear | neutral")
+    macro_regime_score: Optional[float] = Field(None, description="Macro composite score 0-100")
+    insider_signal: Optional[str] = Field(None, description="SEC Form 4 insider activity: buying | selling | neutral | unknown")
+    insider_buy_count: Optional[int] = Field(None, description="Open-market insider purchases in lookback window")
+    insider_sell_count: Optional[int] = Field(None, description="Open-market insider sales in lookback window")
 
 class ScreeningFilter(BaseModel):
     """Stock screening filters"""

@@ -253,13 +253,26 @@ class FundamentalAnalyzer:
             eps_acceleration = self._calculate_eps_acceleration(stock)
             fcf_conversion = self._calculate_fcf_conversion(info)
 
-            # Calculate score (now includes ROIC, EPS acceleration, FCF conversion)
+            # Item 2: Forward EPS revision — are analysts raising estimates?
+            # Positive = consensus is moving up (most validated quant factor in literature).
+            eps_forward_revision: Optional[float] = None
+            if eps is not None and eps_forward is not None and eps != 0:
+                eps_forward_revision = round((eps_forward - eps) / abs(eps), 4)
+
+            # Item 6: Short interest — high short float can signal risk OR squeeze potential
+            short_float_pct = info.get('shortPercentOfFloat')   # 0-1 (e.g. 0.05 = 5%)
+            short_ratio = info.get('shortRatio')                # days to cover
+
+            # Calculate score (now includes ROIC, EPS acceleration, FCF conversion,
+            # forward EPS revision, and short interest)
             score = self._calculate_fundamental_score(
                 pe_ratio, forward_pe, eps, dividend_yield, debt_to_equity,
                 current_ratio, quick_ratio, roa, roe, revenue_growth,
                 profit_margin, operating_margin, peg_ratio, pb_ratio,
                 price_to_sales, ev_ebitda, fcf_yield, beta,
-                roic=roic, eps_acceleration=eps_acceleration, fcf_conversion=fcf_conversion
+                roic=roic, eps_acceleration=eps_acceleration, fcf_conversion=fcf_conversion,
+                eps_forward_revision=eps_forward_revision,
+                short_float_pct=short_float_pct, short_ratio=short_ratio,
             )
             
             return FundamentalAnalysis(
@@ -286,6 +299,9 @@ class FundamentalAnalyzer:
                 roic=roic,
                 eps_acceleration=eps_acceleration,
                 fcf_conversion=fcf_conversion,
+                eps_forward_revision=eps_forward_revision,
+                short_float_pct=short_float_pct,
+                short_ratio=short_ratio,
                 score=score
             )
         
@@ -389,7 +405,8 @@ class FundamentalAnalyzer:
         roa=None, roe=None, revenue_growth=None, profit_margin=None,
         operating_margin=None, peg_ratio=None, pb_ratio=None,
         price_to_sales=None, ev_ebitda=None, fcf_yield=None, beta=None,
-        roic=None, eps_acceleration=None, fcf_conversion=None
+        roic=None, eps_acceleration=None, fcf_conversion=None,
+        eps_forward_revision=None, short_float_pct=None, short_ratio=None
     ) -> float:
         """
         Calculate a fundamental score (0-100) using 18 competitive screening criteria.
@@ -632,6 +649,42 @@ class FundamentalAnalyzer:
                 score += 1
             elif fcf_conversion < 0:    # Negative FCF despite profits (red flag)
                 score -= 4
+
+        # Item 2: Forward EPS Revision — are analysts raising estimates?
+        # The single most-validated quant signal in academic literature.
+        # Positive revision = buy-side models updating upward = price tends to follow.
+        if eps_forward_revision is not None:
+            if eps_forward_revision > 0.20:    # Analysts sharply raising estimates
+                score += 10
+            elif eps_forward_revision > 0.10:  # Meaningfully positive revision
+                score += 7
+            elif eps_forward_revision > 0:     # Consensus nudging up
+                score += 3
+            elif eps_forward_revision < -0.20: # Analysts cutting deeply
+                score -= 8
+            elif eps_forward_revision < -0.10: # Moderate downward revisions
+                score -= 5
+            elif eps_forward_revision < 0:     # Slight cut
+                score -= 2
+
+        # Item 6: Short interest
+        # High short float + stock in uptrend = short squeeze potential (positive).
+        # High short float + no uptrend = bearish institutional signal (negative).
+        # High days-to-cover = hard for shorts to exit = risk of violent squeeze OR
+        #   signal that sophisticated players see fundamental problems.
+        if short_float_pct is not None:
+            if short_float_pct > 0.25:          # Very heavily shorted (>25% of float)
+                score -= 5                      # Usually shorted for good reason
+            elif short_float_pct > 0.15:        # Elevated short interest
+                score -= 2
+            elif short_float_pct < 0.03:        # Low short interest (institutional confidence)
+                score += 2
+
+        if short_ratio is not None:
+            if short_ratio > 10:                # Days to cover > 10 = illiquid squeeze risk
+                score -= 3
+            elif short_ratio > 7:
+                score -= 1
 
         # Clamp score between 0 and 100
         return max(0, min(100, score))
