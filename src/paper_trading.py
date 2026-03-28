@@ -39,6 +39,18 @@ def _allow_json_fallback_when_postgres_enabled() -> bool:
     return os.getenv("PAPER_TRADING_ALLOW_JSON_FALLBACK", "false").strip().lower() == "true"
 
 
+def _is_production_environment() -> bool:
+    env = os.getenv("ENVIRONMENT", "").strip().lower()
+    return bool(os.getenv("RENDER")) or env in {"prod", "production"}
+
+
+def _require_persistent_storage_for_trading() -> bool:
+    raw = os.getenv("PAPER_TRADING_REQUIRE_PERSISTENT_STORAGE")
+    if raw is not None:
+        return raw.strip().lower() in {"1", "true", "yes", "on"}
+    return _is_production_environment()
+
+
 def _is_postgres_enabled() -> bool:
     return bool(_paper_trading_database_url())
 
@@ -173,6 +185,21 @@ def get_storage_status() -> dict:
             "healthy": False,
             "message": f"Postgres storage check failed: {exc}",
         }
+
+
+def assert_persistent_storage_ready_for_auto_buy() -> None:
+    """Raise when auto-buy should not run without healthy persistent storage."""
+    if not _require_persistent_storage_for_trading():
+        return
+
+    status = get_storage_status()
+    if status.get("mode") == "postgres" and status.get("healthy"):
+        return
+
+    raise RuntimeError(
+        "Auto-buy blocked: persistent paper-trading storage is not healthy. "
+        "Configure PAPER_TRADING_DATABASE_URL/DATABASE_URL (or AUTH_DATABASE_URL) to Postgres."
+    )
 
 
 def _load_positions() -> list[dict]:

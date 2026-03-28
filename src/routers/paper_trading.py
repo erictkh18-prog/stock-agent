@@ -41,7 +41,16 @@ async def trigger_auto_buy(
     from src.market_universe import _get_us_market_universe
     from src.models import ScreeningFilter
     from src.recommendations import _build_exit_strategy
-    from src.paper_trading import has_open_position, open_position
+    from src.paper_trading import (
+        assert_persistent_storage_ready_for_auto_buy,
+        has_open_position,
+        open_position,
+    )
+
+    try:
+        assert_persistent_storage_ready_for_auto_buy()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     symbols = _get_us_market_universe(universe)[:80]
     filters = ScreeningFilter(min_overall_score=50)

@@ -289,6 +289,26 @@ def test_storage_status_uses_auth_database_url_as_fallback(monkeypatch):
     assert status["postgres_enabled"] is True
 
 
+def test_auto_buy_guard_blocks_in_production_when_storage_not_persistent(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv("PAPER_TRADING_REQUIRE_PERSISTENT_STORAGE", "true")
+    monkeypatch.delenv("PAPER_TRADING_DATABASE_URL", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("AUTH_DATABASE_URL", raising=False)
+
+    with pytest.raises(RuntimeError, match="Auto-buy blocked"):
+        pt_module.assert_persistent_storage_ready_for_auto_buy()
+
+
+def test_auto_buy_guard_allows_when_requirement_disabled(monkeypatch):
+    monkeypatch.setenv("PAPER_TRADING_REQUIRE_PERSISTENT_STORAGE", "false")
+    monkeypatch.delenv("PAPER_TRADING_DATABASE_URL", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("AUTH_DATABASE_URL", raising=False)
+
+    pt_module.assert_persistent_storage_ready_for_auto_buy()
+
+
 def test_storage_status_postgres_error_when_health_check_fails(monkeypatch):
     monkeypatch.setenv("PAPER_TRADING_DATABASE_URL", "postgres://example")
 
@@ -517,6 +537,18 @@ def test_api_auto_buy_opens_multiple_positions(monkeypatch, tmp_path):
     assert data["opened_count"] == 3
     symbols = {p["symbol"] for p in data.get("opened_positions", [])}
     assert symbols == {"AAPL", "MSFT", "NVDA"}
+
+
+def test_api_auto_buy_returns_503_when_persistent_storage_required(monkeypatch):
+    monkeypatch.setattr(
+        pt_module,
+        "assert_persistent_storage_ready_for_auto_buy",
+        lambda: (_ for _ in ()).throw(RuntimeError("Auto-buy blocked: persistence unavailable")),
+    )
+
+    response = client.post("/paper-trading/auto-buy")
+    assert response.status_code == 503
+    assert "Auto-buy blocked" in response.json().get("detail", "")
 
 
 def test_api_auto_buy_returns_no_buy_when_none_qualify(monkeypatch, tmp_path):

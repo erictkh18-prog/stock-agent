@@ -23,10 +23,16 @@ def auto_buy_job(screener, shares: int = 10, duration_days: int = 30, target_pct
     from src.market_universe import _get_us_market_universe
     from src.models import ScreeningFilter
     from src.recommendations import _build_exit_strategy
-    from src.paper_trading import has_open_position, open_position
+    from src.paper_trading import (
+        assert_persistent_storage_ready_for_auto_buy,
+        has_open_position,
+        open_position,
+    )
 
     logger.info("auto_buy_job: starting daily scan")
     try:
+        assert_persistent_storage_ready_for_auto_buy()
+
         symbols = _get_us_market_universe("combined")[:80]
         filters = ScreeningFilter(min_overall_score=50)
         result = screener.screen_stocks(symbols, filters, 25, None, True)
