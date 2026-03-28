@@ -95,6 +95,20 @@ screener = StockScreener()
 
 @asynccontextmanager
 async def _lifespan(app):
+    try:
+        from src.paper_trading import get_storage_status
+
+        storage_status = get_storage_status()
+        if storage_status.get("healthy") and storage_status.get("mode") == "postgres":
+            logger.info("Paper-trading storage: Postgres connected")
+        else:
+            logger.warning(
+                "Paper-trading storage is not in healthy Postgres mode: %s",
+                storage_status,
+            )
+    except Exception as exc:
+        logger.warning("Paper-trading storage health check failed at startup: %s", exc)
+
     start_scheduler(screener)
     yield
     stop_scheduler()
