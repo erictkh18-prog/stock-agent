@@ -136,6 +136,42 @@ def _ensure_file(path: Path) -> None:
         path.write_text("[]", encoding="utf-8")
 
 
+def get_storage_status() -> dict:
+    """Return current paper-trading persistence mode and health."""
+    postgres_enabled = _is_postgres_enabled()
+    fallback_allowed = _allow_json_fallback_when_postgres_enabled()
+
+    if not postgres_enabled:
+        return {
+            "mode": "json-local",
+            "postgres_enabled": False,
+            "fallback_allowed": fallback_allowed,
+            "healthy": True,
+            "message": "Using local JSON storage (non-persistent across container redeploys).",
+        }
+
+    try:
+        _ensure_storage_ready()
+        with _connect_postgres() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+        return {
+            "mode": "postgres",
+            "postgres_enabled": True,
+            "fallback_allowed": fallback_allowed,
+            "healthy": True,
+            "message": "Postgres storage is connected and healthy.",
+        }
+    except Exception as exc:
+        return {
+            "mode": "postgres-error",
+            "postgres_enabled": True,
+            "fallback_allowed": fallback_allowed,
+            "healthy": False,
+            "message": f"Postgres storage check failed: {exc}",
+        }
+
+
 def _load_positions() -> list[dict]:
     if _is_postgres_enabled():
         try:

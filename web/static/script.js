@@ -665,10 +665,23 @@ async function loadPaperTrading() {
     if (!openTable) return;
 
     try {
-        const [posRes, tradesRes] = await Promise.all([
+        const [posRes, tradesRes, storageRes] = await Promise.all([
             fetch(`${API_URL}/paper-trading/positions`),
             fetch(`${API_URL}/paper-trading/trades?limit=50`),
+            fetch(`${API_URL}/paper-trading/storage-status`),
         ]);
+
+        let storageSummary = 'Storage status unavailable.';
+        if (storageRes.ok) {
+            const storageData = await storageRes.json();
+            if (storageData.healthy && storageData.mode === 'postgres') {
+                storageSummary = 'Storage: Postgres connected.';
+            } else if (storageData.healthy && storageData.mode === 'json-local') {
+                storageSummary = 'Storage: Local JSON (non-persistent across deploys).';
+            } else if (storageData.mode === 'postgres-error') {
+                storageSummary = 'Storage: Postgres error detected.';
+            }
+        }
 
         // ── Open positions ──
         if (posRes.ok) {
@@ -699,7 +712,7 @@ async function loadPaperTrading() {
                 html += '</tbody></table>';
                 openTable.innerHTML = html;
             }
-            if (meta) meta.textContent = `${positions.length} open position(s).`;
+            if (meta) meta.textContent = `${positions.length} open position(s). ${storageSummary}`;
         }
 
         // ── Closed trades ──

@@ -241,6 +241,31 @@ def test_postgres_enabled_can_optionally_fallback_when_flag_set(monkeypatch, tmp
     assert records == []
 
 
+def test_storage_status_json_local_when_postgres_not_enabled(monkeypatch):
+    monkeypatch.delenv("PAPER_TRADING_DATABASE_URL", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    status = pt_module.get_storage_status()
+    assert status["mode"] == "json-local"
+    assert status["healthy"] is True
+    assert status["postgres_enabled"] is False
+
+
+def test_storage_status_postgres_error_when_health_check_fails(monkeypatch):
+    monkeypatch.setenv("PAPER_TRADING_DATABASE_URL", "postgres://example")
+
+    def _boom():
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(pt_module, "_ensure_storage_ready", _boom)
+
+    status = pt_module.get_storage_status()
+    assert status["mode"] == "postgres-error"
+    assert status["healthy"] is False
+    assert status["postgres_enabled"] is True
+    assert "db down" in status["message"]
+
+
 # ── Unit: summarize_closed_trades ─────────────────────────────────────────────
 
 def test_summarize_empty_records():
@@ -292,6 +317,26 @@ def test_api_list_positions_returns_open(monkeypatch, tmp_path):
     assert data["count"] == 1
     assert data["positions"][0]["symbol"] == "AAPL"
     assert data["positions"][0]["unrealized_pct"] == 5.0
+
+
+def test_api_storage_status(monkeypatch):
+    monkeypatch.setattr(
+        pt_module,
+        "get_storage_status",
+        lambda: {
+            "mode": "postgres",
+            "postgres_enabled": True,
+            "fallback_allowed": False,
+            "healthy": True,
+            "message": "Postgres storage is connected and healthy.",
+        },
+    )
+
+    response = client.get("/paper-trading/storage-status")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["mode"] == "postgres"
+    assert data["healthy"] is True
 
 
 # ── API: GET /paper-trading/trades ────────────────────────────────────────────

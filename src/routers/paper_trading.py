@@ -137,6 +137,15 @@ async def list_positions():
     return {"count": len(positions), "positions": positions}
 
 
+@router.get("/paper-trading/storage-status")
+async def storage_status():
+    """Return persistence mode/health for paper trading storage."""
+    from src.paper_trading import get_storage_status
+
+    status = await asyncio.to_thread(get_storage_status)
+    return status
+
+
 @router.get("/paper-trading/trades")
 async def list_closed_trades(limit: int = Query(200, ge=1, le=5000)):
     """Return closed paper trades with aggregate performance summary."""
