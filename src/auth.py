@@ -4,7 +4,8 @@ Implements JWT-based auth with:
 - Bcrypt password hashing
 - Admin approval flow for new accounts
 - Role-based access (admin vs contributor)
-- User store backed by a JSON file (data/kb_users.json)
+- Persistent Postgres storage when AUTH_DATABASE_URL or DATABASE_URL is set
+- JSON-file fallback for local development and tests
 """
 from __future__ import annotations
 
@@ -14,22 +15,23 @@ import os
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from pydantic import BaseModel, EmailStr
+from passlib.exc import UnknownHashError
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "change-me-in-production-use-a-long-random-string")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "480"))  # 8 hours
-
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "480"))
 ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL", "erictkh18@gmail.com")
+AUTH_DATABASE_URL: str = os.getenv("AUTH_DATABASE_URL", os.getenv("DATABASE_URL", "")).strip()
 
 _DATA_DIR = Path(__file__).parent.parent / "data"
 _USERS_FILE = _DATA_DIR / "kb_users.json"
@@ -40,7 +42,6 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # ── Thread safety ─────────────────────────────────────────────────────────────
 _users_lock = threading.Lock()
 
-# ── Pydantic models ───────────────────────────────────────────────────────────
 
 class UserRecord(BaseModel):
     email: str
@@ -71,10 +72,28 @@ class UserInfo(BaseModel):
     is_approved: bool
 
 
-# ── User store ────────────────────────────────────────────────────────────────
+def _utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
-def _load_users() -> dict[str, dict]:
-    """Load user store from JSON file; return empty dict on missing file."""
+
+def verify_password(plain: str, hashed: str) -> bool:
+    if not plain or not hashed:
+        return False
+    try:
+        return pwd_context.verify(plain, hashed)
+    except (UnknownHashError, ValueError):
+        return False
+
+
+def hash_password(plain: str) -> str:
+    return pwd_context.hash(plain)
+
+
+def _is_postgres_enabled() -> bool:
+    return bool(AUTH_DATABASE_URL)
+
+
+def _load_users_from_json() -> dict[str, dict]:
     if not _USERS_FILE.exists():
         return {}
     try:
@@ -85,8 +104,7 @@ def _load_users() -> dict[str, dict]:
         return {}
 
 
-def _save_users(users: dict[str, dict]) -> None:
-    """Persist user store to JSON file."""
+def _save_users_to_json(users: dict[str, dict]) -> None:
     _DATA_DIR.mkdir(parents=True, exist_ok=True)
     try:
         with _USERS_FILE.open("w", encoding="utf-8") as fh:
@@ -95,39 +113,215 @@ def _save_users(users: dict[str, dict]) -> None:
         logger.error("Failed to save kb_users.json: %s", exc)
 
 
+def _import_psycopg():
+    try:
+        import psycopg
+    except ImportError as exc:
+        raise RuntimeError(
+            "AUTH_DATABASE_URL/DATABASE_URL is set but psycopg is not installed. "
+            "Install requirements.txt before starting the app."
+        ) from exc
+    return psycopg
+
+
+def _connect_postgres():
+    psycopg = _import_psycopg()
+    return psycopg.connect(AUTH_DATABASE_URL, connect_timeout=10, autocommit=True)
+
+
+def _normalize_user_dict(raw: Any) -> dict[str, Any]:
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        data = dict(raw)
+    else:
+        data = {
+            "email": raw[0],
+            "hashed_password": raw[1],
+            "is_admin": raw[2],
+            "is_approved": raw[3],
+            "created_at": raw[4],
+        }
+
+    created_at = data.get("created_at", "")
+    if created_at and not isinstance(created_at, str):
+        created_at = created_at.isoformat()
+
+    return {
+        "email": str(data.get("email", "")).strip().lower(),
+        "hashed_password": data.get("hashed_password", "") or "",
+        "is_admin": bool(data.get("is_admin", False)),
+        "is_approved": bool(data.get("is_approved", False)),
+        "created_at": created_at or _utcnow_iso(),
+    }
+
+
+def _ensure_postgres_schema() -> None:
+    with _connect_postgres() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS kb_users (
+                email TEXT PRIMARY KEY,
+                hashed_password TEXT NOT NULL DEFAULT '',
+                is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+                is_approved BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_kb_users_pending
+            ON kb_users (is_approved, created_at)
+            """
+        )
+
+
+def _migrate_json_users_to_postgres() -> None:
+    if not _USERS_FILE.exists():
+        return
+
+    users = _load_users_from_json()
+    if not users:
+        return
+
+    with _connect_postgres() as conn, conn.cursor() as cur:
+        for user in users.values():
+            normalized = _normalize_user_dict(user)
+            cur.execute(
+                """
+                INSERT INTO kb_users (email, hashed_password, is_admin, is_approved, created_at)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (email) DO NOTHING
+                """,
+                (
+                    normalized["email"],
+                    normalized["hashed_password"],
+                    normalized["is_admin"],
+                    normalized["is_approved"],
+                    normalized["created_at"],
+                ),
+            )
+
+
+def _ensure_storage_ready() -> None:
+    if not _is_postgres_enabled():
+        return
+    try:
+        _ensure_postgres_schema()
+        _migrate_json_users_to_postgres()
+    except Exception as exc:
+        logger.error("Failed to initialize Postgres storage (will use JSON fallback): %s", exc)
+
+
+def _list_users() -> list[dict[str, Any]]:
+    if _is_postgres_enabled():
+        try:
+            _ensure_storage_ready()
+            with _connect_postgres() as conn, conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT email, hashed_password, is_admin, is_approved, created_at
+                    FROM kb_users
+                    ORDER BY created_at ASC, email ASC
+                    """
+                )
+                return [_normalize_user_dict(row) for row in cur.fetchall()]
+        except Exception as exc:
+            logger.warning("Postgres query failed, falling back to JSON (error: %s)", exc)
+
+    return [_normalize_user_dict(user) for user in _load_users_from_json().values()]
+
+
+def _get_user(email: str) -> Optional[dict[str, Any]]:
+    normalized_email = email.strip().lower()
+    if _is_postgres_enabled():
+        try:
+            _ensure_storage_ready()
+            with _connect_postgres() as conn, conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT email, hashed_password, is_admin, is_approved, created_at
+                    FROM kb_users
+                    WHERE email = %s
+                    """,
+                    (normalized_email,),
+                )
+                row = cur.fetchone()
+                return _normalize_user_dict(row) if row else None
+        except Exception as exc:
+            logger.warning("Postgres query failed, falling back to JSON (error: %s)", exc)
+
+    user = _load_users_from_json().get(normalized_email)
+    return _normalize_user_dict(user) if user else None
+
+
+def _upsert_user(user: dict[str, Any]) -> dict[str, Any]:
+    normalized = _normalize_user_dict(user)
+    if _is_postgres_enabled():
+        try:
+            _ensure_storage_ready()
+            with _connect_postgres() as conn, conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO kb_users (email, hashed_password, is_admin, is_approved, created_at)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (email) DO UPDATE SET
+                        hashed_password = EXCLUDED.hashed_password,
+                        is_admin = EXCLUDED.is_admin,
+                        is_approved = EXCLUDED.is_approved,
+                        created_at = COALESCE(kb_users.created_at, EXCLUDED.created_at)
+                    """,
+                    (
+                        normalized["email"],
+                        normalized["hashed_password"],
+                        normalized["is_admin"],
+                        normalized["is_approved"],
+                        normalized["created_at"],
+                    ),
+                )
+            return normalized
+        except Exception as exc:
+            logger.warning("Postgres insert failed, falling back to JSON (error: %s)", exc)
+
+    users = _load_users_from_json()
+    users[normalized["email"]] = normalized
+    _save_users_to_json(users)
+    return normalized
+
+
 def _ensure_admin_exists() -> None:
-    """Create the admin user record if it does not already exist.
-
-    The admin account starts as approved but without a password – the admin
-    must call /auth/set-password (or register normally) the first time.
-    We create a placeholder so the email is recognisable as an admin.
-    """
+    """Ensure the admin account exists in the active storage backend."""
+    admin_plain_pw: str = os.getenv("ADMIN_PASSWORD", "")
     with _users_lock:
-        users = _load_users()
-        if ADMIN_EMAIL not in users:
-            users[ADMIN_EMAIL] = UserRecord(
-                email=ADMIN_EMAIL,
-                hashed_password="",  # no password yet
-                is_admin=True,
-                is_approved=True,
-                created_at=datetime.now(timezone.utc).isoformat(),
-            ).model_dump()
-            _save_users(users)
-            logger.info("Admin account placeholder created for %s", ADMIN_EMAIL)
+        existing = _get_user(ADMIN_EMAIL)
+        if existing is None:
+            _upsert_user(
+                UserRecord(
+                    email=ADMIN_EMAIL,
+                    hashed_password=hash_password(admin_plain_pw) if admin_plain_pw else "",
+                    is_admin=True,
+                    is_approved=True,
+                    created_at=_utcnow_iso(),
+                ).model_dump()
+            )
+            logger.info(
+                "Admin account created for %s using %s storage",
+                ADMIN_EMAIL,
+                "Postgres" if _is_postgres_enabled() else "JSON",
+            )
+            return
 
-
-# Bootstrap admin on module import
-_ensure_admin_exists()
-
-
-# ── Auth helpers ──────────────────────────────────────────────────────────────
-
-def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
-
-
-def hash_password(plain: str) -> str:
-    return pwd_context.hash(plain)
+        if admin_plain_pw and not verify_password(admin_plain_pw, existing.get("hashed_password", "")):
+            existing["hashed_password"] = hash_password(admin_plain_pw)
+            existing["is_admin"] = True
+            existing["is_approved"] = True
+            _upsert_user(existing)
+            logger.info("Admin password refreshed from ADMIN_PASSWORD env var")
+        elif not existing.get("is_admin") or not existing.get("is_approved"):
+            existing["is_admin"] = True
+            existing["is_approved"] = True
+            _upsert_user(existing)
 
 
 def create_access_token(email: str, is_admin: bool) -> str:
@@ -151,28 +345,25 @@ def decode_token(token: str) -> dict:
         ) from exc
 
 
-# ── FastAPI dependencies ──────────────────────────────────────────────────────
-
 _bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer_scheme),
 ) -> UserInfo:
-    """Dependency: require a valid JWT; return user info."""
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
     payload = decode_token(credentials.credentials)
     email: str = payload.get("sub", "")
     is_admin: bool = payload.get("is_admin", False)
 
     with _users_lock:
-        users = _load_users()
-        user = users.get(email)
+        user = _get_user(email)
 
     if not user or not user.get("is_approved"):
         raise HTTPException(
@@ -183,7 +374,6 @@ def get_current_user(
 
 
 def require_admin(user: UserInfo = Depends(get_current_user)) -> UserInfo:
-    """Dependency: require admin role."""
     if not user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -192,14 +382,9 @@ def require_admin(user: UserInfo = Depends(get_current_user)) -> UserInfo:
     return user
 
 
-# ── Auth service functions ────────────────────────────────────────────────────
-
 def register_user(email: str, password: str) -> dict:
-    """Register a new user (pending admin approval).
-
-    Returns a dict with status info.
-    Raises HTTPException on duplicate or invalid input.
-    """
+    _ensure_admin_initialized()
+    
     email = email.strip().lower()
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="Invalid email address")
@@ -207,15 +392,13 @@ def register_user(email: str, password: str) -> dict:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
     with _users_lock:
-        users = _load_users()
-        if email in users:
-            existing = users[email]
-            # Allow the admin to set their password on first login
+        existing = _get_user(email)
+        if existing:
             if email == ADMIN_EMAIL and not existing.get("hashed_password"):
                 existing["hashed_password"] = hash_password(password)
                 existing["is_approved"] = True
                 existing["is_admin"] = True
-                _save_users(users)
+                _upsert_user(existing)
                 return {
                     "message": "Admin password set. You can now log in.",
                     "approved": True,
@@ -223,14 +406,15 @@ def register_user(email: str, password: str) -> dict:
             raise HTTPException(status_code=409, detail="Email already registered")
 
         is_admin = email == ADMIN_EMAIL
-        users[email] = UserRecord(
-            email=email,
-            hashed_password=hash_password(password),
-            is_admin=is_admin,
-            is_approved=is_admin,  # admin is auto-approved
-            created_at=datetime.now(timezone.utc).isoformat(),
-        ).model_dump()
-        _save_users(users)
+        _upsert_user(
+            UserRecord(
+                email=email,
+                hashed_password=hash_password(password),
+                is_admin=is_admin,
+                is_approved=is_admin,
+                created_at=_utcnow_iso(),
+            ).model_dump()
+        )
 
     if is_admin:
         return {"message": "Admin account created. You can log in immediately.", "approved": True}
@@ -242,18 +426,18 @@ def register_user(email: str, password: str) -> dict:
 
 
 def login_user(email: str, password: str) -> TokenResponse:
-    """Authenticate user and return JWT token."""
+    _ensure_admin_initialized()
+    
     email = email.strip().lower()
 
     with _users_lock:
-        users = _load_users()
-        user = users.get(email)
+        user = _get_user(email)
 
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     hashed = user.get("hashed_password", "")
-    if not hashed or not verify_password(password, hashed):
+    if not verify_password(password, hashed):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     if not user.get("is_approved"):
@@ -267,35 +451,31 @@ def login_user(email: str, password: str) -> TokenResponse:
 
 
 def approve_user(email: str) -> dict:
-    """Approve a pending user (admin only)."""
     email = email.strip().lower()
     with _users_lock:
-        users = _load_users()
-        user = users.get(email)
+        user = _get_user(email)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         if user.get("is_approved"):
             return {"message": f"{email} is already approved"}
         user["is_approved"] = True
-        _save_users(users)
+        _upsert_user(user)
     return {"message": f"{email} has been approved"}
 
 
 def list_pending_users() -> list[dict]:
-    """Return list of users awaiting approval."""
     with _users_lock:
-        users = _load_users()
+        users = _list_users()
     return [
         {"email": u["email"], "created_at": u.get("created_at", "")}
-        for u in users.values()
+        for u in users
         if not u.get("is_approved")
     ]
 
 
 def list_all_users() -> list[dict]:
-    """Return summary of all users (admin only)."""
     with _users_lock:
-        users = _load_users()
+        users = _list_users()
     return [
         {
             "email": u["email"],
@@ -303,5 +483,27 @@ def list_all_users() -> list[dict]:
             "is_approved": u.get("is_approved", False),
             "created_at": u.get("created_at", ""),
         }
-        for u in users.values()
+        for u in users
     ]
+
+
+# Lazy initialization flag - admin account creation deferred to first auth request
+_admin_initialized = False
+_admin_init_lock = threading.Lock()
+
+
+def _ensure_admin_initialized():
+    """Lazy initialization of admin account (called on first auth request)."""
+    global _admin_initialized
+    if _admin_initialized:
+        return
+    
+    with _admin_init_lock:
+        if _admin_initialized:
+            return
+        
+        try:
+            _ensure_admin_exists()
+            _admin_initialized = True
+        except Exception as exc:
+            logger.warning("Could not initialize admin account: %s", exc)

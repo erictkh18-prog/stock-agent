@@ -1,0 +1,155 @@
+name: CI Guard
+
+permissions:
+  contents: read
+  pull-requests: write
+
+on:
+  pull_request:
+    branches: ["main"]
+  push:
+    branches: ["main"]
+
+jobs:
+  pr-base-sync-check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Check whether PR branch is up to date with base
+        id: base_sync
+        shell: bash
+        run: |
+          BASE_REF="${{ github.event.pull_request.base.ref }}"
+          echo "Checking PR branch against base: $BASE_REF"
+          git fetch origin "$BASE_REF" --depth=1
+
+          COUNTS=$(git rev-list --left-right --count HEAD..."origin/$BASE_REF")
+          AHEAD=$(echo "$COUNTS" | awk '{print $1}')
+          BEHIND=$(echo "$COUNTS" | awk '{print $2}')
+
+          echo "ahead=$AHEAD" >> "$GITHUB_OUTPUT"
+          echo "behind=$BEHIND" >> "$GITHUB_OUTPUT"
+          echo "base_ref=$BASE_REF" >> "$GITHUB_OUTPUT"
+
+          if [ "$BEHIND" -eq 0 ]; then
+            echo "OK: PR branch already includes latest base commits."
+            exit 0
+          fi
+
+          echo "::error::This branch is behind origin/$BASE_REF by $BEHIND commit(s). Update/rebase before merge to avoid conflicts."
+          exit 1
+
+      - name: Comment on PR when branch is behind base
+        if: failure() && steps.base_sync.outputs.behind != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.issue.number;
+            const baseRef = ${{ toJson(steps.base_sync.outputs.base_ref) }};
+            const behind = ${{ toJson(steps.base_sync.outputs.behind) }};
+            const marker = '<!-- stock-agent-base-sync-warning -->';
+            const body = `${marker}
+            This PR is behind ${baseRef} by ${behind} commit(s).
+
+            Please update this branch with the latest ${baseRef} before merging.
+            This avoids merge conflicts and prevents deploying stale code.`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+
+            const existing = comments.find((comment) =>
+              comment.user?.type === 'Bot' && comment.body?.includes(marker)
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body,
+              });
+            }
+
+      - name: Remove stale behind-base comment when PR is current
+        if: success() && steps.base_sync.outputs.behind == '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.issue.number;
+            const marker = '<!-- stock-agent-base-sync-warning -->';
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+
+            const existing = comments.find((comment) =>
+              comment.user?.type === 'Bot' && comment.body?.includes(marker)
+            );
+
+            if (existing) {
+              await github.rest.issues.deleteComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+              });
+            }
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        run: python -m pytest tests -q
+
+  main-tests:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        run: python -m pytest tests -q

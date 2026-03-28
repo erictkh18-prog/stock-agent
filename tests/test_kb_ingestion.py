@@ -7,6 +7,7 @@ import pytest
 import requests
 from fastapi.testclient import TestClient
 
+import src.auth as _auth_module
 from src.main import (
     _build_kb_tree,
     _discover_domain_links,
@@ -21,6 +22,16 @@ from src.main import (
 
 
 client = TestClient(app, raise_server_exceptions=True)
+
+
+def _kb_admin_token() -> str:
+    """Mint a direct admin JWT without touching user-store state.
+
+    The admin placeholder is guaranteed to exist (created at auth module import).
+    We bypass the register/login round-trip so this helper never modifies the
+    users file and cannot cross-contaminate other test suites.
+    """
+    return _auth_module.create_access_token(_auth_module.ADMIN_EMAIL, is_admin=True)
 
 
 def test_extract_webpage_text_falls_back_to_mirror_on_402(monkeypatch):
@@ -209,9 +220,11 @@ def test_knowledge_base_ingest_without_url_runs_auto_research(monkeypatch, tmp_p
 
     monkeypatch.setattr(main_module, "_auto_research_topic", lambda topic: auto_result)
 
+    token = _kb_admin_token()
     response = client.post(
         "/knowledge-base/ingest",
         json={"topic": "Macro Economic", "url": ""},
+        headers={"Authorization": f"Bearer {token}"},
     )
 
     assert response.status_code == 200
@@ -340,6 +353,7 @@ def test_chapter_status_endpoint_updates_frontmatter(monkeypatch, tmp_path):
         encoding="utf-8",
     )
 
+    token = _kb_admin_token()
     response = client.post(
         "/knowledge-base/chapter-status",
         json={
@@ -347,6 +361,7 @@ def test_chapter_status_endpoint_updates_frontmatter(monkeypatch, tmp_path):
             "status": "Approved",
             "note": "Reviewed and accepted",
         },
+        headers={"Authorization": f"Bearer {token}"},
     )
 
     assert response.status_code == 200

@@ -153,6 +153,23 @@ If you prefer manual setup in Render:
 - Free plans may sleep after inactivity; first request can be slow.
 - The app uses free public data sources and does not require paid API keys.
 
+### Persistent Auth on Free Tier
+
+Knowledge Base login accounts should not use the local `data/kb_users.json` file on Render free tier because the filesystem is ephemeral.
+
+Use a free Postgres database such as Supabase and set these Render environment variables:
+
+- `AUTH_DATABASE_URL`: your Postgres connection string
+- `ADMIN_EMAIL`: your admin email
+- `ADMIN_PASSWORD`: your admin login password
+- `JWT_SECRET_KEY`: long random secret
+
+Behavior:
+
+- If `AUTH_DATABASE_URL` is set, auth users are stored in Postgres and survive restarts.
+- If `AUTH_DATABASE_URL` is not set, auth falls back to `data/kb_users.json` for local development and tests.
+- On first startup with Postgres enabled, any existing JSON auth users are copied into Postgres once.
+
 ### Knowledge Base Persistence on Render
 
 Render's filesystem is **ephemeral** — files written at runtime are lost on every redeploy.  

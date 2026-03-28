@@ -316,66 +316,164 @@ async function scanUsMarket(buttonEl = null) {
 }
 
 // ============ STOCK RECOMMENDATION ============
+let recommendScanJobId = null;
+let recommendScanPollHandle = null;
+
+function _setRecommendationScanUiState(isScanning) {
+    const scanBtn = document.getElementById('recommendScanBtn');
+    const stopBtn = document.getElementById('recommendStopBtn');
+    if (scanBtn) {
+        setButtonState(scanBtn, isScanning, 'Scanning...', 'Scan US Market');
+    }
+    if (stopBtn) {
+        stopBtn.disabled = !isScanning;
+    }
+}
+
+function _stopRecommendationPolling() {
+    if (recommendScanPollHandle) {
+        clearInterval(recommendScanPollHandle);
+        recommendScanPollHandle = null;
+    }
+}
+
+async function _pollRecommendationScanJob() {
+    if (!recommendScanJobId) {
+        return;
+    }
+
+    const progressEl = document.getElementById('recommendMeta');
+
+    try {
+        const response = await fetch(`${API_URL}/stock-recommendations/scan/${encodeURIComponent(recommendScanJobId)}`);
+        if (!response.ok) {
+            const errorMessage = await parseApiError(response, 'Could not fetch recommendation scan status');
+            throw new Error(errorMessage);
+        }
+
+        const data = await response.json();
+        const scanned = Number(data?.scanned_count || 0);
+        const total = Number(data?.total_symbols || 0);
+        const found = Number(data?.found_count || 0);
+        const status = String(data?.status || 'running').toLowerCase();
+        const statusText = data?.message || `Scanning ${scanned}/${total} symbols, found ${found}.`;
+
+        if (progressEl) {
+            progressEl.textContent = statusText;
+        }
+        displayRecommendationResults(data?.results || []);
+
+        if (status === 'completed' || status === 'stopped' || status === 'error') {
+            _stopRecommendationPolling();
+            recommendScanJobId = null;
+            _setRecommendationScanUiState(false);
+        }
+    } catch (error) {
+        _stopRecommendationPolling();
+        recommendScanJobId = null;
+        _setRecommendationScanUiState(false);
+        if (progressEl) {
+            progressEl.textContent = `Error: ${error.message}`;
+        }
+        alert(`Error: ${error.message}`);
+    }
+}
+
 async function scanStockRecommendations(buttonEl = null) {
     const btn = buttonEl || document.getElementById('recommendScanBtn');
     const universe = document.getElementById('recommendUniverse')?.value || 'sp500';
     const sector = document.getElementById('recommendSector')?.value || 'all';
-    const minScoreInput = Number(document.getElementById('recommendMinScore')?.value);
-    const topNInput = Number(document.getElementById('recommendTopN')?.value);
-    const maxSymbolsInput = Number(document.getElementById('recommendMaxSymbols')?.value);
     const durationInput = Number(document.getElementById('recommendDurationDays')?.value);
     const targetPctInput = Number(document.getElementById('recommendTargetPct')?.value);
 
-    const minScore = Number.isFinite(minScoreInput) ? Math.min(100, Math.max(0, minScoreInput)) : 65;
-    const topN = Number.isFinite(topNInput) ? Math.min(50, Math.max(1, Math.floor(topNInput))) : 10;
-    const maxSymbols = Math.min(800, Math.max(5, Math.floor(maxSymbolsInput || 10)));
     const durationDays = Number.isFinite(durationInput) ? Math.min(365, Math.max(1, Math.floor(durationInput))) : 30;
     const targetPercentage = Number.isFinite(targetPctInput) ? Math.min(100, Math.max(1, targetPctInput)) : 8;
     const progressEl = document.getElementById('recommendMeta');
 
     try {
-        setButtonState(btn, true, 'Scanning...', 'Scan US Market');
+        _stopRecommendationPolling();
+        recommendScanJobId = null;
+        _setRecommendationScanUiState(true);
 
         const params = new URLSearchParams();
         params.append('universe', universe);
         if (sector && sector !== 'all') {
             params.append('sector', sector);
         }
-        params.append('min_overall_score', String(minScore));
-        params.append('top_n', String(topN));
-        params.append('max_symbols', String(maxSymbols));
         params.append('duration_days', String(durationDays));
         params.append('target_percentage', String(targetPercentage));
 
         if (progressEl) {
-            progressEl.textContent = `Scanning up to ${maxSymbols} symbols to find stocks targeting ${targetPercentage}% upside in ${durationDays} days...`;
+            progressEl.textContent = `Started scan for stocks targeting ${targetPercentage}% in ${durationDays} days. Searching...`;
         }
         document.getElementById('recommendResult')?.classList.remove('hidden');
 
-        const response = await fetch(`${API_URL}/stock-recommendations?${params}`);
+        const response = await fetch(`${API_URL}/stock-recommendations/scan/start?${params}`, {
+            method: 'POST',
+        });
         if (!response.ok) {
-            const errorMessage = await parseApiError(response, 'Could not fetch stock recommendations');
+            const errorMessage = await parseApiError(response, 'Could not start recommendation scan');
             throw new Error(errorMessage);
         }
 
         const data = await response.json();
-        if (progressEl) {
-            const learning = data?.learning || {};
-            const learningText = learning.total_tracked_outcomes
-                ? ` Learning: ${learning.total_tracked_outcomes} tracked outcomes | win rate ${Number(learning.win_rate_pct || 0).toFixed(1)}% | avg return ${Number(learning.average_return_pct || 0).toFixed(2)}%.`
-                : '';
-            progressEl.textContent = (data?.summary || 'Recommendation scan complete.') + learningText;
+        recommendScanJobId = data?.job_id || null;
+
+        if (!recommendScanJobId) {
+            displayRecommendationResults(data?.results || []);
+            if (progressEl) {
+                progressEl.textContent = data?.message || 'No symbols available for this selection.';
+            }
+            _setRecommendationScanUiState(false);
+            return;
         }
 
+        if (progressEl) {
+            progressEl.textContent = data?.message || 'Scan started.';
+        }
         displayRecommendationResults(data?.results || []);
-        setButtonState(btn, false, 'Scanning...', 'Scan US Market');
+        await _pollRecommendationScanJob();
+        recommendScanPollHandle = setInterval(_pollRecommendationScanJob, 2000);
     } catch (error) {
         const message = `Error: ${error.message}`;
         if (progressEl) {
             progressEl.textContent = message;
         }
         alert(message);
-        setButtonState(btn, false, 'Scanning...', 'Scan US Market');
+        _stopRecommendationPolling();
+        recommendScanJobId = null;
+        _setRecommendationScanUiState(false);
+    }
+}
+
+async function stopStockRecommendationScan(buttonEl = null) {
+    const btn = buttonEl || document.getElementById('recommendStopBtn');
+    if (!recommendScanJobId) {
+        return;
+    }
+
+    const progressEl = document.getElementById('recommendMeta');
+    try {
+        setButtonState(btn, true, 'Stopping...', 'Stop Scan');
+        const response = await fetch(`${API_URL}/stock-recommendations/scan/${encodeURIComponent(recommendScanJobId)}/stop`, {
+            method: 'POST',
+        });
+        if (!response.ok) {
+            const errorMessage = await parseApiError(response, 'Could not stop recommendation scan');
+            throw new Error(errorMessage);
+        }
+
+        if (progressEl) {
+            progressEl.textContent = 'Stop requested. Finishing current batch...';
+        }
+        await _pollRecommendationScanJob();
+    } catch (error) {
+        if (progressEl) {
+            progressEl.textContent = `Error: ${error.message}`;
+        }
+        alert(`Error: ${error.message}`);
+    } finally {
+        setButtonState(btn, false, 'Stopping...', 'Stop Scan');
     }
 }
 
@@ -650,6 +748,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const screenBtn = document.getElementById('screenBtn');
     const marketScanBtn = document.getElementById('marketScanBtn');
     const recommendScanBtn = document.getElementById('recommendScanBtn');
+    const recommendStopBtn = document.getElementById('recommendStopBtn');
     const logOutcomeBtn = document.getElementById('logOutcomeBtn');
 
     document.getElementById('singleSymbol')?.addEventListener('keypress', (e) => {
@@ -666,6 +765,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     recommendScanBtn?.addEventListener('click', () => {
         scanStockRecommendations(recommendScanBtn);
+    });
+
+    recommendStopBtn?.addEventListener('click', () => {
+        stopStockRecommendationScan(recommendStopBtn);
     });
 
     logOutcomeBtn?.addEventListener('click', () => {
