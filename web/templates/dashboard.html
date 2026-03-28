@@ -284,6 +284,39 @@
                 </div>
             </div>
         </div>
+        <!-- MODULE 3: PAPER TRADING -->
+        <!-- Section 3.1: Automated Paper Trading -->
+        <div class="card" id="section-paper-trading">
+            <div class="card-module-header">
+                <h2>📋 3.1 Paper Trading Tracker</h2>
+            </div>
+            <p class="description">
+                The agent automatically opens a simulated 10-share position in the top BUY stock every weekday at 9:35am ET,
+                then closes it at 4:05pm ET if target, stop loss, or expiry is reached.
+                Results feed back into the recommendation engine to improve future picks.
+            </p>
+
+            <div class="input-group">
+                <button id="autoBuyBtn">▶ Trigger Auto-Buy Now</button>
+                <button id="checkPositionsBtn">🔄 Check &amp; Close Positions</button>
+                <button id="refreshPositionsBtn">↻ Refresh</button>
+            </div>
+
+            <div id="paperTradingMeta" class="description">Loading positions…</div>
+
+            <!-- Open Positions -->
+            <h3 style="margin-top:1rem;margin-bottom:0.4rem;">Open Positions</h3>
+            <div id="openPositionsTable" class="table-container">
+                <p>No open positions.</p>
+            </div>
+
+            <!-- Closed Trades Summary + History -->
+            <h3 style="margin-top:1.2rem;margin-bottom:0.4rem;">Closed Trades</h3>
+            <div id="closedTradesMeta" class="description"></div>
+            <div id="closedTradesTable" class="table-container">
+                <p>No closed trades yet.</p>
+            </div>
+        </div>
     </div>
 
     <div class="footer">

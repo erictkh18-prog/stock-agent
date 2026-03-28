@@ -63,7 +63,19 @@ def _load_trade_outcomes() -> list[dict]:
             payload = json.loads(TRADE_OUTCOMES_PATH.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             payload = []
-    return payload if isinstance(payload, list) else []
+    manual = payload if isinstance(payload, list) else []
+
+    # Merge in closed paper trades so the learning system benefits from automated history
+    closed_trades_path = TRADE_OUTCOMES_PATH.parent / "closed_trades.json"
+    paper = []
+    if closed_trades_path.exists():
+        try:
+            raw = json.loads(closed_trades_path.read_text(encoding="utf-8"))
+            paper = raw if isinstance(raw, list) else []
+        except json.JSONDecodeError:
+            paper = []
+
+    return manual + paper
 
 
 def _save_trade_outcomes(records: list[dict]) -> None:

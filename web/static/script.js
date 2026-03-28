@@ -649,123 +649,162 @@ async function quickLogRecommendationOutcome(payload, buttonEl) {
 }
 
 // ============ TRADE OUTCOME TRACKER ============
-async function logTradeOutcome(buttonEl = null) {
-    const btn = buttonEl || document.getElementById('logOutcomeBtn');
-    const symbol = (document.getElementById('outcomeSymbol')?.value || '').trim().toUpperCase();
-    const outcome = document.getElementById('outcomeType')?.value || 'manual_close';
-    const entryPrice = Number(document.getElementById('outcomeEntryPrice')?.value);
-    const exitPriceRaw = document.getElementById('outcomeExitPrice')?.value;
-    const targetPriceRaw = document.getElementById('outcomeTargetPrice')?.value;
-    const stopPriceRaw = document.getElementById('outcomeStopPrice')?.value;
-
-    if (!symbol) {
-        alert('Please enter a symbol.');
-        return;
-    }
-    if (!Number.isFinite(entryPrice) || entryPrice <= 0) {
-        alert('Please provide a valid entry price.');
-        return;
-    }
-
-    const payload = {
-        symbol,
-        outcome,
-        entry_price: entryPrice,
-        exit_price: exitPriceRaw ? Number(exitPriceRaw) : null,
-        target_price: targetPriceRaw ? Number(targetPriceRaw) : null,
-        stop_loss_price: stopPriceRaw ? Number(stopPriceRaw) : null,
-    };
-
+// ============ PAPER TRADING ============
+async function triggerAutoBuy(buttonEl) {
+    const btn = buttonEl || document.getElementById('autoBuyBtn');
     try {
-        setButtonState(btn, true, 'Logging...', 'Log Outcome');
-        const response = await fetch(`${API_URL}/trade-outcomes`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-        });
-
+        setButtonState(btn, true, 'Scanning…', '▶ Trigger Auto-Buy Now');
+        const response = await fetch(`${API_URL}/paper-trading/auto-buy`, { method: 'POST' });
         if (!response.ok) {
-            const errorMessage = await parseApiError(response, 'Could not log trade outcome');
-            throw new Error(errorMessage);
+            const msg = await parseApiError(response, 'Auto-buy failed');
+            throw new Error(msg);
         }
-
-        const result = await response.json();
-        const meta = document.getElementById('outcomeTrackerMeta');
+        const data = await response.json();
+        const meta = document.getElementById('paperTradingMeta');
         if (meta) {
-            meta.textContent = `Logged ${result.record.symbol} (${result.record.outcome}) with return ${Number(result.record.return_pct || 0).toFixed(2)}%.`;
+            if (data.status === 'ok') {
+                meta.textContent = `Opened: ${data.position.symbol} × ${data.position.shares} shares @ $${Number(data.position.entry_price).toFixed(2)} | Target $${Number(data.position.target_price).toFixed(2)} | Stop $${Number(data.position.stop_loss_price).toFixed(2)}`;
+            } else {
+                meta.textContent = data.message || 'No BUY found.';
+            }
         }
-        await loadTradeOutcomeHistory();
-
-        document.getElementById('outcomeSymbol').value = '';
-        document.getElementById('outcomeEntryPrice').value = '';
-        document.getElementById('outcomeExitPrice').value = '';
-        document.getElementById('outcomeTargetPrice').value = '';
-        document.getElementById('outcomeStopPrice').value = '';
+        await loadPaperTrading();
     } catch (error) {
         alert(`Error: ${error.message}`);
     } finally {
-        setButtonState(btn, false, 'Logging...', 'Log Outcome');
+        setButtonState(btn, false, 'Scanning…', '▶ Trigger Auto-Buy Now');
     }
 }
 
-async function loadTradeOutcomeHistory() {
-    const resultDiv = document.getElementById('outcomeResult');
-    const tableDiv = document.getElementById('outcomeTable');
-    const meta = document.getElementById('outcomeTrackerMeta');
-    if (!resultDiv || !tableDiv || !meta) {
-        return;
+async function checkAndClosePositions(buttonEl) {
+    const btn = buttonEl || document.getElementById('checkPositionsBtn');
+    try {
+        setButtonState(btn, true, 'Checking…', '🔄 Check & Close Positions');
+        const response = await fetch(`${API_URL}/paper-trading/check-positions`, { method: 'POST' });
+        if (!response.ok) {
+            const msg = await parseApiError(response, 'Check failed');
+            throw new Error(msg);
+        }
+        const data = await response.json();
+        const meta = document.getElementById('paperTradingMeta');
+        if (meta) {
+            meta.textContent = data.closed_count > 0
+                ? `Closed ${data.closed_count} position(s): ${data.closed.map(t => `${t.symbol} (${t.exit_reason} ${Number(t.return_pct).toFixed(2)}%)`).join(', ')}`
+                : 'No positions closed — none hit target, stop, or expiry.';
+        }
+        await loadPaperTrading();
+    } catch (error) {
+        alert(`Error: ${error.message}`);
+    } finally {
+        setButtonState(btn, false, 'Checking…', '🔄 Check & Close Positions');
     }
+}
+
+async function manualClosePosition(positionId, symbol, buttonEl) {
+    if (!confirm(`Close ${symbol} position now at current market price?`)) return;
+    buttonEl.disabled = true;
+    buttonEl.textContent = '…';
+    try {
+        const response = await fetch(`${API_URL}/paper-trading/positions/${encodeURIComponent(positionId)}/close`, { method: 'POST' });
+        if (!response.ok) {
+            const msg = await parseApiError(response, 'Close failed');
+            throw new Error(msg);
+        }
+        const data = await response.json();
+        const meta = document.getElementById('paperTradingMeta');
+        if (meta) {
+            meta.textContent = `Manually closed ${data.trade.symbol} @ $${Number(data.trade.exit_price).toFixed(2)} | Return: ${Number(data.trade.return_pct).toFixed(2)}%`;
+        }
+        await loadPaperTrading();
+    } catch (error) {
+        alert(`Error: ${error.message}`);
+        buttonEl.disabled = false;
+        buttonEl.textContent = 'Close';
+    }
+}
+
+async function loadPaperTrading() {
+    const openTable = document.getElementById('openPositionsTable');
+    const closedTable = document.getElementById('closedTradesTable');
+    const closedMeta = document.getElementById('closedTradesMeta');
+    const meta = document.getElementById('paperTradingMeta');
+    if (!openTable) return;
 
     try {
-        const response = await fetch(`${API_URL}/trade-outcomes?limit=50`);
-        if (!response.ok) {
-            throw new Error('Could not load trade outcomes');
+        const [posRes, tradesRes] = await Promise.all([
+            fetch(`${API_URL}/paper-trading/positions`),
+            fetch(`${API_URL}/paper-trading/trades?limit=50`),
+        ]);
+
+        // ── Open positions ──
+        if (posRes.ok) {
+            const posData = await posRes.json();
+            const positions = posData.positions || [];
+            if (!positions.length) {
+                openTable.innerHTML = '<p>No open positions.</p>';
+            } else {
+                let html = `<table>
+                    <thead><tr>
+                        <th>Symbol</th><th>Shares</th><th>Entry $</th>
+                        <th>Target $</th><th>Stop $</th>
+                        <th>Current $</th><th>P&amp;L</th><th>Days Left</th><th></th>
+                    </tr></thead><tbody>`;
+                positions.forEach((p) => {
+                    const pnlClass = (p.unrealized_pnl || 0) >= 0 ? 'style="color:green"' : 'style="color:red"';
+                    html += `<tr>
+                        <td class="symbol">${escapeHtml(p.symbol)}</td>
+                        <td>${p.shares}</td>
+                        <td>$${Number(p.entry_price).toFixed(2)}</td>
+                        <td>$${Number(p.target_price).toFixed(2)}</td>
+                        <td>$${Number(p.stop_loss_price).toFixed(2)}</td>
+                        <td>${p.current_price != null ? `$${Number(p.current_price).toFixed(2)}` : '—'}</td>
+                        <td ${pnlClass}>${p.unrealized_pnl != null ? `$${Number(p.unrealized_pnl).toFixed(2)} (${Number(p.unrealized_pct).toFixed(2)}%)` : '—'}</td>
+                        <td>${p.days_remaining}</td>
+                        <td><button class="mini-btn" onclick="manualClosePosition('${escapeHtml(p.id)}','${escapeHtml(p.symbol)}',this)">Close</button></td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+                openTable.innerHTML = html;
+            }
+            if (meta) meta.textContent = `${positions.length} open position(s).`;
         }
 
-        const data = await response.json();
-        const summary = data.summary || {};
-        meta.textContent = `Tracked: ${summary.total || 0} trades | Win rate: ${Number(summary.win_rate_pct || 0).toFixed(1)}% | Avg return: ${Number(summary.average_return_pct || 0).toFixed(2)}%`;
+        // ── Closed trades ──
+        if (tradesRes.ok) {
+            const tradesData = await tradesRes.json();
+            const summary = tradesData.summary || {};
+            const trades = tradesData.trades || [];
 
-        const records = data.records || [];
-        if (!records.length) {
-            tableDiv.innerHTML = '<p>No outcomes logged yet.</p>';
-            resultDiv.classList.remove('hidden');
-            return;
+            if (closedMeta) {
+                closedMeta.textContent = `Total: ${summary.total || 0} | Wins: ${summary.target_hits || 0} | Losses: ${summary.stop_hits || 0} | Win rate: ${Number(summary.win_rate_pct || 0).toFixed(1)}% | Avg return: ${Number(summary.average_return_pct || 0).toFixed(2)}% | Total P&L: $${Number(summary.total_pnl || 0).toFixed(2)}`;
+            }
+
+            if (!trades.length) {
+                if (closedTable) closedTable.innerHTML = '<p>No closed trades yet.</p>';
+            } else {
+                let html = `<table>
+                    <thead><tr>
+                        <th>Closed</th><th>Symbol</th><th>Reason</th>
+                        <th>Entry $</th><th>Exit $</th><th>Return</th><th>P&amp;L</th>
+                    </tr></thead><tbody>`;
+                trades.forEach((t) => {
+                    const retClass = (t.return_pct || 0) >= 0 ? 'style="color:green"' : 'style="color:red"';
+                    html += `<tr>
+                        <td>${escapeHtml((t.closed_at || '').replace('T', ' ').slice(0, 16))}</td>
+                        <td class="symbol">${escapeHtml(t.symbol || '')}</td>
+                        <td>${escapeHtml(t.exit_reason || '')}</td>
+                        <td>$${Number(t.entry_price || 0).toFixed(2)}</td>
+                        <td>$${Number(t.exit_price || 0).toFixed(2)}</td>
+                        <td ${retClass}>${Number(t.return_pct || 0).toFixed(2)}%</td>
+                        <td ${retClass}>$${Number(t.pnl || 0).toFixed(2)}</td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+                if (closedTable) closedTable.innerHTML = html;
+            }
         }
-
-        let html = `
-            <table>
-                <thead>
-                    <tr>
-                        <th>Time</th>
-                        <th>Symbol</th>
-                        <th>Outcome</th>
-                        <th>Entry</th>
-                        <th>Exit</th>
-                        <th>Return</th>
-                    </tr>
-                </thead>
-                <tbody>
-        `;
-
-        records.forEach((record) => {
-            html += `
-                <tr>
-                    <td>${escapeHtml((record.recorded_at || '').replace('T', ' ').slice(0, 19))}</td>
-                    <td class="symbol">${escapeHtml(record.symbol || '')}</td>
-                    <td>${escapeHtml(record.outcome || '')}</td>
-                    <td>$${Number(record.entry_price || 0).toFixed(2)}</td>
-                    <td>${record.exit_price != null ? `$${Number(record.exit_price).toFixed(2)}` : '—'}</td>
-                    <td>${Number(record.return_pct || 0).toFixed(2)}%</td>
-                </tr>
-            `;
-        });
-
-        html += `</tbody></table>`;
-        tableDiv.innerHTML = html;
-        resultDiv.classList.remove('hidden');
     } catch (error) {
-        meta.textContent = `Error loading outcomes: ${error.message}`;
+        if (meta) meta.textContent = `Error loading paper trading data: ${error.message}`;
     }
 }
 
@@ -785,7 +824,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const marketScanBtn = document.getElementById('marketScanBtn');
     const recommendScanBtn = document.getElementById('recommendScanBtn');
     const recommendStopBtn = document.getElementById('recommendStopBtn');
-    const logOutcomeBtn = document.getElementById('logOutcomeBtn');
 
     document.getElementById('singleSymbol')?.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') analyzeStock(analyzeBtn);
@@ -807,9 +845,15 @@ document.addEventListener('DOMContentLoaded', () => {
         stopStockRecommendationScan(recommendStopBtn);
     });
 
-    logOutcomeBtn?.addEventListener('click', () => {
-        logTradeOutcome(logOutcomeBtn);
+    document.getElementById('autoBuyBtn')?.addEventListener('click', (e) => {
+        triggerAutoBuy(e.currentTarget);
+    });
+    document.getElementById('checkPositionsBtn')?.addEventListener('click', (e) => {
+        checkAndClosePositions(e.currentTarget);
+    });
+    document.getElementById('refreshPositionsBtn')?.addEventListener('click', () => {
+        loadPaperTrading();
     });
 
-    loadTradeOutcomeHistory();
+    loadPaperTrading();
 });

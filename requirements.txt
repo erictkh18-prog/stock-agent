@@ -19,3 +19,4 @@ passlib[bcrypt]==1.7.4
 python-multipart==0.0.22
 bcrypt==4.3.0
 psycopg[binary]==3.2.12
+apscheduler==3.11.0

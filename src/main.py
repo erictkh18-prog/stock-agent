@@ -30,6 +30,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,6 +40,7 @@ from fastapi.staticfiles import StaticFiles
 
 from src.config import config
 from src.stock_screener import StockScreener
+from src.scheduler import start_scheduler, stop_scheduler
 
 # ── Feature modules (imported for monkeypatching convenience in tests) ────────
 import src.market_universe as _market_universe_module
@@ -58,6 +60,7 @@ from src.routers import stock_screening as _stock_screening_router   # 2.2
 from src.routers import market as _market_router                     # 2.3
 from src.routers import recommendations as _recommendations_router   # 2.4
 from src.routers import trade_outcomes as _trade_outcomes_router     # 2.5
+from src.routers import paper_trading as _paper_trading_router        # 3.1 Paper Trading
 
 # ── Configure logging ─────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -88,6 +91,17 @@ APP_VERSION = "1.0.0"
 COMMIT_HASH = _resolve_commit_hash()
 
 
+# ── Shared screener (defined early so lifespan can reference it) ──────────────
+screener = StockScreener()
+
+
+@asynccontextmanager
+async def _lifespan(app):
+    start_scheduler(screener)
+    yield
+    stop_scheduler()
+
+
 # ── App setup ─────────────────────────────────────────────────────────────────
 
 app = FastAPI(
@@ -95,6 +109,7 @@ app = FastAPI(
     description="AI-powered stock analysis and screening tool",
     version=APP_VERSION,
 )
+app.router.lifespan_context = _lifespan
 
 app.add_middleware(
     CORSMiddleware,
@@ -112,15 +127,12 @@ if static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 
-# ── Shared screener (single instance used by all routers) ─────────────────────
-
-screener = StockScreener()
-
-# Stock screening routers need the shared screener instance
+# ── Inject shared screener into all routers that need it ──────────────────────
 _stock_analysis_router.set_screener(screener)
 _stock_screening_router.set_screener(screener)
 _market_router.set_screener(screener)
 _recommendations_router.set_screener(screener)
+_paper_trading_router.set_screener(screener)
 
 
 # ── Rate limiting ─────────────────────────────────────────────────────────────
@@ -217,6 +229,7 @@ app.include_router(_stock_screening_router.router)   # 2.2 Multiple Stock Analys
 app.include_router(_market_router.router)             # 2.3 Top Performers
 app.include_router(_recommendations_router.router)    # 2.4 Stock Recommendations
 app.include_router(_trade_outcomes_router.router)     # 2.5 Transaction Log
+app.include_router(_paper_trading_router.router)       # 3.1 Paper Trading
 
 
 # ── Page-serving endpoints ────────────────────────────────────────────────────
