@@ -208,7 +208,7 @@
             <div class="card-module-header">
                 <h2>⭐ 2.4 Stock Recommendations</h2>
             </div>
-            <p class="description">Get personalized stock recommendations targeting your desired upside within your timeframe</p>
+            <p class="description">Scan for BUY candidates in uptrend. Duration and target % are optional filters.</p>
 
             <div class="input-group">
                 <select id="recommendUniverse" aria-label="Recommendation universe">
@@ -230,8 +230,8 @@
                     <option value="basic materials">Basic Materials</option>
                     <option value="utilities">Utilities</option>
                 </select>
-                <input type="number" id="recommendDurationDays" min="1" max="365" step="1" value="30" placeholder="Duration (days)" aria-label="Duration in days">
-                <input type="number" id="recommendTargetPct" min="1" max="100" step="0.5" value="8" placeholder="Target %" aria-label="Target percentage">
+                <input type="number" id="recommendDurationDays" min="1" max="365" step="1" placeholder="Duration (optional)" aria-label="Duration in days">
+                <input type="number" id="recommendTargetPct" min="1" max="100" step="0.5" placeholder="Target % (optional)" aria-label="Target percentage">
                 <button id="recommendScanBtn">Scan US Market</button>
                 <button id="recommendStopBtn" class="secondary-btn" type="button" disabled>Stop Scan</button>
             </div>
@@ -293,6 +293,6 @@
         <p>Data powered by Yahoo Finance • Updated in real-time</p>
     </div>
 
-    <script src="../static/script.js?v=20260328" defer></script>
+    <script src="../static/script.js?v=20260329" defer></script>
 </body>
 </html>

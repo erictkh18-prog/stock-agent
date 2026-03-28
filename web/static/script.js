@@ -419,11 +419,20 @@ async function scanStockRecommendations(buttonEl = null) {
     const btn = buttonEl || document.getElementById('recommendScanBtn');
     const universe = document.getElementById('recommendUniverse')?.value || 'sp500';
     const sector = document.getElementById('recommendSector')?.value || 'all';
-    const durationInput = Number(document.getElementById('recommendDurationDays')?.value);
-    const targetPctInput = Number(document.getElementById('recommendTargetPct')?.value);
+    const durationRaw = (document.getElementById('recommendDurationDays')?.value || '').trim();
+    const targetRaw = (document.getElementById('recommendTargetPct')?.value || '').trim();
 
-    const durationDays = Number.isFinite(durationInput) ? Math.min(365, Math.max(1, Math.floor(durationInput))) : 30;
-    const targetPercentage = Number.isFinite(targetPctInput) ? Math.min(100, Math.max(1, targetPctInput)) : 8;
+    const durationInput = Number(durationRaw);
+    const targetPctInput = Number(targetRaw);
+    const hasDuration = durationRaw !== '' && Number.isFinite(durationInput);
+    const hasTarget = targetRaw !== '' && Number.isFinite(targetPctInput);
+
+    const durationDays = hasDuration
+        ? Math.min(365, Math.max(1, Math.floor(durationInput)))
+        : null;
+    const targetPercentage = hasTarget
+        ? Math.min(100, Math.max(1, targetPctInput))
+        : null;
     const progressEl = document.getElementById('recommendMeta');
 
     try {
@@ -436,11 +445,21 @@ async function scanStockRecommendations(buttonEl = null) {
         if (sector && sector !== 'all') {
             params.append('sector', sector);
         }
-        params.append('duration_days', String(durationDays));
-        params.append('target_percentage', String(targetPercentage));
+        if (durationDays !== null) {
+            params.append('duration_days', String(durationDays));
+        }
+        if (targetPercentage !== null) {
+            params.append('target_percentage', String(targetPercentage));
+        }
 
         if (progressEl) {
-            progressEl.textContent = `Started scan for stocks targeting ${targetPercentage}% in ${durationDays} days. Searching...`;
+            if (targetPercentage !== null && durationDays !== null) {
+                progressEl.textContent = `Started scan for BUY uptrend stocks targeting ${targetPercentage}% in ${durationDays} days...`;
+            } else if (targetPercentage !== null) {
+                progressEl.textContent = `Started scan for BUY uptrend stocks targeting ${targetPercentage}%...`;
+            } else {
+                progressEl.textContent = 'Started scan for BUY uptrend stocks...';
+            }
         }
         document.getElementById('recommendResult')?.classList.remove('hidden');
 
@@ -518,7 +537,7 @@ function displayRecommendationResults(results) {
     const tableDiv = document.getElementById('recommendTable');
 
     if (!Array.isArray(results) || !results.length) {
-        tableDiv.innerHTML = '<p>No recommendations matched your target. Try lower % target or longer duration.</p>';
+        tableDiv.innerHTML = '<p>No BUY uptrend recommendations found for the current selection.</p>';
         resultDiv.classList.remove('hidden');
         return;
     }

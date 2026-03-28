@@ -34,7 +34,7 @@ _recommendation_scan_jobs: dict[str, dict] = {}
 
 # ── Upside and exit-strategy helpers ─────────────────────────────────────────
 
-def _estimate_upside_percent(analysis: StockAnalysis, duration_days: int) -> float:
+def _estimate_upside_percent(analysis: StockAnalysis, duration_days: Optional[int]) -> float:
     """Estimate upside potential using analyst consensus target as the primary anchor.
 
     Stage 3 upgrade:
@@ -44,11 +44,13 @@ def _estimate_upside_percent(analysis: StockAnalysis, duration_days: int) -> flo
     - Falls back to the original score-based formula when no target is present.
     """
     # --- Stage 3: Analyst consensus target (primary anchor) ---
+    effective_duration_days = duration_days if duration_days is not None else 365
+
     analyst_target = getattr(analysis, "analyst_target_price", None)
     current_price = getattr(analysis, "current_price", 0.0) or 0.0
     if analyst_target and current_price > 0 and analyst_target > current_price:
         raw_upside_pct = (analyst_target - current_price) / current_price * 100.0
-        horizon_fraction = min(1.0, duration_days / 365.0)
+        horizon_fraction = min(1.0, effective_duration_days / 365.0)
         # 80% haircut on analyst consensus (analysts systematically over-estimate)
         projected = raw_upside_pct * 0.80 * horizon_fraction
         return round(max(1.0, min(50.0, projected)), 2)
@@ -72,21 +74,34 @@ def _estimate_upside_percent(analysis: StockAnalysis, duration_days: int) -> flo
     rsi = getattr(analysis.technical, "rsi", None)
     rsi_penalty = 1.5 if (rsi is not None and rsi > 80) else 0.0
 
-    horizon_scale = max(0.7, min(2.0, duration_days / 30.0))
+    horizon_scale = max(0.7, min(2.0, effective_duration_days / 30.0))
     projected = (base + trend_bonus + sentiment_bonus - rsi_penalty) * horizon_scale
     return round(max(1.0, min(50.0, projected)), 2)
 
 
-def _build_simple_reason(analysis: StockAnalysis, duration_days: int, target_percentage: float) -> str:
+def _build_simple_reason(
+    analysis: StockAnalysis,
+    duration_days: Optional[int],
+    target_percentage: Optional[float],
+) -> str:
     """Explain recommendation in non-technical language."""
     factors = analysis.top_contributing_factors or []
     trend = (getattr(analysis.technical, "trend", "") or "no clear trend").lower()
     lead_factor = factors[0] if factors else "its overall quality score is stronger than many peers"
-    return (
-        f"{analysis.symbol} is recommended because {lead_factor}. "
-        f"Trend is currently {trend}, and the model projects a realistic chance of roughly "
-        f"{target_percentage:.1f}% upside within {duration_days} days."
-    )
+    suffix = ""
+    if target_percentage is not None and duration_days is not None:
+        suffix = (
+            f" The model projects a realistic chance of roughly {target_percentage:.1f}% "
+            f"upside within {duration_days} days."
+        )
+    elif target_percentage is not None:
+        suffix = f" The model projects roughly {target_percentage:.1f}% upside with no fixed time window."
+    elif duration_days is not None:
+        suffix = f" The model projects upside over about {duration_days} days."
+    else:
+        suffix = " Target is price-based and not tied to a fixed duration."
+
+    return f"{analysis.symbol} is recommended because {lead_factor}. Trend is currently {trend}.{suffix}"
 
 
 def _build_exit_strategy(current_price: float, target_percentage: float) -> dict:
@@ -103,12 +118,13 @@ def _build_exit_strategy(current_price: float, target_percentage: float) -> dict
 
 def _build_recommendation_candidate(
     analysis: StockAnalysis,
-    duration_days: int,
-    target_percentage: float,
+    duration_days: Optional[int],
+    target_percentage: Optional[float],
 ) -> dict:
     """Convert analysis into a recommendation payload for the dashboard table."""
     expected_upside = _estimate_upside_percent(analysis, duration_days)
-    exit_strategy = _build_exit_strategy(analysis.current_price, target_percentage)
+    target_pct_for_exit = float(target_percentage) if target_percentage is not None else max(5.0, min(20.0, expected_upside))
+    exit_strategy = _build_exit_strategy(analysis.current_price, target_pct_for_exit)
 
     conviction = round(getattr(analysis, "conviction_score", 0.0) or 0.0, 2)
 
@@ -118,8 +134,10 @@ def _build_recommendation_candidate(
         "current_price": round(analysis.current_price, 2),
         "overall_score": round(analysis.overall_score, 2),
         "recommendation": analysis.recommendation,
+        "trend": getattr(analysis.technical, "trend", None),
         "confidence": round(analysis.confidence, 3),
         "expected_upside_pct": expected_upside,
+        "target_pct_used": round(target_pct_for_exit, 2),
         "target_price": exit_strategy["target_price"],
         "stop_loss_price": exit_strategy["stop_loss_price"],
         "stop_loss_pct": exit_strategy["stop_loss_pct"],
@@ -217,7 +235,16 @@ def _recommendation_scan_worker(
                 elif learning_adj < 0:
                     candidate["reason"] += " Past tracked outcomes for this symbol have been weaker, so confidence is trimmed."
 
-                if candidate["adjusted_upside_pct"] >= target_percentage:
+                is_buy_uptrend = (
+                    str(candidate.get("recommendation", "")).upper() == "BUY"
+                    and str(candidate.get("trend", "")).lower() == "uptrend"
+                )
+                passes_target = (
+                    True if target_percentage is None
+                    else candidate["adjusted_upside_pct"] >= target_percentage
+                )
+
+                if is_buy_uptrend and passes_target:
                     symbol_key = str(candidate.get("symbol", "")).upper()
                     if symbol_key and symbol_key not in seen_symbols:
                         seen_symbols.add(symbol_key)
@@ -241,10 +268,17 @@ def _recommendation_scan_worker(
 
                 if found_count >= RECOMMENDATION_SCAN_TARGET_COUNT:
                     job["status"] = "completed"
-                    job["message"] = (
-                        f"Scan complete: found {found_count} stocks meeting {target_percentage:.1f}% "
-                        f"target within {duration_days} days."
-                    )
+                    if target_percentage is not None and duration_days is not None:
+                        job["message"] = (
+                            f"Scan complete: found {found_count} BUY uptrend stocks meeting {target_percentage:.1f}% "
+                            f"target within {duration_days} days."
+                        )
+                    elif target_percentage is not None:
+                        job["message"] = (
+                            f"Scan complete: found {found_count} BUY uptrend stocks meeting {target_percentage:.1f}% target."
+                        )
+                    else:
+                        job["message"] = f"Scan complete: found {found_count} BUY uptrend stocks."
                     job["updated_at"] = datetime.now().isoformat()
                     return
 
@@ -255,15 +289,22 @@ def _recommendation_scan_worker(
             job["status"] = "completed"
             found_count = len(job.get("results", []))
             if found_count:
-                job["message"] = (
-                    f"Scan finished all symbols: found {found_count} stock(s) meeting "
-                    f"{target_percentage:.1f}% target within {duration_days} days."
-                )
+                if target_percentage is not None and duration_days is not None:
+                    job["message"] = (
+                        f"Scan finished all symbols: found {found_count} BUY uptrend stock(s) meeting "
+                        f"{target_percentage:.1f}% target within {duration_days} days."
+                    )
+                elif target_percentage is not None:
+                    job["message"] = (
+                        f"Scan finished all symbols: found {found_count} BUY uptrend stock(s) meeting "
+                        f"{target_percentage:.1f}% target."
+                    )
+                else:
+                    job["message"] = (
+                        f"Scan finished all symbols: found {found_count} BUY uptrend stock(s)."
+                    )
             else:
-                job["message"] = (
-                    "Scan finished all symbols but found no matches. "
-                    "Try lower target % or longer duration."
-                )
+                job["message"] = "Scan finished all symbols but found no BUY uptrend matches."
             job["updated_at"] = datetime.now().isoformat()
     except Exception as exc:
         logger.exception("Recommendation scan worker failed for job %s", job_id)

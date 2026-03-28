@@ -57,11 +57,11 @@ async def stock_recommendations(
     min_overall_score: float = Query(50, ge=0, le=100),
     top_n: int = Query(10, ge=1, le=50),
     max_symbols: int = Query(80, ge=5, le=800),
-    duration_days: int = Query(30, ge=1, le=365),
-    target_percentage: float = Query(8.0, ge=1, le=100),
+    duration_days: Optional[int] = Query(None, ge=1, le=365),
+    target_percentage: Optional[float] = Query(None, ge=1, le=100),
     seed: Optional[int] = Query(None),
 ):
-    """Recommend stocks with projected upside target within user-selected duration."""
+    """Recommend BUY candidates in uptrend; optional duration/target refine scoring/filtering."""
     normalized_sector = _normalize_sector(sector) if sector else "all"
     all_symbols = market_universe._get_us_market_universe(universe)
 
@@ -112,7 +112,15 @@ async def stock_recommendations(
         elif learning_adj < 0:
             candidate["reason"] += " Past tracked outcomes for this symbol have been weaker, so confidence is trimmed."
 
-    qualified = [c for c in candidates if c["adjusted_upside_pct"] >= target_percentage]
+    qualified = [
+        c for c in candidates
+        if str(c.get("recommendation", "")).upper() == "BUY"
+        and str(c.get("trend", "")).lower() == "uptrend"
+    ]
+
+    if target_percentage is not None:
+        qualified = [c for c in qualified if c["adjusted_upside_pct"] >= target_percentage]
+
     ranked = sorted(
         qualified,
         key=lambda item: (item["adjusted_upside_pct"], item["overall_score"], item["confidence"]),
@@ -120,15 +128,17 @@ async def stock_recommendations(
     )[:top_n]
 
     if ranked:
-        summary = (
-            f"Found {len(ranked)} stocks with projected upside >= {target_percentage:.1f}% "
-            f"within {duration_days} days."
-        )
+        if target_percentage is not None and duration_days is not None:
+            summary = (
+                f"Found {len(ranked)} BUY uptrend stocks with projected upside >= {target_percentage:.1f}% "
+                f"within {duration_days} days."
+            )
+        elif target_percentage is not None:
+            summary = f"Found {len(ranked)} BUY uptrend stocks with projected upside >= {target_percentage:.1f}%."
+        else:
+            summary = f"Found {len(ranked)} BUY uptrend stocks."
     else:
-        summary = (
-            "No stocks currently meet your requested upside and duration target. "
-            "Try lowering target percentage, increasing duration, or broadening the universe."
-        )
+        summary = "No BUY uptrend stocks found for this universe/sector right now."
 
     return {
         "universe": universe,
@@ -151,8 +161,8 @@ async def stock_recommendations(
 async def start_stock_recommendation_scan(
     universe: str = Query("sp500", pattern="^(sp500|nasdaq100|combined)$"),
     sector: Optional[str] = Query(None),
-    duration_days: int = Query(30, ge=1, le=365),
-    target_percentage: float = Query(8.0, ge=1, le=100),
+    duration_days: Optional[int] = Query(None, ge=1, le=365),
+    target_percentage: Optional[float] = Query(None, ge=1, le=100),
 ):
     """Start progressive recommendation scan; returns job_id for polling."""
     normalized_sector = _normalize_sector(sector) if sector else "all"
