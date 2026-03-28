@@ -366,8 +366,73 @@ def test_api_auto_buy_opens_position(monkeypatch, tmp_path):
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "ok"
+    assert data["opened_count"] >= 1
     assert data["position"]["symbol"] == "AAPL"
     assert data["position"]["shares"] == 10
+    assert isinstance(data.get("opened_positions"), list)
+
+
+def test_api_auto_buy_skips_existing_open_positions(monkeypatch, tmp_path):
+    import src.main as main_module
+
+    monkeypatch.setattr(pt_module, "POSITIONS_PATH", tmp_path / "positions.json")
+    monkeypatch.setattr(pt_module, "CLOSED_TRADES_PATH", tmp_path / "closed_trades.json")
+
+    # Existing open position should be skipped
+    pt_module.open_position("AAPL", 10, 100.0, 108.0, 94.0, 30, 8.0, 75.0)
+
+    buy_analysis = _make_analysis("AAPL", 80.0, "BUY")
+
+    def fake_screen(symbols, filters, top_n, seed=None, fast_mode=False):
+        return ScreeningResult(
+            total_candidates=len(symbols),
+            filtered_count=1,
+            top_picks=[buy_analysis],
+            screening_timestamp=datetime.now(),
+            deterministic_mode=False,
+            seed=seed,
+        )
+
+    monkeypatch.setattr(main_module.screener, "screen_stocks", fake_screen)
+
+    response = client.post("/paper-trading/auto-buy")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "no_new_positions"
+    assert "AAPL" in data.get("skipped_existing_symbols", [])
+
+
+def test_api_auto_buy_opens_multiple_positions(monkeypatch, tmp_path):
+    import src.main as main_module
+
+    monkeypatch.setattr(pt_module, "POSITIONS_PATH", tmp_path / "positions.json")
+    monkeypatch.setattr(pt_module, "CLOSED_TRADES_PATH", tmp_path / "closed_trades.json")
+
+    analyses = [
+        _make_analysis("AAPL", 82.0, "BUY"),
+        _make_analysis("MSFT", 81.0, "BUY"),
+        _make_analysis("NVDA", 80.0, "BUY"),
+    ]
+
+    def fake_screen(symbols, filters, top_n, seed=None, fast_mode=False):
+        return ScreeningResult(
+            total_candidates=len(symbols),
+            filtered_count=len(analyses),
+            top_picks=analyses,
+            screening_timestamp=datetime.now(),
+            deterministic_mode=False,
+            seed=seed,
+        )
+
+    monkeypatch.setattr(main_module.screener, "screen_stocks", fake_screen)
+
+    response = client.post("/paper-trading/auto-buy", params={"max_positions": 3})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert data["opened_count"] == 3
+    symbols = {p["symbol"] for p in data.get("opened_positions", [])}
+    assert symbols == {"AAPL", "MSFT", "NVDA"}
 
 
 def test_api_auto_buy_returns_no_buy_when_none_qualify(monkeypatch, tmp_path):

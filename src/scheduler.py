@@ -23,7 +23,7 @@ def auto_buy_job(screener, shares: int = 10, duration_days: int = 30, target_pct
     from src.market_universe import _get_us_market_universe
     from src.models import ScreeningFilter
     from src.recommendations import _build_exit_strategy
-    from src.paper_trading import open_position
+    from src.paper_trading import has_open_position, open_position
 
     logger.info("auto_buy_job: starting daily scan")
     try:
@@ -31,12 +31,20 @@ def auto_buy_job(screener, shares: int = 10, duration_days: int = 30, target_pct
         filters = ScreeningFilter(min_overall_score=50)
         result = screener.screen_stocks(symbols, filters, 25, None, True)
 
-        buys = [a for a in result.top_picks if a.recommendation == "BUY"]
+        buys = [
+            a for a in result.top_picks
+            if str(a.recommendation).upper() == "BUY"
+            and str(getattr(a.technical, "trend", "")).lower() == "uptrend"
+        ]
         if not buys:
             logger.info("auto_buy_job: no BUY recommendations today — no position opened")
             return
 
-        top = buys[0]
+        top = next((a for a in buys if not has_open_position(a.symbol)), None)
+        if top is None:
+            logger.info("auto_buy_job: all BUY uptrend candidates already open — skipping")
+            return
+
         exit_strategy = _build_exit_strategy(top.current_price, target_pct)
 
         pos = open_position(

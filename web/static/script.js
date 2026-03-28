@@ -610,7 +610,17 @@ async function triggerAutoBuy(buttonEl) {
         const meta = document.getElementById('paperTradingMeta');
         if (meta) {
             if (data.status === 'ok') {
-                meta.textContent = `Opened: ${data.position.symbol} × ${data.position.shares} shares @ $${Number(data.position.entry_price).toFixed(2)} | Target $${Number(data.position.target_price).toFixed(2)} | Stop $${Number(data.position.stop_loss_price).toFixed(2)}`;
+                const opened = Array.isArray(data.opened_positions) ? data.opened_positions : [];
+                const openedList = opened.map(p => `${p.symbol} × ${p.shares}`).join(', ');
+                const skipped = Array.isArray(data.skipped_existing_symbols) && data.skipped_existing_symbols.length
+                    ? ` Skipped existing: ${data.skipped_existing_symbols.join(', ')}.`
+                    : '';
+                meta.textContent = `Opened ${Number(data.opened_count || opened.length)} position(s): ${openedList}.${skipped}`;
+            } else if (data.status === 'no_new_positions') {
+                const skipped = Array.isArray(data.skipped_existing_symbols) && data.skipped_existing_symbols.length
+                    ? ` Existing open symbols: ${data.skipped_existing_symbols.join(', ')}.`
+                    : '';
+                meta.textContent = `${data.message || 'No new positions opened.'}${skipped}`;
             } else {
                 meta.textContent = data.message || 'No BUY found.';
             }

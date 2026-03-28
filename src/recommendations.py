@@ -126,6 +126,31 @@ def _build_layman_reason(analysis: StockAnalysis, target_price: float, duration_
     trend = (getattr(analysis.technical, "trend", None) or "unclear").lower()
     confidence = round(float(getattr(analysis, "confidence", 0.0) or 0.0) * 100.0, 1)
     score = round(float(getattr(analysis, "overall_score", 0.0) or 0.0), 1)
+    current_price = float(getattr(analysis, "current_price", 0.0) or 0.0)
+
+    rsi = getattr(analysis.technical, "rsi", None)
+    momentum_3m = getattr(analysis.technical, "price_change_3m", None)
+    rs_spy = getattr(analysis.technical, "relative_strength_vs_spy", None)
+    sentiment_score = getattr(analysis.sentiment, "score", None)
+    eps_forward_revision = getattr(analysis.fundamental, "eps_forward_revision", None)
+    roic = getattr(analysis.fundamental, "roic", None)
+    breakout = getattr(analysis.technical, "is_breakout", None)
+
+    signal_phrases = []
+    if breakout is True:
+        signal_phrases.append("price is breaking out with strong participation")
+    if rs_spy is not None and rs_spy > 0:
+        signal_phrases.append("it is outperforming the broader market")
+    if momentum_3m is not None and momentum_3m > 0:
+        signal_phrases.append(f"recent 3-month momentum is positive ({momentum_3m:.1f}%)")
+    if rsi is not None and 40 <= rsi <= 70:
+        signal_phrases.append(f"RSI is in a healthier trend zone ({rsi:.1f})")
+    if eps_forward_revision is not None and eps_forward_revision > 0:
+        signal_phrases.append("analysts have been revising earnings expectations upward")
+    if roic is not None and roic >= 0.12:
+        signal_phrases.append("capital efficiency is strong")
+    if sentiment_score is not None and sentiment_score >= 60:
+        signal_phrases.append("sentiment is supportive")
 
     if duration_days is not None:
         window_text = f"The preferred window is {duration_days} days"
@@ -133,10 +158,18 @@ def _build_layman_reason(analysis: StockAnalysis, target_price: float, duration_
         window_text = "There is no fixed deadline"
 
     lead_factor = (analysis.top_contributing_factors or ["its trend and quality signals are aligned"])[0]
+    primary_signal = signal_phrases[0] if signal_phrases else lead_factor
+    secondary_signal = signal_phrases[1] if len(signal_phrases) > 1 else None
+
+    target_delta = (target_price - current_price) if current_price > 0 else 0.0
+    target_pct = ((target_delta / current_price) * 100.0) if current_price > 0 else 0.0
+
+    secondary_text = f" Secondary support: {secondary_signal}." if secondary_signal else ""
     return (
         f"{symbol} is in an {trend} and rated BUY with score {score} and confidence {confidence}%. "
-        f"Main support for this setup: {lead_factor}. "
-        f"Target price is ${target_price:.2f}; {window_text}, and risk is managed with the stop-loss shown."
+        f"Main support for this setup: {primary_signal}.{secondary_text} "
+        f"From ${current_price:.2f}, the target is ${target_price:.2f} (~{target_pct:.1f}% upside); "
+        f"{window_text}, and risk is managed with the stop-loss shown."
     )
 
 

@@ -28,8 +28,9 @@ async def trigger_auto_buy(
     duration_days: int = Query(30, ge=1, le=365),
     target_pct: float = Query(8.0, ge=1.0, le=100.0),
     shares: int = Query(10, ge=1, le=10000),
+    max_positions: int = Query(5, ge=1, le=20),
 ):
-    """Scan for the top BUY stock and open a simulated position immediately.
+    """Scan BUY-uptrend stocks and open simulated positions immediately.
 
     Identical logic to the daily automated job; useful for manual testing or
     on-demand paper trades outside market hours.
@@ -40,43 +41,68 @@ async def trigger_auto_buy(
     from src.market_universe import _get_us_market_universe
     from src.models import ScreeningFilter
     from src.recommendations import _build_exit_strategy
-    from src.paper_trading import open_position
+    from src.paper_trading import has_open_position, open_position
 
     symbols = _get_us_market_universe(universe)[:80]
     filters = ScreeningFilter(min_overall_score=50)
     result = await asyncio.to_thread(
-        _screener.screen_stocks, symbols, filters, 25, None, True
+        _screener.screen_stocks, symbols, filters, max(25, max_positions * 8), None, True
     )
 
-    buys = [a for a in result.top_picks if a.recommendation == "BUY"]
+    buys = [
+        a for a in result.top_picks
+        if str(a.recommendation).upper() == "BUY"
+        and str(getattr(a.technical, "trend", "")).lower() == "uptrend"
+    ]
     if not buys:
         return {
             "status": "no_buy",
-            "message": "No BUY recommendations found. No position opened.",
+            "message": "No BUY uptrend recommendations found. No position opened.",
             "scanned": len(result.top_picks),
         }
 
-    top = buys[0]
-    exit_strategy = _build_exit_strategy(top.current_price, target_pct)
+    opened_positions = []
+    skipped_existing = []
 
-    pos = open_position(
-        symbol=top.symbol,
-        shares=shares,
-        entry_price=top.current_price,
-        target_price=exit_strategy["target_price"],
-        stop_loss_price=exit_strategy["stop_loss_price"],
-        duration_days=duration_days,
-        target_pct=target_pct,
-        recommendation_score=round(top.overall_score, 2),
-        source="manual_trigger",
-    )
+    for analysis in buys:
+        if len(opened_positions) >= max_positions:
+            break
+
+        symbol = str(analysis.symbol).upper()
+        if has_open_position(symbol):
+            skipped_existing.append(symbol)
+            continue
+
+        exit_strategy = _build_exit_strategy(analysis.current_price, target_pct)
+        pos = open_position(
+            symbol=symbol,
+            shares=shares,
+            entry_price=analysis.current_price,
+            target_price=exit_strategy["target_price"],
+            stop_loss_price=exit_strategy["stop_loss_price"],
+            duration_days=duration_days,
+            target_pct=target_pct,
+            recommendation_score=round(analysis.overall_score, 2),
+            source="manual_trigger",
+        )
+        opened_positions.append(pos)
+
+    if not opened_positions:
+        return {
+            "status": "no_new_positions",
+            "message": "All BUY uptrend candidates already have open positions. No new buys executed.",
+            "opened_count": 0,
+            "opened_positions": [],
+            "skipped_existing_symbols": skipped_existing,
+        }
 
     return {
         "status": "ok",
-        "message": f"Opened {shares}-share paper position in {top.symbol}",
-        "position": pos,
-        "score": round(top.overall_score, 2),
-        "recommendation": top.recommendation,
+        "message": f"Opened {len(opened_positions)} position(s), {shares} shares each.",
+        "opened_count": len(opened_positions),
+        "opened_positions": opened_positions,
+        "position": opened_positions[0],
+        "skipped_existing_symbols": skipped_existing,
     }
 
 

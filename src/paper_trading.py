@@ -370,6 +370,14 @@ def get_open_positions() -> list[dict]:
     return result
 
 
+def has_open_position(symbol: str) -> bool:
+    """Return True if a symbol already has an active open position."""
+    symbol_upper = (symbol or "").upper().strip()
+    if not symbol_upper:
+        return False
+    return any((p.get("symbol") or "").upper() == symbol_upper for p in _load_positions())
+
+
 # ── Summary stats ─────────────────────────────────────────────────────────────
 
 def summarize_closed_trades(records: Optional[list[dict]] = None) -> dict:
