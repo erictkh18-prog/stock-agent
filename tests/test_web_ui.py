@@ -37,7 +37,29 @@ def _read_template(name: str) -> str:
 def test_health_returns_200():
     resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.json()["status"] == "healthy"
+    body = resp.json()
+    assert body["status"] == "healthy"
+    assert "paper_trading_storage" in body
+
+
+def test_health_returns_503_when_persistence_enforced_and_storage_not_postgres(monkeypatch):
+    monkeypatch.setenv("HEALTHCHECK_ENFORCE_TRADING_PERSISTENCE", "true")
+    monkeypatch.setattr(
+        "src.paper_trading.get_storage_status",
+        lambda: {
+            "mode": "json-local",
+            "postgres_enabled": False,
+            "fallback_allowed": False,
+            "healthy": True,
+            "message": "Using local JSON storage.",
+        },
+    )
+
+    resp = client.get("/health")
+    assert resp.status_code == 503
+    body = resp.json()
+    assert body["status"] == "degraded"
+    assert body["strict_persistence_healthcheck"] is True
 
 
 def test_version_returns_version_and_commit():

@@ -312,8 +312,29 @@ async def knowledge_base_viewer():
 
 @app.get("/health")
 async def health():
-    """Health check endpoint."""
-    return {"status": "healthy", "timestamp": datetime.now()}
+    """Health check endpoint with paper-trading persistence status."""
+    from src.paper_trading import get_storage_status
+
+    storage_status = get_storage_status()
+    storage_ok = bool(storage_status.get("healthy")) and storage_status.get("mode") == "postgres"
+
+    # Default behavior: enforce in Render/production unless explicitly disabled.
+    strict_raw = os.getenv("HEALTHCHECK_ENFORCE_TRADING_PERSISTENCE")
+    if strict_raw is None:
+        strict_mode = bool(os.getenv("RENDER")) or os.getenv("ENVIRONMENT", "").strip().lower() in {"prod", "production"}
+    else:
+        strict_mode = strict_raw.strip().lower() in {"1", "true", "yes", "on"}
+
+    payload = {
+        "status": "healthy" if (storage_ok or not strict_mode) else "degraded",
+        "timestamp": datetime.now().isoformat(),
+        "paper_trading_storage": storage_status,
+        "strict_persistence_healthcheck": strict_mode,
+    }
+
+    if strict_mode and not storage_ok:
+        return JSONResponse(status_code=503, content=payload)
+    return payload
 
 
 @app.get("/version")
