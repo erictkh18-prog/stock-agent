@@ -5,30 +5,113 @@ const API_URL = window.location.origin.startsWith('http')
 
 let scoreChart = null;
 
+// ============ TOAST NOTIFICATIONS ============
+function showToast(message, type = 'info', durationMs = 4500) {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const iconMap = { success: '✅', error: '❌', info: 'ℹ️', warning: '⚠️' };
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.setAttribute('role', 'alert');
+    toast.innerHTML = `<span class="toast-icon" aria-hidden="true">${iconMap[type] || 'ℹ️'}</span><span class="toast-body">${escapeHtml(message)}</span>`;
+
+    container.appendChild(toast);
+
+    const remove = () => {
+        toast.classList.add('toast-hiding');
+        toast.addEventListener('animationend', () => toast.remove(), { once: true });
+    };
+    const timerId = setTimeout(remove, durationMs);
+    toast.addEventListener('click', () => { clearTimeout(timerId); remove(); });
+}
+
+// Update screen-reader live region
+function announceToSR(message) {
+    const el = document.getElementById('live-status');
+    if (el) {
+        el.textContent = '';
+        // force re-read by toggle
+        setTimeout(() => { el.textContent = message; }, 50);
+    }
+}
+
+// ============ SCORE INTERPRETATION ============
+function scoreInterpretation(score) {
+    if (score >= 70) return { label: 'Strong', cls: 'bullish' };
+    if (score >= 50) return { label: 'Neutral', cls: 'neutral' };
+    return { label: 'Weak', cls: 'bearish' };
+}
+
+function setScoreInterpBadge(id, score) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const { label, cls } = scoreInterpretation(score);
+    el.textContent = label;
+    el.className = `score-interpretation ${cls}`;
+}
+
+// ============ INLINE VALIDATION ============
+function showFieldError(inputId, message) {
+    const input = document.getElementById(inputId);
+    const errEl = document.getElementById(`${inputId}-error`);
+    if (input) input.classList.add('invalid');
+    if (errEl) {
+        errEl.textContent = message;
+        errEl.classList.add('visible');
+    }
+}
+
+function clearFieldError(inputId) {
+    const input = document.getElementById(inputId);
+    const errEl = document.getElementById(`${inputId}-error`);
+    if (input) input.classList.remove('invalid');
+    if (errEl) {
+        errEl.textContent = '';
+        errEl.classList.remove('visible');
+    }
+}
+
 // ============ MOBILE MENU TOGGLE ============
 document.addEventListener('DOMContentLoaded', function() {
     const sidebarToggle = document.getElementById('sidebarToggle');
     const sidebar = document.getElementById('sidebar');
-    
+
     if (sidebarToggle && sidebar) {
         sidebarToggle.addEventListener('click', function() {
-            sidebar.classList.toggle('open');
+            const isOpen = sidebar.classList.toggle('open');
+            sidebarToggle.setAttribute('aria-expanded', String(isOpen));
         });
-        
+
         // Close sidebar when clicking on a link
         sidebar.querySelectorAll('.sidebar-item').forEach(link => {
             link.addEventListener('click', function() {
                 sidebar.classList.remove('open');
+                sidebarToggle.setAttribute('aria-expanded', 'false');
             });
         });
-        
+
         // Close sidebar when clicking outside
         document.addEventListener('click', function(e) {
             if (!sidebar.contains(e.target) && !sidebarToggle.contains(e.target)) {
                 sidebar.classList.remove('open');
+                sidebarToggle.setAttribute('aria-expanded', 'false');
             }
         });
     }
+
+    // Mark active sidebar item based on current hash or scroll position
+    function updateActiveSidebarItem() {
+        const hash = window.location.hash;
+        document.querySelectorAll('.sidebar-item').forEach(item => {
+            item.classList.remove('active');
+            if (hash && item.getAttribute('href') === hash) {
+                item.classList.add('active');
+            }
+        });
+    }
+    window.addEventListener('hashchange', updateActiveSidebarItem);
+    updateActiveSidebarItem();
 });
 
 // Scroll to section helper
@@ -59,15 +142,19 @@ async function parseApiError(response, fallbackMessage) {
 // ============ ANALYZE SINGLE STOCK ============
 async function analyzeStock(buttonEl = null) {
     const symbol = document.getElementById('singleSymbol').value.trim().toUpperCase();
+    clearFieldError('singleSymbol');
+
     if (!symbol) {
-        alert('Please enter a stock symbol');
+        showFieldError('singleSymbol', 'Please enter a stock symbol (e.g. AAPL)');
+        document.getElementById('singleSymbol').focus();
         return;
     }
 
     const btn = buttonEl || document.getElementById('analyzeBtn');
 
     try {
-        setButtonState(btn, true, 'Analyzing...', 'Analyze');
+        setButtonState(btn, true, 'Analyzing…', 'Analyze');
+        announceToSR(`Analyzing ${symbol}…`);
 
         const response = await fetch(`${API_URL}/analyze/${symbol}`);
         if (!response.ok) {
@@ -77,11 +164,12 @@ async function analyzeStock(buttonEl = null) {
         
         const data = await response.json();
         displaySingleResult(data);
+        announceToSR(`Analysis complete for ${symbol}: ${data.recommendation}`);
         
-        setButtonState(btn, false, 'Analyzing...', 'Analyze');
+        setButtonState(btn, false, 'Analyzing…', 'Analyze');
     } catch (error) {
-        alert(`Error: ${error.message}`);
-        setButtonState(btn, false, 'Analyzing...', 'Analyze');
+        showToast(`Analysis failed: ${error.message}`, 'error');
+        setButtonState(btn, false, 'Analyzing…', 'Analyze');
     }
 }
 
@@ -105,15 +193,18 @@ function displaySingleResult(data) {
         : '—';
     document.getElementById('metricTrend').textContent = data.technical?.trend || '—';
     
-    // Score bars
+    // Score bars with interpretation badges
     if (data.fundamental) {
         updateScoreBar('fundamental', data.fundamental.score);
+        setScoreInterpBadge('fundamentalInterp', data.fundamental.score);
     }
     if (data.technical) {
         updateScoreBar('technical', data.technical.score);
+        setScoreInterpBadge('technicalInterp', data.technical.score);
     }
     if (data.sentiment) {
         updateScoreBar('sentiment', data.sentiment.score);
+        setScoreInterpBadge('sentimentInterp', data.sentiment.score);
     }
     
     // Gauge chart
@@ -124,7 +215,7 @@ function displaySingleResult(data) {
     const recommendation = data.recommendation.toLowerCase();
     const confidence = (data.confidence * 100).toFixed(0);
     recBox.className = `recommendation ${recommendation}`;
-        recBox.innerHTML = `<span style="font-size: 1.5em; margin-right: 10px;">
+    recBox.innerHTML = `<span style="font-size: 1.5em; margin-right: 10px;" aria-hidden="true">
         ${recommendation === 'buy' ? '✅' : recommendation === 'hold' ? '⏸️' : '❌'}
     </span>
         ${escapeHtml(data.recommendation)} | Confidence: ${confidence}%`;
@@ -135,7 +226,10 @@ function displaySingleResult(data) {
 function updateScoreBar(type, score) {
     const bar = document.getElementById(`${type}Bar`);
     const scoreEl = document.getElementById(`${type}Score`);
-    bar.style.width = `${Math.min(score, 100)}%`;
+    const barBg = bar?.parentElement;
+    const pct = Math.min(score, 100);
+    bar.style.width = `${pct}%`;
+    if (barBg) barBg.setAttribute('aria-valuenow', String(pct));
     scoreEl.textContent = `${score.toFixed(1)}/100`;
 }
 
@@ -192,21 +286,25 @@ function drawGaugeChart(score) {
 // ============ SCREEN MULTIPLE STOCKS ============
 async function screenStocks(buttonEl = null) {
     const input = document.getElementById('multipleSymbols').value.trim();
+    clearFieldError('multipleSymbols');
+
     if (!input) {
-        alert('Please enter stock symbols');
+        showFieldError('multipleSymbols', 'Enter one or more symbols (e.g. AAPL, MSFT)');
+        document.getElementById('multipleSymbols').focus();
         return;
     }
 
     const symbols = [...new Set(input.split(',').map(s => s.trim().toUpperCase()).filter(Boolean))];
     if (!symbols.length) {
-        alert('Please enter at least one valid stock symbol');
+        showFieldError('multipleSymbols', 'Please enter at least one valid stock symbol');
         return;
     }
 
     const btn = buttonEl || document.getElementById('screenBtn');
 
     try {
-        setButtonState(btn, true, 'Screening...', 'Screen');
+        setButtonState(btn, true, 'Screening…', 'Screen Stocks');
+        announceToSR(`Screening ${symbols.length} stock(s)…`);
 
         const params = new URLSearchParams();
         symbols.forEach(sym => params.append('symbols', sym));
@@ -220,11 +318,12 @@ async function screenStocks(buttonEl = null) {
         
         const data = await response.json();
         displayScreenResults(data?.results || data, 'screenerTable', 'screenResult');
+        announceToSR(`Screening complete. ${(data?.results || data)?.length || 0} result(s) shown.`);
         
-        setButtonState(btn, false, 'Screening...', 'Screen');
+        setButtonState(btn, false, 'Screening…', 'Screen Stocks');
     } catch (error) {
-        alert(`Error: ${error.message}`);
-        setButtonState(btn, false, 'Screening...', 'Screen');
+        showToast(`Screening failed: ${error.message}`, 'error');
+        setButtonState(btn, false, 'Screening…', 'Screen Stocks');
     }
 }
 
@@ -295,7 +394,7 @@ async function scanUsMarket(buttonEl = null) {
     const progressEl = document.getElementById('marketScanMeta');
 
     try {
-        setButtonState(btn, true, 'Scanning...', 'Scan US Market');
+        setButtonState(btn, true, 'Scanning…', 'Scan Market');
 
         const params = new URLSearchParams();
         params.append('universe', universe);
@@ -336,18 +435,19 @@ async function scanUsMarket(buttonEl = null) {
         }
 
         displayScreenResults(data?.results || [], 'marketScanTable', 'marketScanResult');
+        announceToSR(`Market scan complete. ${filteredCount} stock(s) passed filters.`);
         
-        setButtonState(btn, false, 'Scanning...', 'Scan US Market');
+        setButtonState(btn, false, 'Scanning…', 'Scan Market');
     } catch (error) {
         const message = error?.name === 'AbortError'
             ? 'Scan timed out after 90 seconds. Try reducing Max Symbols.'
-            : `Error: ${error.message}`;
+            : `Scan failed: ${error.message}`;
 
         if (progressEl) {
             progressEl.textContent = message;
         }
-        alert(message);
-        setButtonState(btn, false, 'Scanning...', 'Scan US Market');
+        showToast(message, error?.name === 'AbortError' ? 'warning' : 'error');
+        setButtonState(btn, false, 'Scanning…', 'Scan Market');
     }
 }
 
@@ -359,7 +459,7 @@ function _setRecommendationScanUiState(isScanning) {
     const scanBtn = document.getElementById('recommendScanBtn');
     const stopBtn = document.getElementById('recommendStopBtn');
     if (scanBtn) {
-        setButtonState(scanBtn, isScanning, 'Scanning...', 'Scan US Market');
+        setButtonState(scanBtn, isScanning, 'Scanning…', 'Scan for Buys');
     }
     if (stopBtn) {
         stopBtn.disabled = !isScanning;
@@ -411,7 +511,7 @@ async function _pollRecommendationScanJob() {
         if (progressEl) {
             progressEl.textContent = `Error: ${error.message}`;
         }
-        alert(`Error: ${error.message}`);
+        showToast(`Recommendation scan failed: ${error.message}`, 'error');
     }
 }
 
@@ -490,11 +590,11 @@ async function scanStockRecommendations(buttonEl = null) {
         await _pollRecommendationScanJob();
         recommendScanPollHandle = setInterval(_pollRecommendationScanJob, 2000);
     } catch (error) {
-        const message = `Error: ${error.message}`;
+        const message = `Scan failed: ${error.message}`;
         if (progressEl) {
             progressEl.textContent = message;
         }
-        alert(message);
+        showToast(message, 'error');
         _stopRecommendationPolling();
         recommendScanJobId = null;
         _setRecommendationScanUiState(false);
@@ -509,7 +609,7 @@ async function stopStockRecommendationScan(buttonEl = null) {
 
     const progressEl = document.getElementById('recommendMeta');
     try {
-        setButtonState(btn, true, 'Stopping...', 'Stop Scan');
+        setButtonState(btn, true, 'Stopping…', 'Stop Scan');
         const response = await fetch(`${API_URL}/stock-recommendations/scan/${encodeURIComponent(recommendScanJobId)}/stop`, {
             method: 'POST',
         });
@@ -519,16 +619,16 @@ async function stopStockRecommendationScan(buttonEl = null) {
         }
 
         if (progressEl) {
-            progressEl.textContent = 'Stop requested. Finishing current batch...';
+            progressEl.textContent = 'Stop requested. Finishing current batch…';
         }
         await _pollRecommendationScanJob();
     } catch (error) {
         if (progressEl) {
             progressEl.textContent = `Error: ${error.message}`;
         }
-        alert(`Error: ${error.message}`);
+        showToast(`Could not stop scan: ${error.message}`, 'error');
     } finally {
-        setButtonState(btn, false, 'Stopping...', 'Stop Scan');
+        setButtonState(btn, false, 'Stopping…', 'Stop Scan');
     }
 }
 
@@ -600,7 +700,8 @@ function displayRecommendationResults(results) {
 async function triggerAutoBuy(buttonEl) {
     const btn = buttonEl || document.getElementById('autoBuyBtn');
     try {
-        setButtonState(btn, true, 'Scanning…', '▶ Trigger Auto-Buy Now');
+        setButtonState(btn, true, 'Scanning…', '▶ Open Paper Positions Now');
+        announceToSR('Scanning for BUY candidates…');
         const response = await fetch(`${API_URL}/paper-trading/auto-buy`, { method: 'POST' });
         if (!response.ok) {
             const msg = await parseApiError(response, 'Auto-buy failed');
@@ -615,21 +716,27 @@ async function triggerAutoBuy(buttonEl) {
                 const skipped = Array.isArray(data.skipped_existing_symbols) && data.skipped_existing_symbols.length
                     ? ` Skipped existing: ${data.skipped_existing_symbols.join(', ')}.`
                     : '';
-                meta.textContent = `Opened ${Number(data.opened_count || opened.length)} position(s): ${openedList}.${skipped}`;
+                const summary = `Opened ${Number(data.opened_count || opened.length)} position(s): ${openedList}.${skipped}`;
+                meta.textContent = summary;
+                showToast(summary, 'success');
             } else if (data.status === 'no_new_positions') {
                 const skipped = Array.isArray(data.skipped_existing_symbols) && data.skipped_existing_symbols.length
                     ? ` Existing open symbols: ${data.skipped_existing_symbols.join(', ')}.`
                     : '';
-                meta.textContent = `${data.message || 'No new positions opened.'}${skipped}`;
+                const msg = `${data.message || 'No new positions opened.'}${skipped}`;
+                meta.textContent = msg;
+                showToast(msg, 'info');
             } else {
-                meta.textContent = data.message || 'No BUY found.';
+                const msg = data.message || 'No BUY candidates found.';
+                meta.textContent = msg;
+                showToast(msg, 'info');
             }
         }
         await loadPaperTrading();
     } catch (error) {
-        alert(`Error: ${error.message}`);
+        showToast(`Auto-buy failed: ${error.message}`, 'error');
     } finally {
-        setButtonState(btn, false, 'Scanning…', '▶ Trigger Auto-Buy Now');
+        setButtonState(btn, false, 'Scanning…', '▶ Open Paper Positions Now');
     }
 }
 
@@ -645,13 +752,19 @@ async function checkAndClosePositions(buttonEl) {
         const data = await response.json();
         const meta = document.getElementById('paperTradingMeta');
         if (meta) {
-            meta.textContent = data.closed_count > 0
-                ? `Closed ${data.closed_count} position(s): ${data.closed.map(t => `${t.symbol} (${t.exit_reason} ${Number(t.return_pct).toFixed(2)}%)`).join(', ')}`
-                : 'No positions closed — none hit target, stop, or expiry.';
+            if (data.closed_count > 0) {
+                const summary = `Closed ${data.closed_count} position(s): ${data.closed.map(t => `${t.symbol} (${t.exit_reason} ${Number(t.return_pct).toFixed(2)}%)`).join(', ')}`;
+                meta.textContent = summary;
+                showToast(summary, 'success');
+            } else {
+                const msg = 'No positions closed — none hit target, stop-loss, or expiry.';
+                meta.textContent = msg;
+                showToast(msg, 'info');
+            }
         }
         await loadPaperTrading();
     } catch (error) {
-        alert(`Error: ${error.message}`);
+        showToast(`Check positions failed: ${error.message}`, 'error');
     } finally {
         setButtonState(btn, false, 'Checking…', '🔄 Check & Close Positions');
     }
@@ -684,7 +797,7 @@ async function loadPaperTrading() {
                         <th>Current $</th><th>P&L</th><th>Days Left</th>
                     </tr></thead><tbody>`;
                 positions.forEach((p) => {
-                    const pnlClass = (p.unrealized_pnl || 0) >= 0 ? 'style="color:green"' : 'style="color:red"';
+                    const pnlCls = (p.unrealized_pnl || 0) >= 0 ? 'pnl-positive' : 'pnl-negative';
                     html += `<tr>
                         <td class="symbol">${escapeHtml(p.symbol)}</td>
                         <td>${p.shares}</td>
@@ -692,7 +805,7 @@ async function loadPaperTrading() {
                         <td>$${Number(p.target_price).toFixed(2)}</td>
                         <td>$${Number(p.stop_loss_price).toFixed(2)}</td>
                         <td>${p.current_price != null ? `$${Number(p.current_price).toFixed(2)}` : '—'}</td>
-                        <td ${pnlClass}>${p.unrealized_pnl != null ? `$${Number(p.unrealized_pnl).toFixed(2)} (${Number(p.unrealized_pct).toFixed(2)}%)` : '—'}</td>
+                        <td class="${pnlCls}">${p.unrealized_pnl != null ? `$${Number(p.unrealized_pnl).toFixed(2)} (${Number(p.unrealized_pct).toFixed(2)}%)` : '—'}</td>
                         <td>${p.days_remaining}</td>
                     </tr>`;
                 });
@@ -721,15 +834,15 @@ async function loadPaperTrading() {
                         <th>Entry $</th><th>Exit $</th><th>Return</th><th>P&amp;L</th>
                     </tr></thead><tbody>`;
                 trades.forEach((t) => {
-                    const retClass = (t.return_pct || 0) >= 0 ? 'style="color:green"' : 'style="color:red"';
+                    const retCls = (t.return_pct || 0) >= 0 ? 'pnl-positive' : 'pnl-negative';
                     html += `<tr>
                         <td>${escapeHtml((t.closed_at || '').replace('T', ' ').slice(0, 16))}</td>
                         <td class="symbol">${escapeHtml(t.symbol || '')}</td>
                         <td>${escapeHtml(t.exit_reason || '')}</td>
                         <td>$${Number(t.entry_price || 0).toFixed(2)}</td>
                         <td>$${Number(t.exit_price || 0).toFixed(2)}</td>
-                        <td ${retClass}>${Number(t.return_pct || 0).toFixed(2)}%</td>
-                        <td ${retClass}>$${Number(t.pnl || 0).toFixed(2)}</td>
+                        <td class="${retCls}">${Number(t.return_pct || 0).toFixed(2)}%</td>
+                        <td class="${retCls}">$${Number(t.pnl || 0).toFixed(2)}</td>
                     </tr>`;
                 });
                 html += '</tbody></table>';
@@ -738,17 +851,18 @@ async function loadPaperTrading() {
         }
     } catch (error) {
         if (meta) meta.textContent = `Error loading paper trading data: ${error.message}`;
+        showToast(`Could not load positions: ${error.message}`, 'error');
     }
 }
 
-    function escapeHtml(value) {
-        return String(value ?? '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#039;');
-    }
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
 
 // ============ ENTER KEY SUPPORT ============
 document.addEventListener('DOMContentLoaded', () => {

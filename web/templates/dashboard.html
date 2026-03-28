@@ -3,49 +3,58 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stock Analysis Agent</title>
+    <title>Stock Analysis Agent – Dashboard</title>
     <link rel="preconnect" href="https://cdn.jsdelivr.net">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="../static/style.css?v=20260330">
+    <link rel="stylesheet" href="../static/style.css?v=20260328">
     <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
 </head>
 <body>
+    <!-- Skip to main content (keyboard/screen reader) -->
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+
+    <!-- ARIA live region for dynamic announcements -->
+    <div id="live-status" aria-live="polite" aria-atomic="true"></div>
+
+    <!-- Toast container -->
+    <div id="toast-container" aria-live="assertive" aria-atomic="true" role="status"></div>
+
     <!-- NAVIGATION BAR -->
-    <nav class="navbar">
+    <nav class="navbar" aria-label="Site navigation">
         <a href="/" class="navbar-brand">📊 Stock Agent</a>
-        <button class="navbar-toggle" id="sidebarToggle">☰</button>
+        <button class="navbar-toggle" id="sidebarToggle" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="sidebar">☰</button>
     </nav>
 
     <!-- SIDEBAR: Module Navigation -->
-    <aside class="sidebar" id="sidebar">
+    <aside class="sidebar" id="sidebar" aria-label="Module navigation">
         <!-- Module 1: Knowledge Base -->
         <div class="sidebar-section">
-            <div class="sidebar-title">📚 Knowledge Base</div>
-            <a href="/knowledge-base-builder" class="sidebar-item">Contribute Content</a>
-            <a href="/knowledge-base" class="sidebar-item">View Content</a>
+            <div class="sidebar-title" id="nav-kb">📚 Knowledge Base</div>
+            <a href="/knowledge-base-builder" class="sidebar-item" aria-describedby="nav-kb">Contribute Content</a>
+            <a href="/knowledge-base" class="sidebar-item" aria-describedby="nav-kb">View Content</a>
         </div>
 
         <!-- Module A: Admin -->
         <div class="sidebar-section">
-            <div class="sidebar-title">🛡️ Admin Module</div>
-            <a href="/admin" class="sidebar-item">Admin Login &amp; Tools</a>
+            <div class="sidebar-title" id="nav-admin">🛡️ Admin Module</div>
+            <a href="/admin" class="sidebar-item" aria-describedby="nav-admin">Admin Login &amp; Tools</a>
         </div>
 
         <!-- Module 2: Stock Screening -->
         <div class="sidebar-section">
-            <div class="sidebar-title">📈 Stock Screening</div>
-            <a href="#section-analyze" class="sidebar-item" onclick="scrollToSection('section-analyze')">Analyze Single Stock</a>
-            <a href="#section-screen" class="sidebar-item" onclick="scrollToSection('section-screen')">Screen Multiple</a>
-            <a href="#section-market" class="sidebar-item" onclick="scrollToSection('section-market')">Market Scanner</a>
-            <a href="#section-recommend" class="sidebar-item" onclick="scrollToSection('section-recommend')">Recommendations</a>
+            <div class="sidebar-title" id="nav-screen">📈 Stock Screening</div>
+            <a href="#section-analyze" class="sidebar-item" onclick="scrollToSection('section-analyze')" aria-describedby="nav-screen">Analyze Single Stock</a>
+            <a href="#section-screen" class="sidebar-item" onclick="scrollToSection('section-screen')" aria-describedby="nav-screen">Screen Multiple</a>
+            <a href="#section-market" class="sidebar-item" onclick="scrollToSection('section-market')" aria-describedby="nav-screen">Market Scanner</a>
+            <a href="#section-recommend" class="sidebar-item" onclick="scrollToSection('section-recommend')" aria-describedby="nav-screen">Recommendations</a>
         </div>
 
         <!-- Module 3: Trade Tracker -->
         <div class="sidebar-section">
-            <div class="sidebar-title">💰 Trade Tracking</div>
-            <a href="#section-paper-trading" class="sidebar-item" onclick="scrollToSection('section-paper-trading')">Paper Trading Tracker</a>
+            <div class="sidebar-title" id="nav-trade">💰 Trade Tracking</div>
+            <a href="#section-paper-trading" class="sidebar-item" onclick="scrollToSection('section-paper-trading')" aria-describedby="nav-trade">Paper Trading Tracker</a>
         </div>
 
         <!-- Quick Links -->
@@ -56,122 +65,141 @@
     </aside>
 
     <!-- MAIN CONTENT -->
-    <main class="main-content">
+    <main class="main-content" id="main-content" tabindex="-1">
         <!-- PAGE HEADER -->
-        <div class="page-header">
+        <header class="page-header">
             <h1>Stock Analysis Dashboard</h1>
             <p>Signal-driven stock intelligence, recommendation scoring, and automated paper trading</p>
-        </div>
+        </header>
 
         <div class="container">
 
         <!-- MODULE 2: STOCK SCREENING -->
         <!-- Section 2.1: Single Stock Analysis -->
-        <div class="card" id="section-analyze">
+        <section class="card" id="section-analyze" aria-labelledby="heading-analyze">
             <div class="card-module-header">
-                <h2>🔍 2.1 Analyze a Single Stock</h2>
+                <h2 id="heading-analyze">🔍 2.1 Analyze a Single Stock</h2>
             </div>
-            <p class="description">Enter a stock symbol and get detailed fundamental, technical, and sentiment analysis</p>
-            
-            <div class="input-group">
-                <input type="text" id="singleSymbol" placeholder="Enter stock symbol (e.g., AAPL)" maxlength="10">
-                <button id="analyzeBtn" onclick="analyzeStock(this)">Analyze</button>
+            <p class="description" id="analyze-desc">Enter a stock symbol and get detailed fundamental, technical, and sentiment analysis. Try <strong>AAPL</strong> to get started.</p>
+
+            <div class="input-group" role="group" aria-labelledby="heading-analyze">
+                <label for="singleSymbol" class="visually-hidden">Stock symbol</label>
+                <input type="text" id="singleSymbol" placeholder="e.g. AAPL" maxlength="10"
+                    aria-describedby="analyze-desc singleSymbol-error"
+                    aria-label="Stock symbol" autocomplete="off" spellcheck="false">
+                <div id="singleSymbol-error" class="input-error" role="alert"></div>
+                <button id="analyzeBtn" onclick="analyzeStock(this)"
+                    data-tooltip="Fetch fundamental, technical &amp; sentiment scores for one stock"
+                    aria-describedby="analyze-desc">
+                    Analyze
+                </button>
             </div>
 
-            <div id="singleResult" class="result hidden">
+            <div id="singleResult" class="result hidden" aria-live="polite">
                 <div class="stock-header">
                     <h3 id="resultSymbol"></h3>
                     <div class="price-info">
-                        <span id="resultPrice" class="price"></span>
-                        <span id="resultStatus" class="status"></span>
+                        <span id="resultPrice" class="price" aria-label="Current price"></span>
+                        <span id="resultStatus" class="status" aria-label="Recommendation"></span>
                     </div>
                 </div>
 
-                <div class="score-gauge">
+                <div class="score-gauge" aria-hidden="true">
                     <canvas id="scoreChart" width="200" height="200"></canvas>
                 </div>
 
-                <div class="metrics-grid">
-                    <div class="metric">
+                <div class="metrics-grid" role="list" aria-label="Key financial metrics">
+                    <div class="metric" role="listitem">
                         <label>P/E Ratio</label>
-                        <span id="metricPE">—</span>
+                        <span id="metricPE" aria-label="Price-to-earnings ratio">—</span>
                     </div>
-                    <div class="metric">
+                    <div class="metric" role="listitem">
                         <label>EPS</label>
-                        <span id="metricEPS">—</span>
+                        <span id="metricEPS" aria-label="Earnings per share">—</span>
                     </div>
-                    <div class="metric">
+                    <div class="metric" role="listitem">
                         <label>Dividend Yield</label>
-                        <span id="metricDividend">—</span>
+                        <span id="metricDividend" aria-label="Dividend yield">—</span>
                     </div>
-                    <div class="metric">
+                    <div class="metric" role="listitem">
                         <label>Trend</label>
-                        <span id="metricTrend">—</span>
+                        <span id="metricTrend" aria-label="Price trend">—</span>
                     </div>
                 </div>
 
-                <div class="scores">
+                <div class="scores" aria-label="Analysis scores">
                     <div class="score-bar">
-                        <label>Fundamentals</label>
-                        <div class="bar-bg">
+                        <label>Fundamentals <span id="fundamentalInterp" class="score-interpretation"></span></label>
+                        <div class="bar-bg" role="progressbar" aria-labelledby="fundamentalScore" aria-valuemin="0" aria-valuemax="100">
                             <div id="fundamentalBar" class="bar-fill"></div>
                         </div>
                         <span id="fundamentalScore"></span>
                     </div>
                     <div class="score-bar">
-                        <label>Technical</label>
-                        <div class="bar-bg">
+                        <label>Technical <span id="technicalInterp" class="score-interpretation"></span></label>
+                        <div class="bar-bg" role="progressbar" aria-labelledby="technicalScore" aria-valuemin="0" aria-valuemax="100">
                             <div id="technicalBar" class="bar-fill"></div>
                         </div>
                         <span id="technicalScore"></span>
                     </div>
                     <div class="score-bar">
-                        <label>Sentiment</label>
-                        <div class="bar-bg">
+                        <label>Sentiment <span id="sentimentInterp" class="score-interpretation"></span></label>
+                        <div class="bar-bg" role="progressbar" aria-labelledby="sentimentScore" aria-valuemin="0" aria-valuemax="100">
                             <div id="sentimentBar" class="bar-fill"></div>
                         </div>
                         <span id="sentimentScore"></span>
                     </div>
                 </div>
 
-                <div id="recommendationBox" class="recommendation"></div>
+                <div id="recommendationBox" class="recommendation" role="status"></div>
             </div>
-        </div>
+        </section>
 
         <!-- Section 2.2: Screen Multiple Stocks -->
-        <div class="card" id="section-screen">
+        <section class="card" id="section-screen" aria-labelledby="heading-screen">
             <div class="card-module-header">
-                <h2>🎯 2.2 Screen Multiple Stocks</h2>
+                <h2 id="heading-screen">🎯 2.2 Screen Multiple Stocks</h2>
             </div>
-            <p class="description">Compare several stocks and rank them by investment quality</p>
-            
-            <div class="input-group">
-                <input type="text" id="multipleSymbols" placeholder="Enter symbols separated by commas (e.g., AAPL,MSFT,GOOGL)">
-                <button id="screenBtn" onclick="screenStocks(this)">Screen</button>
+            <p class="description" id="screen-desc">Compare several stocks and rank them by investment quality. Example: <strong>AAPL,MSFT,GOOGL,AMZN</strong></p>
+
+            <div class="input-group" role="group" aria-labelledby="heading-screen">
+                <label for="multipleSymbols" class="visually-hidden">Stock symbols (comma-separated)</label>
+                <input type="text" id="multipleSymbols"
+                    placeholder="e.g. AAPL, MSFT, GOOGL"
+                    aria-describedby="screen-desc multipleSymbols-error"
+                    aria-label="Comma-separated stock symbols"
+                    autocomplete="off" spellcheck="false">
+                <div id="multipleSymbols-error" class="input-error" role="alert"></div>
+                <button id="screenBtn" onclick="screenStocks(this)"
+                    data-tooltip="Analyse and rank all entered symbols side-by-side">
+                    Screen Stocks
+                </button>
             </div>
 
-            <div id="screenResult" class="result hidden">
+            <div id="screenResult" class="result hidden" aria-live="polite">
                 <div id="screenerTable" class="table-container">
                     <!-- Results will be inserted here -->
                 </div>
             </div>
-        </div>
+        </section>
 
         <!-- Section 2.3: Market Scanner -->
-        <div class="card" id="section-market">
+        <section class="card" id="section-market" aria-labelledby="heading-market">
             <div class="card-module-header">
-                <h2>🇺🇸 2.3 Market Opportunity Scan</h2>
+                <h2 id="heading-market">🇺🇸 2.3 Market Opportunity Scan</h2>
             </div>
-            <p class="description">Run a broad market scan to shortlist strong candidates by universe, sector, and quality thresholds.</p>
+            <p class="description" id="market-desc">Run a broad market scan to shortlist strong candidates by universe, sector, and quality thresholds.</p>
 
             <div class="cta-row">
-            <div class="input-group">
-                <select id="marketUniverse" aria-label="Universe">
+            <div class="input-group" role="group" aria-labelledby="heading-market">
+                <label for="marketUniverse" class="visually-hidden">Stock universe</label>
+                <select id="marketUniverse" aria-label="Stock universe">
                     <option value="sp500" selected>S&amp;P 500</option>
                     <option value="nasdaq100">Nasdaq-100</option>
                     <option value="combined">Combined (S&amp;P 500 + Nasdaq-100)</option>
                 </select>
-                <select id="marketSector" aria-label="Sector">
+                <label for="marketSector" class="visually-hidden">Sector filter</label>
+                <select id="marketSector" aria-label="Sector filter">
                     <option value="all" selected>All Sectors</option>
                     <option value="technology">Technology</option>
                     <option value="financial services">Financial Services</option>
@@ -185,10 +213,16 @@
                     <option value="basic materials">Basic Materials</option>
                     <option value="utilities">Utilities</option>
                 </select>
-                <input type="number" id="marketMinScore" min="0" max="100" step="1" value="65" placeholder="Min score" aria-label="Min score">
-                <input type="number" id="marketTopN" min="1" max="100" step="1" value="20" placeholder="Top N" aria-label="Top N">
-                <input type="number" id="marketMaxSymbols" min="5" max="800" step="1" value="10" placeholder="Max symbols" aria-label="Max symbols">
-                <button id="marketScanBtn">Scan US Market</button>
+                <input type="number" id="marketMinScore" min="0" max="100" step="1" value="65"
+                    aria-label="Minimum score (0–100)" placeholder="Min score (0–100)">
+                <input type="number" id="marketTopN" min="1" max="100" step="1" value="20"
+                    aria-label="Top N results" placeholder="Top N">
+                <input type="number" id="marketMaxSymbols" min="5" max="800" step="1" value="10"
+                    aria-label="Max symbols to scan" placeholder="Max symbols">
+                <button id="marketScanBtn"
+                    data-tooltip="Scan the selected universe for stocks meeting the score threshold">
+                    Scan Market
+                </button>
             </div>
             </div>
 
@@ -201,28 +235,30 @@
                 <span>Action</span>
             </div>
 
-            <div id="marketScanResult" class="result hidden">
-                <p id="marketScanMeta" class="description"></p>
+            <div id="marketScanResult" class="result hidden" aria-live="polite">
+                <p id="marketScanMeta" class="description" role="status"></p>
                 <div id="marketScanTable" class="table-container">
                     <!-- Results will be inserted here -->
                 </div>
             </div>
-        </div>
+        </section>
 
         <!-- Section 2.4: Stock Recommendations -->
-        <div class="card" id="section-recommend">
+        <section class="card" id="section-recommend" aria-labelledby="heading-recommend">
             <div class="card-module-header">
-                <h2>⭐ 2.4 Recommendation Scan</h2>
+                <h2 id="heading-recommend">⭐ 2.4 Recommendation Scan</h2>
             </div>
-            <p class="description">Run a focused BUY-uptrend recommendation scan with optional target and duration filters.</p>
+            <p class="description" id="recommend-desc">Run a focused BUY-uptrend recommendation scan with optional target and duration filters.</p>
 
-            <div class="input-group">
+            <div class="input-group" role="group" aria-labelledby="heading-recommend">
+                <label for="recommendUniverse" class="visually-hidden">Recommendation universe</label>
                 <select id="recommendUniverse" aria-label="Recommendation universe">
                     <option value="sp500" selected>S&amp;P 500</option>
                     <option value="nasdaq100">Nasdaq-100</option>
                     <option value="combined">Combined (S&amp;P 500 + Nasdaq-100)</option>
                 </select>
-                <select id="recommendSector" aria-label="Recommendation sector">
+                <label for="recommendSector" class="visually-hidden">Sector filter</label>
+                <select id="recommendSector" aria-label="Sector filter">
                     <option value="all" selected>All Sectors</option>
                     <option value="technology">Technology</option>
                     <option value="financial services">Financial Services</option>
@@ -236,10 +272,18 @@
                     <option value="basic materials">Basic Materials</option>
                     <option value="utilities">Utilities</option>
                 </select>
-                <input type="number" id="recommendDurationDays" min="1" max="365" step="1" placeholder="Duration (optional)" aria-label="Duration in days">
-                <input type="number" id="recommendTargetPct" min="1" max="100" step="0.5" placeholder="Target % (optional)" aria-label="Target percentage">
-                <button id="recommendScanBtn">Scan US Market</button>
-                <button id="recommendStopBtn" class="secondary-btn" type="button" disabled>Stop Scan</button>
+                <input type="number" id="recommendDurationDays" min="1" max="365" step="1"
+                    aria-label="Target duration in days (optional)" placeholder="Duration days (opt)">
+                <input type="number" id="recommendTargetPct" min="1" max="100" step="0.5"
+                    aria-label="Target gain percentage (optional)" placeholder="Target % (opt)">
+                <button id="recommendScanBtn"
+                    data-tooltip="Start scanning for BUY-rated stocks with upward momentum. Results appear as scanning progresses.">
+                    Scan for Buys
+                </button>
+                <button id="recommendStopBtn" class="secondary-btn" type="button" disabled
+                    data-tooltip="Stop the current recommendation scan">
+                    Stop Scan
+                </button>
             </div>
 
             <div class="field-labels recommendation-field-labels" aria-hidden="true">
@@ -251,54 +295,63 @@
                 <span>Stop</span>
             </div>
 
-            <div id="recommendResult" class="result hidden">
-                <p id="recommendMeta" class="description"></p>
+            <div id="recommendResult" class="result hidden" aria-live="polite">
+                <p id="recommendMeta" class="description" role="status"></p>
                 <div id="recommendTable" class="table-container">
                     <!-- Recommendation results will be inserted here -->
                 </div>
             </div>
-        </div>
+        </section>
 
         <!-- MODULE 3: PAPER TRADING -->
         <!-- Section 3.1: Automated Paper Trading -->
-        <div class="card" id="section-paper-trading">
+        <section class="card" id="section-paper-trading" aria-labelledby="heading-paper-trading">
             <div class="card-module-header">
-                <h2>📋 3.1 Paper Trading Tracker</h2>
+                <h2 id="heading-paper-trading">📋 3.1 Paper Trading Tracker</h2>
             </div>
             <p class="description">
-                The agent automatically opens simulated 10-share positions in top BUY-uptrend stocks every weekday at 9:35am ET,
-                then closes it at 4:05pm ET if target, stop loss, or expiry is reached.
+                The agent automatically opens simulated 10-share positions in top BUY-uptrend stocks every weekday at 9:35 am ET,
+                then closes them at 4:05 pm ET if the target, stop-loss, or expiry is reached.
                 Results feed back into the recommendation engine to improve future picks.
             </p>
 
-            <div class="input-group">
-                <button id="autoBuyBtn">▶ Trigger Auto-Buy Now</button>
-                <button id="checkPositionsBtn">🔄 Check &amp; Close Positions</button>
-                <button id="refreshPositionsBtn">↻ Refresh</button>
+            <div class="input-group" role="group" aria-label="Paper trading actions">
+                <button id="autoBuyBtn"
+                    data-tooltip="Scan for top BUY candidates and open simulated paper-trade positions now (normally runs automatically at 9:35 am ET)">
+                    ▶ Open Paper Positions Now
+                </button>
+                <button id="checkPositionsBtn"
+                    data-tooltip="Check all open positions against current prices and close any that hit their target, stop-loss, or expiry">
+                    🔄 Check &amp; Close Positions
+                </button>
+                <button id="refreshPositionsBtn"
+                    data-tooltip="Reload position and trade data from the server">
+                    ↻ Refresh
+                </button>
             </div>
 
-            <div id="paperTradingMeta" class="description">Loading positions…</div>
+            <p id="paperTradingMeta" class="description" role="status">Loading positions…</p>
 
             <!-- Open Positions -->
-            <h3 style="margin-top:1rem;margin-bottom:0.4rem;">Open Positions</h3>
-            <div id="openPositionsTable" class="table-container">
+            <h3 class="section-subheading">📂 Open Positions</h3>
+            <div id="openPositionsTable" class="table-container" aria-label="Open paper trading positions">
                 <p>No open positions.</p>
             </div>
 
             <!-- Closed Trades Summary + History -->
-            <h3 style="margin-top:1.2rem;margin-bottom:0.4rem;">Closed Trades</h3>
-            <div id="closedTradesMeta" class="description"></div>
-            <div id="closedTradesTable" class="table-container">
+            <h3 class="section-subheading" style="margin-top:1.2rem;">📊 Closed Trades</h3>
+            <p id="closedTradesMeta" class="description" role="status"></p>
+            <div id="closedTradesTable" class="table-container" aria-label="Closed paper trades history">
                 <p>No closed trades yet.</p>
             </div>
-        </div>
+        </section>
     </div>
 
-    <div class="footer">
-        <p>💡 Recommendations: <strong>BUY</strong> (70+) | <strong>HOLD</strong> (50-69) | <strong>SELL</strong> (&lt;50)</p>
+    <footer class="footer" role="contentinfo">
+        <p>💡 Recommendations: <strong>BUY</strong> (score 70+) | <strong>HOLD</strong> (50–69) | <strong>SELL</strong> (&lt;50)</p>
         <p>Data powered by Yahoo Finance • Updated in real-time</p>
-    </div>
+    </footer>
 
-    <script src="../static/script.js?v=20260331" defer></script>
+    <script src="../static/script.js?v=20260328" defer></script>
 </body>
 </html>
