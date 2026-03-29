@@ -97,25 +97,17 @@ def test_extract_webpage_text_returns_placeholder_when_all_mirrors_fail(monkeypa
     assert "Automated extraction was blocked" in result["paragraphs"][0]
 
 
-def test_knowledge_base_chapter_returns_markdown_for_existing_file():
-    """Knowledge-base chapter endpoint should return markdown content safely."""
+def test_knowledge_base_chapter_hides_non_approved_file():
+    """Public chapter endpoint should hide non-approved chapters."""
 
     response = client.get(
         "/knowledge-base/chapter",
         params={"path": "INDEX.md"},
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 404
     payload = response.json()
-    assert payload["path"] == "INDEX.md"
-    assert "Knowledge Base Index" in payload["content"]
-    assert "summary" in payload
-    assert "price_movement_analysis" in payload
-    assert isinstance(payload["price_movement_analysis"], dict)
-    assert "relevance_score" in payload["price_movement_analysis"]
-    assert "weighted_relevance_score" in payload["price_movement_analysis"]
-    assert "source_quality_score" in payload["price_movement_analysis"]
-    assert "confidence_band" in payload["price_movement_analysis"]
+    assert payload.get("detail") == "Chapter not available"
 
 
 # ──────────────────────────────────────────────
