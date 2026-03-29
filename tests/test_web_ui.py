@@ -380,3 +380,110 @@ def test_analyze_rejects_invalid_symbol():
 def test_analyze_rejects_too_long_symbol():
     resp = client.get("/analyze/TOOLONGSYMBOL")
     assert resp.status_code == 400
+
+
+# ──────────────────────────────────────────────
+# Section 2.3 / 2.4 UX differentiation
+# ──────────────────────────────────────────────
+
+
+def test_market_scanner_section_has_when_to_use_hint():
+    """Section 2.3 must include explicit 'when to use' helper text."""
+    html = _read_template("dashboard.html")
+    assert 'id="market-when-to-use"' in html, "Section 2.3 must have a when-to-use hint element"
+    assert "When to use" in html, "Section 2.3 must contain 'When to use' text"
+
+
+def test_market_scanner_section_describes_discovery_purpose():
+    """Section 2.3 description must emphasise discovery / filtering intent."""
+    html = _read_template("dashboard.html")
+    market_section_start = html.index('id="section-market"')
+    market_section_end = html.index('id="section-recommend"')
+    market_section = html[market_section_start:market_section_end]
+    assert "Discovery" in market_section or "discovery" in market_section, \
+        "Section 2.3 must describe its purpose as discovery/filtering"
+    assert "shortlist" in market_section.lower(), \
+        "Section 2.3 must mention 'shortlist' to convey broad-scan output"
+
+
+def test_recommendations_section_has_when_to_use_hint():
+    """Section 2.4 must include explicit 'when to use' helper text."""
+    html = _read_template("dashboard.html")
+    assert 'id="recommend-when-to-use"' in html, "Section 2.4 must have a when-to-use hint element"
+
+
+def test_recommendations_section_describes_decision_ready_purpose():
+    """Section 2.4 description must emphasise decision-ready picks with confidence/rationale."""
+    html = _read_template("dashboard.html")
+    recommend_section_start = html.index('id="section-recommend"')
+    recommend_section = html[recommend_section_start:]
+    assert "decision" in recommend_section.lower(), \
+        "Section 2.4 must describe its purpose as decision-ready"
+    assert "confidence" in recommend_section.lower() or "rationale" in recommend_section.lower(), \
+        "Section 2.4 must mention confidence or rationale"
+
+
+def test_market_scanner_result_has_transition_cta_to_recommendations():
+    """Section 2.3 results area must include a prompt to move to 2.4."""
+    html = _read_template("dashboard.html")
+    market_result_start = html.index('id="marketScanResult"')
+    # Find the closing </section> tag after the result div
+    market_section_end = html.index('id="section-recommend"')
+    market_result_area = html[market_result_start:market_section_end]
+    assert "section-hint--cta" in market_result_area, \
+        "Section 2.3 result area must include a CTA hint linking to 2.4"
+    assert "section-recommend" in market_result_area, \
+        "Section 2.3 CTA must link to the 2.4 Recommendations section"
+
+
+# ──────────────────────────────────────────────
+# Yahoo Finance symbol links in 2.3 / 2.4
+# ──────────────────────────────────────────────
+
+
+def test_market_scanner_js_uses_yahoo_finance_links():
+    """displayScreenResults in script.js must render Yahoo Finance href for symbols."""
+    js_path = Path(__file__).parent.parent / "web" / "static" / "script.js"
+    js = js_path.read_text(encoding="utf-8")
+
+    # Locate displayScreenResults function body
+    func_start = js.index("function displayScreenResults(")
+    func_end = js.index("\n}", func_start)
+    func_body = js[func_start:func_end]
+
+    assert "finance.yahoo.com/quote/" in func_body, \
+        "displayScreenResults must build a Yahoo Finance URL for each symbol"
+    assert 'target="_blank"' in func_body, \
+        "displayScreenResults symbol link must open in a new tab"
+    assert 'rel="noopener noreferrer"' in func_body, \
+        "displayScreenResults symbol link must have rel=noopener noreferrer"
+
+
+def test_recommendations_js_uses_yahoo_finance_links():
+    """displayRecommendationResults in script.js must render Yahoo Finance href for symbols."""
+    js_path = Path(__file__).parent.parent / "web" / "static" / "script.js"
+    js = js_path.read_text(encoding="utf-8")
+
+    func_start = js.index("function displayRecommendationResults(")
+    func_end = js.index("\n}", func_start)
+    func_body = js[func_start:func_end]
+
+    assert "finance.yahoo.com/quote/" in func_body, \
+        "displayRecommendationResults must build a Yahoo Finance URL for each symbol"
+    assert 'target="_blank"' in func_body, \
+        "displayRecommendationResults symbol link must open in a new tab"
+    assert 'rel="noopener noreferrer"' in func_body, \
+        "displayRecommendationResults symbol link must have rel=noopener noreferrer"
+
+
+def test_symbol_links_have_accessible_label_in_js():
+    """Both symbol link builders must include an aria-label for accessibility."""
+    js_path = Path(__file__).parent.parent / "web" / "static" / "script.js"
+    js = js_path.read_text(encoding="utf-8")
+
+    for func_name in ("displayScreenResults", "displayRecommendationResults"):
+        func_start = js.index(f"function {func_name}(")
+        func_end = js.index("\n}", func_start)
+        func_body = js[func_start:func_end]
+        assert "aria-label" in func_body, \
+            f"{func_name} symbol link must include aria-label for accessibility"

@@ -186,9 +186,10 @@
         <!-- Section 2.3: Market Scanner -->
         <section class="card" id="section-market" aria-labelledby="heading-market">
             <div class="card-module-header">
-                <h2 id="heading-market">🇺🇸 2.3 Market Opportunity Scan</h2>
+                <h2 id="heading-market">🔍 2.3 Market Scanner</h2>
             </div>
-            <p class="description" id="market-desc">Run a broad market scan to shortlist strong candidates by universe, sector, and quality thresholds.</p>
+            <p class="description" id="market-desc"><strong>Discovery &amp; filtering</strong> — sweep a broad universe to surface candidates that pass your quality thresholds. Use this first to build a ranked shortlist.</p>
+            <p class="section-hint" id="market-when-to-use"><em>When to use:</em> Start here when you want to explore opportunities across many stocks. The output is a broad shortlist ranked by signal quality — not a final recommendation. Once you have interesting candidates, move to <a href="#section-recommend" onclick="scrollToSection('section-recommend')">2.4 Recommendations</a> for curated, decision-ready picks.</p>
 
             <div class="cta-row">
             <div class="input-group" role="group" aria-labelledby="heading-market">
@@ -240,15 +241,17 @@
                 <div id="marketScanTable" class="table-container">
                     <!-- Results will be inserted here -->
                 </div>
+                <p class="section-hint section-hint--cta">Ready to act on these results? ➜ <a href="#section-recommend" onclick="scrollToSection('section-recommend')">Go to 2.4 Recommendations</a> for curated, decision-ready picks with confidence scores and rationale.</p>
             </div>
         </section>
 
         <!-- Section 2.4: Stock Recommendations -->
         <section class="card" id="section-recommend" aria-labelledby="heading-recommend">
             <div class="card-module-header">
-                <h2 id="heading-recommend">⭐ 2.4 Recommendation Scan</h2>
+                <h2 id="heading-recommend">⭐ 2.4 Recommendations</h2>
             </div>
-            <p class="description" id="recommend-desc">Run a focused BUY-uptrend recommendation scan with optional target and duration filters.</p>
+            <p class="description" id="recommend-desc"><strong>Decision-ready picks</strong> — a curated shortlist of BUY-uptrend stocks with confidence scores, price targets, stop-losses, and plain-English rationale. Each entry is designed to inform a trading decision directly.</p>
+            <p class="section-hint" id="recommend-when-to-use"><em>When to use:</em> Use this when you are ready to make a decision. Picks are fewer and more curated than the <a href="#section-market" onclick="scrollToSection('section-market')">2.3 Market Scanner</a> — every result includes a reason, a confidence level, and a suggested action horizon.</p>
 
             <div class="input-group" role="group" aria-labelledby="heading-recommend">
                 <label for="recommendUniverse" class="visually-hidden">Recommendation universe</label>

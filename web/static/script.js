@@ -354,11 +354,15 @@ function displayScreenResults(results, tableContainerId = 'screenerTable', resul
     `;
     
     results.forEach(stock => {
+        const symbol = String(stock.symbol || '').toUpperCase();
+        const symbolCell = symbol
+            ? `<a href="https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}" target="_blank" rel="noopener noreferrer" aria-label="Open ${escapeHtml(symbol)} on Yahoo Finance">${escapeHtml(symbol)}</a>`
+            : '—';
         const recommendation = stock.recommendation || 'HOLD';
         const recClass = recommendation.toLowerCase();
         html += `
             <tr>
-                <td class="symbol">${stock.symbol}</td>
+                <td class="symbol">${symbolCell}</td>
                 <td>$${stock.current_price?.toFixed(2) || '—'}</td>
                 <td><strong>${stock.overall_score?.toFixed(1) || '—'}/100</strong></td>
                 <td><span class="status ${recClass}">${recommendation}</span></td>
@@ -674,7 +678,7 @@ function displayRecommendationResults(results) {
 
         html += `
             <tr>
-                <td class="symbol"><a href="${symbolUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(symbol)}</a></td>
+                <td class="symbol"><a href="${symbolUrl}" target="_blank" rel="noopener noreferrer" aria-label="Open ${escapeHtml(symbol)} on Yahoo Finance">${escapeHtml(symbol)}</a></td>
                 <td>$${currentPrice.toFixed(2)}</td>
                 <td>${Number(stock.adjusted_upside_pct ?? stock.expected_upside_pct ?? 0).toFixed(2)}%</td>
                 <td>${Number(stock.learning_adjustment || 0).toFixed(2)}%</td>
