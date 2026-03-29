@@ -15,10 +15,71 @@ from fastapi import APIRouter, Depends, HTTPException
 import src.knowledge_base as kb
 from src.auth import UserInfo, get_current_user
 from src.auth import require_admin
+from src.auth import list_all_users, list_pending_users
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["KB - Admin (Content Maintenance)"])
+
+
+@router.get("/admin/overview")
+async def admin_overview(admin: UserInfo = Depends(require_admin)):
+    """Return admin dashboard metrics for account queue and KB quality state."""
+    users = list_all_users()
+    pending = list_pending_users()
+    kb_tree = kb._build_kb_tree()
+
+    status_counts = {"draft": 0, "approved": 0, "rejected": 0, "other": 0}
+    chapter_rows: list[dict] = []
+
+    for section in kb_tree.get("sections", []):
+        for topic in section.get("topics", []):
+            for chapter in topic.get("chapters", []):
+                status = str(chapter.get("status", "Draft")).strip().lower()
+                if status in status_counts:
+                    status_counts[status] += 1
+                else:
+                    status_counts["other"] += 1
+
+                chapter_rows.append(
+                    {
+                        "section": section.get("name", ""),
+                        "topic": topic.get("name", ""),
+                        "name": chapter.get("name", ""),
+                        "relative_path": chapter.get("relative_path", ""),
+                        "status": chapter.get("status", "Draft"),
+                        "confidence_band": chapter.get("confidence_band", "Unknown"),
+                        "weighted_relevance_score": int(chapter.get("weighted_relevance_score", 0) or 0),
+                        "source_quality_score": int(chapter.get("source_quality_score", 0) or 0),
+                        "updated_at": chapter.get("updated_at", ""),
+                    }
+                )
+
+    top_predictive_chapters = sorted(
+        chapter_rows,
+        key=lambda item: (
+            int(item.get("weighted_relevance_score", 0)),
+            int(item.get("source_quality_score", 0)),
+            str(item.get("updated_at", "")),
+        ),
+        reverse=True,
+    )[:6]
+
+    return {
+        "accounts": {
+            "total_users": len(users),
+            "pending_users": len(pending),
+            "approved_users": sum(1 for user in users if user.get("is_approved")),
+            "admin_users": sum(1 for user in users if user.get("is_admin")),
+        },
+        "knowledge_base": {
+            "total_sections": kb_tree.get("total_sections", len(kb_tree.get("sections", []))),
+            "total_topics": kb_tree.get("total_topics", 0),
+            "total_chapters": kb_tree.get("total_chapters", 0),
+            "status_counts": status_counts,
+            "top_predictive_chapters": top_predictive_chapters,
+        },
+    }
 
 
 @router.post("/knowledge-base/chapter-status", response_model=kb.KnowledgeChapterStatusResponse)

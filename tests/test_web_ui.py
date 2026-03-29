@@ -104,6 +104,8 @@ def test_admin_module_returns_html():
     resp = client.get("/admin")
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
+    assert "Control Tower" in resp.text
+    assert 'id="adminOverview"' in resp.text
 
 
 def test_knowledge_base_viewer_returns_html():
