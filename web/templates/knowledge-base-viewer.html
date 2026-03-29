@@ -533,6 +533,238 @@
                 grid-template-columns: 1fr;
             }
         }
+
+        /* ── Relevance tier badges ────────────────────────────── */
+        .relevance-tier-badge {
+            border-radius: 999px;
+            padding: 2px 8px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            border: 1px solid transparent;
+            white-space: nowrap;
+        }
+
+        .relevance-tier-badge.tier-high {
+            color: #14532d;
+            background: #dcfce7;
+            border-color: #86efac;
+        }
+
+        .relevance-tier-badge.tier-medium {
+            color: #92400e;
+            background: #fef3c7;
+            border-color: #fcd34d;
+        }
+
+        .relevance-tier-badge.tier-low {
+            color: #7f1d1d;
+            background: #fee2e2;
+            border-color: #fca5a5;
+        }
+
+        /* ── Content level badges ─────────────────────────────── */
+        .level-badge {
+            border-radius: 6px;
+            padding: 2px 7px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            border: 1px solid transparent;
+            white-space: nowrap;
+        }
+
+        .level-badge.level-beginner {
+            color: #065f46;
+            background: #d1fae5;
+            border-color: #6ee7b7;
+        }
+
+        .level-badge.level-intermediate {
+            color: #1e40af;
+            background: #dbeafe;
+            border-color: #93c5fd;
+        }
+
+        .level-badge.level-advanced {
+            color: #4c1d95;
+            background: #ede9fe;
+            border-color: #c4b5fd;
+        }
+
+        /* ── Chapter meta row (badges below title) ───────────── */
+        .chapter-meta-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+
+        /* ── Why This Matters card ───────────────────────────── */
+        .why-matters-card {
+            border: 1px solid #fcd34d;
+            border-left: 4px solid #f59e0b;
+            border-radius: 10px;
+            background: #fffbeb;
+            padding: 12px 14px;
+            margin-bottom: 12px;
+        }
+
+        .why-matters-card h3 {
+            margin: 0 0 8px;
+            font-size: 0.92rem;
+            color: #78350f;
+            font-weight: 700;
+        }
+
+        .why-matters-list {
+            margin: 0;
+            padding-left: 20px;
+            color: #1c1917;
+            font-size: 0.88rem;
+            line-height: 1.55;
+        }
+
+        .why-matters-list li + li {
+            margin-top: 5px;
+        }
+
+        /* ── Key Takeaways card ──────────────────────────────── */
+        .takeaways-card {
+            border: 1px solid #bfdbfe;
+            border-left: 4px solid #3b82f6;
+            border-radius: 10px;
+            background: #eff6ff;
+            padding: 12px 14px;
+            margin-bottom: 12px;
+        }
+
+        .takeaways-card h3 {
+            margin: 0 0 8px;
+            font-size: 0.92rem;
+            color: #1e40af;
+            font-weight: 700;
+        }
+
+        .takeaways-list {
+            margin: 0;
+            padding-left: 20px;
+            color: #1e293b;
+            font-size: 0.88rem;
+            line-height: 1.55;
+        }
+
+        .takeaways-list li + li {
+            margin-top: 5px;
+        }
+
+        /* ── Score bars ──────────────────────────────────────── */
+        .score-bars-section {
+            margin-bottom: 12px;
+        }
+
+        .score-bar-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+            font-size: 0.82rem;
+        }
+
+        .score-bar-label {
+            width: 130px;
+            flex-shrink: 0;
+            color: var(--muted);
+            font-weight: 600;
+            font-size: 0.8rem;
+        }
+
+        .score-bar-track {
+            flex: 1;
+            height: 7px;
+            background: #e2e8f0;
+            border-radius: 999px;
+            overflow: hidden;
+        }
+
+        .score-bar-fill {
+            height: 100%;
+            border-radius: 999px;
+            transition: width 0.45s ease;
+        }
+
+        .score-bar-fill.level-high { background: #22c55e; }
+        .score-bar-fill.level-medium { background: #f59e0b; }
+        .score-bar-fill.level-low { background: #ef4444; }
+
+        .score-bar-value {
+            width: 38px;
+            text-align: right;
+            font-weight: 700;
+            color: #0f172a;
+            font-size: 0.8rem;
+        }
+
+        .score-extra-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        /* ── Low-quality visual deprioritization ─────────────── */
+        .chapter-link.quality-low {
+            opacity: 0.6;
+            border-style: dashed;
+        }
+
+        .chapter-link.quality-low:hover {
+            opacity: 1;
+            border-style: solid;
+        }
+
+        /* ── Section divider label ───────────────────────────── */
+        .section-divider {
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+            color: var(--muted);
+            margin: 14px 0 6px;
+            padding-bottom: 4px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        /* ── Detail panel header ─────────────────────────────── */
+        .doc-panel-header {
+            margin-bottom: 12px;
+        }
+
+        .doc-panel-header h2 {
+            margin: 0 0 4px;
+            font-size: 1.15rem;
+            line-height: 1.3;
+        }
+
+        /* ── Source summary row ──────────────────────────────── */
+        .source-summary-box {
+            background: #f8fafc;
+            border: 1px solid #dbe3f0;
+            border-radius: 10px;
+            padding: 10px 14px;
+            margin-bottom: 12px;
+            font-size: 0.88rem;
+            color: #334155;
+            line-height: 1.5;
+        }
+
+        .source-summary-box strong {
+            display: block;
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--muted);
+            margin-bottom: 4px;
+        }
     </style>
 </head>
 <body>
@@ -540,7 +772,7 @@
         <header class="topbar">
             <div>
                 <h1>Knowledge Base Viewer</h1>
-                <p>Browse sections, topics, and chapters generated by your ingestion workflow.</p>
+                <p>US stock trading knowledge — browse approved chapters with relevance scores, key takeaways, and trading implications.</p>
             </div>
             <div class="topbar-actions">
                 <button class="button" id="refreshBtn" type="button">Refresh Tree</button>
@@ -581,24 +813,40 @@
             </section>
 
             <section class="card" aria-label="Chapter preview">
-                <h2 id="docTitle">Select a chapter</h2>
-                <div class="doc-meta" id="docMeta">Choose a chapter from the left panel to view its content.</div>
-                <div class="insight-grid">
-                    <section class="insight-card" aria-label="Source summary">
-                        <h3>Source Summary</h3>
-                        <p id="docSummary">Summary will appear after selecting a chapter.</p>
-                    </section>
-                    <section class="insight-card" aria-label="Price movement analysis">
-                        <h3>Price-Movement Analysis</h3>
-                        <div class="analysis-metrics" id="analysisMetrics"></div>
-                        <ul class="analysis-list" id="analysisTakeaways"></ul>
-                    </section>
+                <div class="doc-panel-header">
+                    <h2 id="docTitle">Select a chapter</h2>
+                    <div class="chapter-meta-row" id="chapterMetaRow">
+                        <span class="doc-meta" id="docMeta">Choose a chapter from the left panel to view its content.</span>
+                    </div>
                 </div>
+
+                <div class="source-summary-box" id="sourceSummaryBox">
+                    <strong>Source Summary</strong>
+                    <span id="docSummary">Summary will appear after selecting a chapter.</span>
+                </div>
+
+                <div class="why-matters-card" id="whyMattersCard" style="display:none">
+                    <h3>&#9888; Why This Matters for US Stocks</h3>
+                    <ul class="why-matters-list" id="whyMattersList"></ul>
+                </div>
+
+                <div class="takeaways-card" id="takeawaysCard" style="display:none">
+                    <h3>&#9997; Key Trading Takeaways</h3>
+                    <ul class="takeaways-list" id="takeawaysList"></ul>
+                </div>
+
+                <div class="score-bars-section" id="scoreBarsSection" style="display:none">
+                    <p class="section-divider">Relevance &amp; Quality Scores</p>
+                    <div id="scoreBarsContainer"></div>
+                    <div class="score-extra-chips" id="scoreExtraChips"></div>
+                </div>
+
                 <div class="doc-actions">
                     <button class="doc-action-button" id="openSelectedExplorerBtn" type="button" disabled>Open in Explorer</button>
                     <button class="doc-action-button" id="approveChapterBtn" type="button" disabled>Approve Chapter</button>
                     <button class="doc-action-button" id="rejectChapterBtn" type="button" disabled>Reject Chapter</button>
                 </div>
+                <p class="section-divider" id="fullContentDivider" style="display:none">Full Chapter Content</p>
                 <article id="docBody" class="doc-body">No chapter selected yet.</article>
                 <div class="status" id="status"></div>
             </section>
@@ -611,11 +859,19 @@
         const treeEl = document.getElementById("tree");
         const statsEl = document.getElementById("stats");
         const docTitleEl = document.getElementById("docTitle");
+        const chapterMetaRowEl = document.getElementById("chapterMetaRow");
         const docMetaEl = document.getElementById("docMeta");
         const docSummaryEl = document.getElementById("docSummary");
-        const analysisMetricsEl = document.getElementById("analysisMetrics");
-        const analysisTakeawaysEl = document.getElementById("analysisTakeaways");
+        const sourceSummaryBoxEl = document.getElementById("sourceSummaryBox");
+        const whyMattersCardEl = document.getElementById("whyMattersCard");
+        const whyMattersListEl = document.getElementById("whyMattersList");
+        const takeawaysCardEl = document.getElementById("takeawaysCard");
+        const takeawaysListEl = document.getElementById("takeawaysList");
+        const scoreBarsEl = document.getElementById("scoreBarsSection");
+        const scoreBarsContainerEl = document.getElementById("scoreBarsContainer");
+        const scoreExtraChipsEl = document.getElementById("scoreExtraChips");
         const docBodyEl = document.getElementById("docBody");
+        const fullContentDividerEl = document.getElementById("fullContentDivider");
         const statusEl = document.getElementById("status");
         const refreshBtn = document.getElementById("refreshBtn");
         const openBuilderBtn = document.getElementById("openBuilderBtn");
@@ -983,10 +1239,18 @@
                                 chapterStatusBadge.className = `chapter-status-badge ${chapterStatus}`;
                                 chapterStatusBadge.textContent = chapter.status || "Draft";
 
-                                const chapterAnalysisBadge = document.createElement("span");
-                                chapterAnalysisBadge.className = `chapter-analysis-badge ${chapterConfidence}`;
                                 const weightedScore = Number(chapter.weighted_relevance_score || 0);
-                                chapterAnalysisBadge.textContent = `W${weightedScore} ${chapter.confidence_band || "Unknown"}`;
+                                const tierLabel = weightedScore >= 70 ? "High" : weightedScore >= 45 ? "Medium" : "Low";
+                                const tierClass = tierLabel.toLowerCase();
+
+                                const chapterAnalysisBadge = document.createElement("span");
+                                chapterAnalysisBadge.className = `relevance-tier-badge tier-${tierClass}`;
+                                chapterAnalysisBadge.textContent = `Relevance: ${tierLabel} (${weightedScore})`;
+
+                                // Visually deprioritize low-quality chapters
+                                if (tierClass === "low") {
+                                    button.classList.add("quality-low");
+                                }
 
                                 button.appendChild(chapterName);
                                 button.appendChild(chapterStatusBadge);
@@ -1045,44 +1309,131 @@
             }
         }
 
-        function renderPriceMovementAnalysis(analysis) {
-            analysisMetricsEl.innerHTML = "";
-            analysisTakeawaysEl.innerHTML = "";
+        function _scoreBarFillClass(score) {
+            if (score >= 70) return "level-high";
+            if (score >= 45) return "level-medium";
+            return "level-low";
+        }
+
+        function renderScoreBars(analysis) {
+            scoreBarsContainerEl.innerHTML = "";
+            scoreExtraChipsEl.innerHTML = "";
 
             if (!analysis || typeof analysis !== "object") {
-                analysisMetricsEl.innerHTML = '<span class="analysis-metric">No analysis available</span>';
+                scoreBarsEl.style.display = "none";
                 return;
             }
 
-            const dimensions = Array.isArray(analysis.market_dimensions)
-                ? analysis.market_dimensions.join(", ")
-                : "General";
-
-            const metrics = [
-                `Relevance ${analysis.relevance_score ?? "N/A"}/100`,
-                `Weighted ${analysis.weighted_relevance_score ?? "N/A"}/100`,
-                `Source Quality ${analysis.source_quality_score ?? "N/A"}/100`,
-                `Confidence ${analysis.confidence_band || "N/A"}`,
-                `Impact ${analysis.prediction_skill_impact || "N/A"}`,
-                `Horizon ${analysis.primary_horizon || "N/A"}`,
-                `Dimensions ${dimensions}`,
+            const bars = [
+                { label: "Relevance",       value: Number(analysis.relevance_score || 0) },
+                { label: "Weighted Score",  value: Number(analysis.weighted_relevance_score || 0) },
+                { label: "Source Quality",  value: Number(analysis.source_quality_score || 0) },
             ];
 
-            for (const metric of metrics) {
-                const chip = document.createElement("span");
-                chip.className = "analysis-metric";
-                chip.textContent = metric;
-                analysisMetricsEl.appendChild(chip);
+            for (const bar of bars) {
+                const row = document.createElement("div");
+                row.className = "score-bar-row";
+
+                const label = document.createElement("span");
+                label.className = "score-bar-label";
+                label.textContent = bar.label;
+
+                const track = document.createElement("div");
+                track.className = "score-bar-track";
+
+                const fill = document.createElement("div");
+                fill.className = `score-bar-fill ${_scoreBarFillClass(bar.value)}`;
+                fill.style.width = `${bar.value}%`;
+
+                track.appendChild(fill);
+
+                const val = document.createElement("span");
+                val.className = "score-bar-value";
+                val.textContent = `${bar.value}/100`;
+
+                row.appendChild(label);
+                row.appendChild(track);
+                row.appendChild(val);
+                scoreBarsContainerEl.appendChild(row);
             }
 
-            const takeaways = Array.isArray(analysis.key_takeaways) ? analysis.key_takeaways : [];
-            const notes = Array.isArray(analysis.application_notes) ? analysis.application_notes : [];
-            const confidenceReasons = Array.isArray(analysis.confidence_reasons) ? analysis.confidence_reasons : [];
+            const extraChips = [
+                analysis.confidence_band && `Confidence: ${analysis.confidence_band}`,
+                analysis.prediction_skill_impact && `Impact: ${analysis.prediction_skill_impact}`,
+                analysis.primary_horizon && `Horizon: ${analysis.primary_horizon}`,
+                Array.isArray(analysis.market_dimensions) && analysis.market_dimensions.length > 0
+                    && `Dimensions: ${analysis.market_dimensions.join(", ")}`,
+            ].filter(Boolean);
 
-            for (const itemText of [...takeaways.slice(0, 2), ...notes.slice(0, 2), ...confidenceReasons.slice(0, 2)]) {
-                const item = document.createElement("li");
-                item.textContent = itemText;
-                analysisTakeawaysEl.appendChild(item);
+            for (const text of extraChips) {
+                const chip = document.createElement("span");
+                chip.className = "analysis-metric";
+                chip.textContent = text;
+                scoreExtraChipsEl.appendChild(chip);
+            }
+
+            scoreBarsEl.style.display = "block";
+        }
+
+        function renderKeyTakeaways(analysis) {
+            takeawaysListEl.innerHTML = "";
+
+            const takeaways = Array.isArray(analysis && analysis.key_takeaways) ? analysis.key_takeaways : [];
+            const notes = Array.isArray(analysis && analysis.application_notes) ? analysis.application_notes : [];
+            const all = [...takeaways.slice(0, 3), ...notes.slice(0, 2)];
+
+            if (!all.length) {
+                takeawaysCardEl.style.display = "none";
+                return;
+            }
+
+            for (const text of all) {
+                const li = document.createElement("li");
+                li.textContent = text;
+                takeawaysListEl.appendChild(li);
+            }
+
+            takeawaysCardEl.style.display = "block";
+        }
+
+        function renderTradingImplications(implications) {
+            whyMattersListEl.innerHTML = "";
+
+            const items = Array.isArray(implications) ? implications : [];
+            if (!items.length) {
+                whyMattersCardEl.style.display = "none";
+                return;
+            }
+
+            for (const text of items) {
+                const li = document.createElement("li");
+                li.textContent = text;
+                whyMattersListEl.appendChild(li);
+            }
+
+            whyMattersCardEl.style.display = "block";
+        }
+
+        function renderChapterMeta(payload) {
+            // Clear previous badges (keep docMeta span)
+            const badges = chapterMetaRowEl.querySelectorAll(".level-badge, .relevance-tier-badge");
+            badges.forEach((el) => el.remove());
+
+            docMetaEl.textContent = `Path: ${payload.path} | Updated: ${new Date(payload.updated_at).toLocaleString()}`;
+
+            if (payload.content_level) {
+                const levelBadge = document.createElement("span");
+                levelBadge.className = `level-badge level-${payload.content_level.toLowerCase()}`;
+                levelBadge.textContent = payload.content_level;
+                chapterMetaRowEl.appendChild(levelBadge);
+            }
+
+            if (payload.relevance_tier) {
+                const tierBadge = document.createElement("span");
+                const tierClass = payload.relevance_tier.toLowerCase();
+                tierBadge.className = `relevance-tier-badge tier-${tierClass}`;
+                tierBadge.textContent = `Relevance: ${payload.relevance_tier}`;
+                chapterMetaRowEl.appendChild(tierBadge);
             }
         }
 
@@ -1099,9 +1450,13 @@
 
                 activeChapterPath = payload.path;
                 docTitleEl.textContent = titleOverride || payload.title;
-                docMetaEl.textContent = `Path: ${payload.path} | Updated: ${new Date(payload.updated_at).toLocaleString()}`;
                 docSummaryEl.textContent = payload.summary || "No summary available yet.";
-                renderPriceMovementAnalysis(payload.price_movement_analysis || null);
+
+                renderChapterMeta(payload);
+                renderTradingImplications(payload.trading_implications || []);
+                renderKeyTakeaways(payload.price_movement_analysis || null);
+                renderScoreBars(payload.price_movement_analysis || null);
+                fullContentDividerEl.style.display = "block";
                 renderMarkdown(payload.content);
                 setActiveButton(button);
                 setModerationActionState();

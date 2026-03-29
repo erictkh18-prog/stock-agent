@@ -88,5 +88,8 @@ async def knowledge_base_chapter(
         "updated_at": datetime.fromtimestamp(chapter_path.stat().st_mtime).isoformat(),
         "summary": insights["summary"],
         "price_movement_analysis": insights["price_movement_analysis"],
+        "content_level": insights["content_level"],
+        "trading_implications": insights["trading_implications"],
+        "relevance_tier": insights["relevance_tier"],
         "content": content,
     }

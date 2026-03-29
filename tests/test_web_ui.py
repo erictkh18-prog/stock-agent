@@ -317,9 +317,196 @@ def test_knowledge_base_viewer_has_markdown_and_filter_controls():
     assert "Open Topic Overview" in html
 
 
-# ──────────────────────────────────────────────
-# Stress test: concurrent health checks
-# ──────────────────────────────────────────────
+def test_knowledge_base_viewer_has_why_this_matters_section():
+    """Viewer must include a 'Why This Matters for US Stocks' card."""
+    html = _read_template("knowledge-base-viewer.html")
+    assert "Why This Matters for US Stocks" in html
+    assert 'id="whyMattersCard"' in html
+    assert 'id="whyMattersList"' in html
+
+
+def test_knowledge_base_viewer_has_key_takeaways_section():
+    """Viewer must include a Key Trading Takeaways card."""
+    html = _read_template("knowledge-base-viewer.html")
+    assert "Key Trading Takeaways" in html
+    assert 'id="takeawaysCard"' in html
+    assert 'id="takeawaysList"' in html
+
+
+def test_knowledge_base_viewer_has_score_bars_section():
+    """Viewer must include score bars for relevance/quality visualization."""
+    html = _read_template("knowledge-base-viewer.html")
+    assert 'id="scoreBarsSection"' in html
+    assert 'id="scoreBarsContainer"' in html
+    assert "Relevance &amp; Quality Scores" in html
+
+
+def test_knowledge_base_viewer_has_relevance_tier_badges():
+    """Viewer must define tier-high, tier-medium, tier-low CSS classes."""
+    html = _read_template("knowledge-base-viewer.html")
+    assert "tier-high" in html
+    assert "tier-medium" in html
+    assert "tier-low" in html
+    assert "relevance-tier-badge" in html
+
+
+def test_knowledge_base_viewer_has_content_level_badges():
+    """Viewer must define level-beginner, level-intermediate, level-advanced CSS classes."""
+    html = _read_template("knowledge-base-viewer.html")
+    assert "level-beginner" in html
+    assert "level-intermediate" in html
+    assert "level-advanced" in html
+    assert "level-badge" in html
+
+
+def test_knowledge_base_viewer_deprioritizes_low_quality():
+    """Viewer must have CSS class for visually deprioritizing low-quality chapters."""
+    html = _read_template("knowledge-base-viewer.html")
+    assert "quality-low" in html
+
+
+def test_knowledge_base_viewer_has_source_summary_box():
+    """Viewer must display a prominently labeled source summary."""
+    html = _read_template("knowledge-base-viewer.html")
+    assert 'id="sourceSummaryBox"' in html
+    assert "Source Summary" in html
+
+
+def test_knowledge_base_chapter_api_returns_new_fields(monkeypatch):
+    """Chapter API must return content_level, trading_implications, and relevance_tier."""
+    import src.knowledge_base as kb
+
+    sample_md = "\n".join([
+        "---",
+        "title: Test Chapter",
+        "status: Approved",
+        "---",
+        "# Test",
+        "Earnings guidance affects revenue growth momentum.",
+        "## Extracted Claims",
+        "- Earnings beat drives stock price momentum.",
+        "## Source Summary",
+        "- Earnings analysis chapter.",
+    ])
+
+    monkeypatch.setattr(kb, "_validate_kb_relative_path", lambda p: MagicMock(
+        read_text=lambda encoding: sample_md,
+        stem="test-chapter",
+        stat=lambda: MagicMock(st_mtime=0),
+    ))
+    monkeypatch.setattr(kb, "_extract_chapter_status", lambda p: "Approved")
+    monkeypatch.setattr(kb, "_safe_rel_path", lambda p, r: "sections/test/chapters/test-chapter.md")
+
+    insights = kb._build_chapter_viewer_insights(sample_md, default_title="Test Chapter")
+
+    assert "content_level" in insights
+    assert insights["content_level"] in ("Beginner", "Intermediate", "Advanced")
+    assert "trading_implications" in insights
+    assert isinstance(insights["trading_implications"], list)
+    assert len(insights["trading_implications"]) >= 1
+    assert "relevance_tier" in insights
+    assert insights["relevance_tier"] in ("High", "Medium", "Low")
+
+
+def test_classify_content_level_beginner():
+    """Simple general text should classify as Beginner."""
+    from src.knowledge_base import _classify_content_level
+    result = _classify_content_level("The stock market goes up and down based on supply and demand.")
+    assert result == "Beginner"
+
+
+def test_classify_content_level_intermediate():
+    """Text with technical indicators should classify as Intermediate."""
+    from src.knowledge_base import _classify_content_level
+    content = (
+        "Moving average crossovers with RSI confirmation provide robust trend signals. "
+        "Support and resistance levels combined with volume breakout criteria improve entry quality."
+    )
+    result = _classify_content_level(content)
+    assert result == "Intermediate"
+
+
+def test_classify_content_level_advanced():
+    """Text with advanced quant concepts should classify as Advanced."""
+    from src.knowledge_base import _classify_content_level
+    content = (
+        "Statistical arbitrage strategies using cointegration and delta hedging "
+        "with volatility surface calibration and pairs trading Kelly criterion sizing."
+    )
+    result = _classify_content_level(content)
+    assert result == "Advanced"
+
+
+def test_us_stock_trading_implications_returns_list():
+    """_build_us_stock_trading_implications must return a non-empty list."""
+    from src.knowledge_base import _build_us_stock_trading_implications
+    result = _build_us_stock_trading_implications(
+        topic="earnings season",
+        summary="Earnings beats drive stock momentum.",
+        claims=["Revenue guidance above expectations causes price acceleration."],
+        markdown_content="earnings season drives momentum and volatility",
+    )
+    assert isinstance(result, list)
+    assert len(result) >= 1
+
+
+def test_us_stock_trading_implications_fallback_for_unknown_topic():
+    """When no known keywords match, fallback implications must be returned."""
+    from src.knowledge_base import _build_us_stock_trading_implications
+    result = _build_us_stock_trading_implications(
+        topic="unrelated topic xyz",
+        summary="something irrelevant",
+        claims=[],
+        markdown_content="",
+    )
+    assert isinstance(result, list)
+    assert len(result) >= 1
+
+
+def test_knowledge_base_index_approved_chapters_include_analysis_metrics(monkeypatch):
+    """Approved chapters in the tree must include weighted_relevance_score."""
+    import src.routers.kb_viewer as kb_viewer_module
+
+    monkeypatch.setattr(
+        "src.routers.kb_viewer.kb._build_kb_tree",
+        lambda: {
+            "kb_root": "knowledge-base",
+            "sections": [
+                {
+                    "name": "S1",
+                    "topic_count": 1,
+                    "topics": [
+                        {
+                            "name": "T1",
+                            "chapter_count": 1,
+                            "topic_index": None,
+                            "chapters": [
+                                {
+                                    "name": "A",
+                                    "relative_path": "a.md",
+                                    "status": "Approved",
+                                    "weighted_relevance_score": 82,
+                                    "relevance_score": 75,
+                                    "source_quality_score": 70,
+                                    "confidence_band": "High",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            ],
+            "total_sections": 1,
+            "total_topics": 1,
+            "total_chapters": 1,
+        },
+    )
+
+    resp = client.get("/knowledge-base/index")
+    assert resp.status_code == 200
+    body = resp.json()
+    chapter = body["sections"][0]["topics"][0]["chapters"][0]
+    assert chapter["weighted_relevance_score"] == 82
+    assert chapter["confidence_band"] == "High"
 
 
 def test_concurrent_health_checks():
