@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - API Documentation</title>
+    <style>
+        :root {
+            --bg: #f4f8fb;
+            --panel: #ffffff;
+            --text: #0f172a;
+            --muted: #475569;
+            --accent: #0e7490;
+            --accent-dark: #155e75;
+            --border: #d1d5db;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            color: var(--text);
+            background: radial-gradient(circle at top right, #fce7f3 0%, var(--bg) 50%);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px 16px 48px;
+        }
+
+        .top-nav {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .btn {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: #fff;
+            color: var(--text);
+            padding: 9px 14px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 38px;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            background: #f8fafc;
+            border-color: var(--accent);
+        }
+
+        .btn.primary {
+            background: linear-gradient(135deg, var(--accent), #0f766e);
+            color: #fff;
+            border: none;
+        }
+
+        .btn.primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(14, 116, 144, 0.25);
+        }
+
+        .divider {
+            width: 1px;
+            height: 24px;
+            background: var(--border);
+            margin: 0 4px;
+        }
+
+        .header {
+            margin-bottom: 24px;
+        }
+
+        h1 {
+            margin: 0 0 6px;
+            font-size: 1.75rem;
+            font-weight: 700;
+        }
+
+        .header p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+
+        .header-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .logout-btn {
+            background: #fff;
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 9px 14px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+
+        .logout-btn:hover {
+            background: #f8fafc;
+        }
+
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 10px 24px rgba(2, 6, 23, 0.08);
+            margin-bottom: 24px;
+        }
+
+        .card h2 {
+            margin: 0 0 12px;
+            font-size: 1.2rem;
+            font-weight: 700;
+        }
+
+        .card p {
+            margin: 0 0 12px;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+
+        .card p:last-child {
+            margin-bottom: 0;
+        }
+
+        .api-list {
+            list-style: none;
+            padding: 0;
+            margin: 12px 0 0;
+        }
+
+        .api-list li {
+            padding: 8px 12px;
+            margin: 4px 0;
+            background: #f8fafc;
+            border-left: 3px solid var(--accent);
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.9rem;
+            color: #0f766e;
+        }
+
+        .api-list li code {
+            font-weight: 600;
+        }
+
+        .api-list li .method {
+            background: #d1fae5;
+            color: #065f46;
+            padding: 2px 6px;
+            border-radius: 3px;
+            margin-right: 8px;
+            font-weight: bold;
+            font-size: 0.8rem;
+        }
+
+        .cta-section {
+            text-align: center;
+            padding: 32px 20px;
+        }
+
+        .cta-section h3 {
+            margin: 0 0 12px;
+            font-size: 1.1rem;
+            color: var(--text);
+        }
+
+        @media (max-width: 768px) {
+            .header-actions {
+                flex-direction: column;
+                gap: 12px;
+                align-items: flex-start;
+            }
+
+            .logout-btn {
+                width: 100%;
+            }
+
+            .top-nav {
+                gap: 6px;
+                flex-wrap: wrap;
+            }
+
+            .btn {
+                padding: 8px 12px;
+                font-size: 0.85rem;
+            }
+
+            .card {
+                padding: 16px;
+            }
+
+            .api-list li {
+                font-size: 0.8rem;
+                overflow-x: auto;
+                white-space: nowrap;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="container">
+        <div class="header-actions">
+            <div class="header">
+                <h1>API Documentation</h1>
+                <p>Admin API endpoints and integration guide</p>
+            </div>
+            <button id="logoutBtn" class="logout-btn">Log Out</button>
+        </div>
+
+        <div class="top-nav">
+            <a href="/" class="btn">← Back to Dashboard</a>
+            <a href="/admin" class="btn">Admin Home</a>
+            <div class="divider"></div>
+            <a href="/admin/accounts" class="btn">Account Management</a>
+            <a href="/admin/kb-content" class="btn">KB Content Management</a>
+        </div>
+
+        <div class="card">
+            <h2>Authentication Endpoints</h2>
+            <p>Manage user accounts and admin approval workflows:</p>
+            <ul class="api-list">
+                <li><span class="method">POST</span> <code>/auth/register</code> - Register new user account</li>
+                <li><span class="method">POST</span> <code>/auth/login</code> - Authenticate and get JWT token</li>
+                <li><span class="method">GET</span> <code>/auth/me</code> - Get current user info</li>
+                <li><span class="method">GET</span> <code>/auth/pending-users</code> - List pending account approvals</li>
+                <li><span class="method">POST</span> <code>/auth/approve/{email}</code> - Approve account creation</li>
+                <li><span class="method">POST</span> <code>/auth/reject/{email}</code> - Reject account creation</li>
+            </ul>
+        </div>
+
+        <div class="card">
+            <h2>Knowledge Base Endpoints</h2>
+            <p>Manage knowledge base content contributions and approvals:</p>
+            <ul class="api-list">
+                <li><span class="method">GET</span> <code>/admin/kb-chapters?status=Draft</code> - List KB chapters by status</li>
+                <li><span class="method">POST</span> <code>/knowledge-base/chapter-status</code> - Approve/reject KB chapter</li>
+                <li><span class="method">POST</span> <code>/knowledge-base/open-explorer</code> - Open chapter file in explorer</li>
+            </ul>
+        </div>
+
+        <div class="card">
+            <h2>Admin Dashboard Endpoint</h2>
+            <p>Get comprehensive admin overview and metrics:</p>
+            <ul class="api-list">
+                <li><span class="method">GET</span> <code>/admin/overview</code> - Admin control-tower summary</li>
+            </ul>
+        </div>
+
+        <div class="card">
+            <h2>Quick Reference</h2>
+            <p><strong>Authentication:</strong> Include JWT token in Authorization header: <code>Authorization: Bearer &lt;token&gt;</code></p>
+            <p><strong>Base URL:</strong> All endpoints are relative to your API host (e.g., <code>http://localhost:8000</code>)</p>
+            <p><strong>Response Format:</strong> All endpoints return JSON responses</p>
+            <p><strong>Interactive Docs:</strong> Full Swagger UI documentation available at <code>/docs</code></p>
+        </div>
+
+        <div class="cta-section">
+            <h3>View Complete Interactive Documentation</h3>
+            <a href="/docs" target="_blank" rel="noopener noreferrer" class="btn primary">Open Swagger API Docs</a>
+        </div>
+    </main>
+
+    <script>
+        const API_BASE = '';
+        let authToken = localStorage.getItem('kb_token');
+
+        async function requireAdmin() {
+            if (!authToken) {
+                window.location.href = '/login?next=/admin/api-docs';
+                return false;
+            }
+            try {
+                const res = await fetch(`${API_BASE}/auth/me`, {
+                    headers: { 'Authorization': `Bearer ${authToken}` },
+                });
+                if (!res.ok) {
+                    window.location.href = '/login?next=/admin/api-docs';
+                    return false;
+                }
+                const user = await res.json();
+                if (!user.is_admin) {
+                    alert('You do not have admin access.');
+                    window.location.href = '/';
+                    return false;
+                }
+                return true;
+            } catch (err) {
+                console.error('Auth check failed:', err);
+                window.location.href = '/login?next=/admin/api-docs';
+                return false;
+            }
+        }
+
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+            localStorage.removeItem('kb_token');
+            window.location.href = '/login';
+        });
+
+        requireAdmin();
+    </script>
+</body>
+</html>
+
+            </ul>
+            <div id="statusBox" class="status">Checking admin session...</div>
+        </section>
+    </main>
+
+    <script>
+        const statusBox = document.getElementById("statusBox");
+
+        function setStatus(text) {
+            statusBox.textContent = text;
+            statusBox.classList.add("show");
+        }
+
+        async function requireAdmin() {
+            const token = localStorage.getItem("kb_token");
+            if (!token) {
+                window.location.href = "/login?next=/admin/api-docs";
+                return;
+            }
+
+            try {
+                const resp = await fetch("/auth/me", {
+                    headers: { "Authorization": "Bearer " + token },
+                });
+                if (!resp.ok) {
+                    localStorage.removeItem("kb_token");
+                    window.location.href = "/login?next=/admin/api-docs";
+                    return;
+                }
+
+                const me = await resp.json();
+                if (!me || !me.is_admin) {
+                    setStatus("Admin privileges are required for this module.");
+                    setTimeout(() => { window.location.href = "/"; }, 1200);
+                    return;
+                }
+
+                statusBox.classList.remove("show");
+            } catch (_) {
+                setStatus("Could not verify admin session.");
+                setTimeout(() => { window.location.href = "/login?next=/admin/api-docs"; }, 1200);
+            }
+        }
+
+        document.getElementById("logoutBtn").addEventListener("click", () => {
+            localStorage.removeItem("kb_token");
+            window.location.href = "/login";
+        });
+
+        requireAdmin();
+    </script>
+</body>
+</html>

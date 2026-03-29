@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from src.auth import UserInfo, require_admin
 from src.main import app
 
 client = TestClient(app, raise_server_exceptions=True)
@@ -37,7 +38,29 @@ def _read_template(name: str) -> str:
 def test_health_returns_200():
     resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.json()["status"] == "healthy"
+    body = resp.json()
+    assert body["status"] == "healthy"
+    assert "paper_trading_storage" in body
+
+
+def test_health_returns_503_when_persistence_enforced_and_storage_not_postgres(monkeypatch):
+    monkeypatch.setenv("HEALTHCHECK_ENFORCE_TRADING_PERSISTENCE", "true")
+    monkeypatch.setattr(
+        "src.paper_trading.get_storage_status",
+        lambda: {
+            "mode": "json-local",
+            "postgres_enabled": False,
+            "fallback_allowed": False,
+            "healthy": True,
+            "message": "Using local JSON storage.",
+        },
+    )
+
+    resp = client.get("/health")
+    assert resp.status_code == 503
+    body = resp.json()
+    assert body["status"] == "degraded"
+    assert body["strict_persistence_healthcheck"] is True
 
 
 def test_version_returns_version_and_commit():
@@ -81,6 +104,36 @@ def test_admin_module_returns_html():
     resp = client.get("/admin")
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
+    assert "Control Tower" in resp.text
+    assert 'id="adminOverview"' in resp.text
+    assert "Account Management" in resp.text
+    assert "KB Content Management" in resp.text
+
+
+def test_admin_api_docs_module_returns_html():
+    resp = client.get("/admin/api-docs")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+    assert "API Documentation" in resp.text
+    assert "Open Swagger API Docs" in resp.text
+
+
+def test_admin_accounts_page_returns_html():
+    resp = client.get("/admin/accounts")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+    assert "Account Management" in resp.text
+    assert "Approve / Reject Account Creation" not in resp.text  # Old text should not be here
+
+
+def test_admin_kb_content_page_returns_html():
+    resp = client.get("/admin/kb-content")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+    assert "KB Content Management" in resp.text
+    assert "Draft Content" in resp.text
+    assert "Approved Content" in resp.text
+    assert "Rejected Content" in resp.text
 
 
 def test_knowledge_base_viewer_returns_html():
@@ -98,23 +151,76 @@ def test_knowledge_base_index_returns_tree_payload():
     assert "total_chapters" in body
 
 
+def test_knowledge_base_index_returns_only_approved_chapters(monkeypatch):
+    monkeypatch.setattr(
+        "src.routers.kb_viewer.kb._build_kb_tree",
+        lambda: {
+            "kb_root": "knowledge-base",
+            "sections": [
+                {
+                    "name": "S1",
+                    "topic_count": 1,
+                    "topics": [
+                        {
+                            "name": "T1",
+                            "chapter_count": 3,
+                            "topic_index": "sections/s1/topics/t1/TOPIC.md",
+                            "chapters": [
+                                {"name": "A", "relative_path": "a.md", "status": "Approved"},
+                                {"name": "D", "relative_path": "d.md", "status": "Draft"},
+                                {"name": "R", "relative_path": "r.md", "status": "Rejected"},
+                            ],
+                        }
+                    ],
+                }
+            ],
+            "total_sections": 1,
+            "total_topics": 1,
+            "total_chapters": 3,
+        },
+    )
+
+    resp = client.get("/knowledge-base/index")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total_chapters"] == 1
+    assert body["sections"][0]["topics"][0]["chapters"][0]["status"] == "Approved"
+
+
 def test_knowledge_base_chapter_rejects_invalid_path_traversal():
     resp = client.get("/knowledge-base/chapter", params={"path": "../README.md"})
     assert resp.status_code == 400
 
 
 def test_knowledge_base_open_explorer_rejects_invalid_path_traversal():
-    resp = client.post("/knowledge-base/open-explorer", json={"path": "../README.md"})
-    assert resp.status_code == 400
+    app.dependency_overrides[require_admin] = lambda: UserInfo(
+        email="admin@example.com", is_admin=True, is_approved=True
+    )
+    try:
+        resp = client.post("/knowledge-base/open-explorer", json={"path": "../README.md"})
+        assert resp.status_code == 400
+    finally:
+        app.dependency_overrides.pop(require_admin, None)
 
 
 def test_knowledge_base_open_explorer_accepts_valid_path(monkeypatch):
     monkeypatch.setattr("src.knowledge_base._open_in_explorer", lambda path: None)
-    resp = client.post("/knowledge-base/open-explorer", json={"path": "INDEX.md"})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["status"] == "ok"
-    assert body["path"] == "INDEX.md"
+    app.dependency_overrides[require_admin] = lambda: UserInfo(
+        email="admin@example.com", is_admin=True, is_approved=True
+    )
+    try:
+        resp = client.post("/knowledge-base/open-explorer", json={"path": "INDEX.md"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body["path"] == "INDEX.md"
+    finally:
+        app.dependency_overrides.pop(require_admin, None)
+
+
+def test_admin_kb_chapter_details_requires_admin():
+    resp = client.get("/admin/kb-chapter-details", params={"path": "INDEX.md"})
+    assert resp.status_code == 401
 
 
 # ──────────────────────────────────────────────
@@ -203,6 +309,8 @@ def test_dashboard_cta_uses_cta_row_class():
 def test_knowledge_base_viewer_has_markdown_and_filter_controls():
     html = _read_template("knowledge-base-viewer.html")
     assert 'id="treeFilter"' in html
+    assert 'id="confidenceFilter"' in html
+    assert 'id="chapterSort"' in html
     assert "marked.min.js" in html
     assert "dompurify" in html.lower()
     assert "Open in Explorer" in html

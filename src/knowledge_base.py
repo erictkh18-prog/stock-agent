@@ -60,6 +60,42 @@ CLAIM_NOISE_PATTERNS = [
     "bloomberg the company",
 ]
 
+PRICE_MOVEMENT_KEYWORD_WEIGHTS = {
+    "inflation": 10,
+    "interest rate": 12,
+    "federal reserve": 12,
+    "gdp": 7,
+    "employment": 7,
+    "earnings": 12,
+    "guidance": 8,
+    "valuation": 8,
+    "revenue": 8,
+    "margin": 7,
+    "momentum": 6,
+    "trend": 6,
+    "breakout": 7,
+    "volume": 6,
+    "volatility": 6,
+    "sentiment": 6,
+    "liquidity": 6,
+    "risk": 5,
+    "sector": 5,
+}
+
+PRICE_MOVEMENT_DIMENSION_KEYWORDS = {
+    "Macro": ["inflation", "interest", "federal reserve", "gdp", "employment", "yield"],
+    "Fundamental": ["earnings", "valuation", "revenue", "margin", "cash flow", "guidance"],
+    "Technical": ["trend", "momentum", "breakout", "support", "resistance", "moving average"],
+    "Sentiment": ["sentiment", "positioning", "risk-on", "risk-off", "news flow"],
+    "Risk": ["volatility", "drawdown", "liquidity", "stop", "risk management"],
+}
+
+PRICE_MOVEMENT_HORIZON_KEYWORDS = {
+    "Short-term": ["intraday", "daily", "event window", "release", "catalyst", "near-term"],
+    "Medium-term": ["weekly", "monthly", "swing", "regime", "rotation"],
+    "Long-term": ["quarter", "multi-quarter", "long-term", "structural", "cycle"],
+}
+
 _WIKIPEDIA_REQUEST_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -217,6 +253,36 @@ def _extract_chapter_status(chapter_path: Path) -> str:
     return "Draft"
 
 
+def _extract_chapter_analysis_metrics(markdown_content: str) -> dict:
+    """Extract chapter analysis metrics from markdown content when available."""
+    defaults = {
+        "weighted_relevance_score": 0,
+        "relevance_score": 0,
+        "source_quality_score": 0,
+        "confidence_band": "Unknown",
+    }
+
+    if not markdown_content:
+        return defaults
+
+    weighted_match = re.search(r"Weighted Relevance Score:\s*(\d{1,3})/100", markdown_content, flags=re.IGNORECASE)
+    relevance_match = re.search(r"(?:^|\n)-\s*Relevance Score:\s*(\d{1,3})/100", markdown_content, flags=re.IGNORECASE)
+    source_quality_match = re.search(r"Source Quality Score:\s*(\d{1,3})/100", markdown_content, flags=re.IGNORECASE)
+    confidence_match = re.search(r"Confidence Band:\s*([A-Za-z]+)", markdown_content, flags=re.IGNORECASE)
+
+    weighted_score = int(weighted_match.group(1)) if weighted_match else defaults["weighted_relevance_score"]
+    relevance_score = int(relevance_match.group(1)) if relevance_match else defaults["relevance_score"]
+    source_quality_score = int(source_quality_match.group(1)) if source_quality_match else defaults["source_quality_score"]
+    confidence_band = confidence_match.group(1).title() if confidence_match else defaults["confidence_band"]
+
+    return {
+        "weighted_relevance_score": max(0, min(100, weighted_score)),
+        "relevance_score": max(0, min(100, relevance_score)),
+        "source_quality_score": max(0, min(100, source_quality_score)),
+        "confidence_band": confidence_band,
+    }
+
+
 def _build_kb_tree() -> dict:
     """Build section/topic/chapter tree for knowledge-base viewer."""
     sections_dir = KB_ROOT / "sections"
@@ -248,13 +314,19 @@ def _build_kb_tree() -> dict:
                         [p for p in chapter_dir.iterdir() if p.is_file() and p.suffix.lower() == ".md"],
                         reverse=True,
                     ):
+                        try:
+                            chapter_content = chapter_path.read_text(encoding="utf-8")
+                        except OSError:
+                            chapter_content = ""
                         chapter_status = _extract_chapter_status(chapter_path)
+                        chapter_analysis = _extract_chapter_analysis_metrics(chapter_content)
                         chapters.append(
                             {
                                 "name": chapter_path.stem,
                                 "relative_path": _safe_rel_path(chapter_path, KB_ROOT),
                                 "updated_at": datetime.fromtimestamp(chapter_path.stat().st_mtime).isoformat(),
                                 "status": chapter_status,
+                                **chapter_analysis,
                             }
                         )
 
@@ -607,6 +679,302 @@ def _derive_trading_application_insights(topic: str, claims: list[str]) -> list[
         )
 
     return insights
+
+
+def _extract_frontmatter_field(markdown: str, field: str) -> str:
+    """Extract a frontmatter field value from markdown, if present."""
+    lines = markdown.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return ""
+
+    field_prefix = f"{field.strip().lower()}:"
+    for line in lines[1:]:
+        stripped = line.strip()
+        if stripped == "---":
+            break
+        if stripped.lower().startswith(field_prefix):
+            return stripped.split(":", 1)[1].strip()
+    return ""
+
+
+def _extract_markdown_bullets_under_heading(markdown: str, heading: str) -> list[str]:
+    """Extract bullet lines under a specific markdown heading."""
+    target = heading.strip().lower()
+    lines = markdown.splitlines()
+    in_section = False
+    bullets: list[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+
+        if stripped.startswith("#"):
+            heading_text = stripped.lstrip("#").strip().lower()
+            if in_section and heading_text != target:
+                break
+            in_section = heading_text == target
+            continue
+
+        if in_section and stripped.startswith("- "):
+            bullets.append(stripped[2:].strip())
+
+    return bullets
+
+
+def _extract_fallback_sentences(markdown: str, max_sentences: int = 3) -> list[str]:
+    """Extract readable fallback sentences from markdown content."""
+    without_code = re.sub(r"```.*?```", " ", markdown, flags=re.DOTALL)
+    plain = re.sub(r"`[^`]*`", " ", without_code)
+    plain = re.sub(r"#+\s*", " ", plain)
+    plain = re.sub(r"\s+", " ", plain).strip()
+
+    if not plain:
+        return []
+
+    sentences = [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!?])\s+", plain)
+        if len(sentence.strip()) >= 35
+    ]
+    return sentences[:max_sentences]
+
+
+def _infer_primary_horizon(corpus: str) -> str:
+    """Infer dominant prediction horizon from keyword matches."""
+    scores = {key: 0 for key in PRICE_MOVEMENT_HORIZON_KEYWORDS}
+    for horizon, keywords in PRICE_MOVEMENT_HORIZON_KEYWORDS.items():
+        for keyword in keywords:
+            if keyword in corpus:
+                scores[horizon] += 1
+
+    best = max(scores, key=scores.get)
+    return best if scores[best] > 0 else "Medium-term"
+
+
+def _extract_source_urls(markdown_content: str) -> list[str]:
+    """Extract source URLs from chapter markdown."""
+    references = _extract_markdown_bullets_under_heading(markdown_content, "References")
+    urls: list[str] = []
+    seen: set[str] = set()
+
+    for line in references:
+        match = re.search(r"https?://\S+", line)
+        if not match:
+            continue
+        url = match.group(0).rstrip(").,]}")
+        if url in seen:
+            continue
+        seen.add(url)
+        urls.append(url)
+
+    if urls:
+        return urls
+
+    for match in re.findall(r"https?://\S+", markdown_content):
+        url = match.rstrip(").,]}")
+        if url in seen:
+            continue
+        seen.add(url)
+        urls.append(url)
+        if len(urls) >= 8:
+            break
+
+    return urls
+
+
+def _build_source_quality_assessment(
+    source_urls: list[str],
+    summary: str,
+    claims: list[str],
+    trading_insights: list[str],
+    markdown_content: str,
+) -> dict:
+    """Assess confidence quality of extracted source material."""
+    score = 35
+    reasons: list[str] = []
+
+    unique_domains = {
+        _source_domain_from_url(url)
+        for url in (source_urls or [])
+        if url and url.startswith(("http://", "https://"))
+    }
+
+    if unique_domains:
+        domain_bonus = min(20, len(unique_domains) * 6)
+        score += domain_bonus
+        reasons.append(f"Diverse source domains detected ({len(unique_domains)}).")
+    else:
+        reasons.append("No explicit source URLs detected.")
+
+    trusted_domains = {"reuters.com", "bloomberg.com", "investopedia.com"}
+    trusted_count = len(unique_domains.intersection(trusted_domains))
+    if trusted_count:
+        trusted_bonus = min(20, trusted_count * 7)
+        score += trusted_bonus
+        reasons.append(f"Trusted market sources present ({trusted_count}).")
+
+    if len(claims or []) >= 3:
+        score += 10
+        reasons.append("Sufficient extracted claims available for synthesis.")
+
+    if len(trading_insights or []) >= 2:
+        score += 8
+        reasons.append("Actionable screening notes are available.")
+
+    summary_lower = (summary or "").lower()
+    markdown_lower = (markdown_content or "").lower()
+    if "manual review" in summary_lower or "insufficient" in summary_lower:
+        score -= 12
+        reasons.append("Summary indicates limited confidence and manual review requirement.")
+
+    if "blocked source" in markdown_lower:
+        score -= 10
+        reasons.append("At least one source had extraction/access limitations.")
+
+    score = max(0, min(100, score))
+
+    if score >= 75:
+        confidence_band = "High"
+    elif score >= 50:
+        confidence_band = "Medium"
+    else:
+        confidence_band = "Low"
+
+    return {
+        "source_quality_score": score,
+        "confidence_band": confidence_band,
+        "confidence_reasons": reasons[:5],
+    }
+
+
+def _build_price_movement_analysis(
+    topic: str,
+    summary: str,
+    claims: list[str],
+    trading_insights: list[str],
+    markdown_content: str = "",
+    source_urls: Optional[list[str]] = None,
+) -> dict:
+    """Build deterministic analysis for how content improves price-movement prediction skill."""
+    corpus = " ".join(
+        [
+            topic or "",
+            summary or "",
+            " ".join(claims or []),
+            " ".join(trading_insights or []),
+            markdown_content or "",
+        ]
+    ).lower()
+
+    relevance_score = 20
+    for keyword, weight in PRICE_MOVEMENT_KEYWORD_WEIGHTS.items():
+        if keyword in corpus:
+            relevance_score += weight
+
+    market_dimensions: list[str] = []
+    for dimension, keywords in PRICE_MOVEMENT_DIMENSION_KEYWORDS.items():
+        if any(keyword in corpus for keyword in keywords):
+            market_dimensions.append(dimension)
+            relevance_score += 5
+
+    relevance_score = min(100, relevance_score)
+
+    source_assessment = _build_source_quality_assessment(
+        source_urls=source_urls or [],
+        summary=summary,
+        claims=claims,
+        trading_insights=trading_insights,
+        markdown_content=markdown_content,
+    )
+
+    weighted_relevance_score = int(round((relevance_score * 0.7) + (source_assessment["source_quality_score"] * 0.3)))
+
+    if weighted_relevance_score >= 75:
+        skill_impact = "High"
+    elif weighted_relevance_score >= 50:
+        skill_impact = "Medium"
+    else:
+        skill_impact = "Low"
+
+    key_takeaways: list[str] = []
+    seen_takeaways: set[str] = set()
+
+    for candidate in [summary, *(claims or [])]:
+        text = (candidate or "").strip()
+        key = text.lower()
+        if not text or key in seen_takeaways:
+            continue
+        key_takeaways.append(text)
+        seen_takeaways.add(key)
+        if len(key_takeaways) >= 4:
+            break
+
+    if len(key_takeaways) < 2:
+        for sentence in _extract_fallback_sentences(markdown_content, max_sentences=4):
+            key = sentence.lower()
+            if key in seen_takeaways:
+                continue
+            key_takeaways.append(sentence)
+            seen_takeaways.add(key)
+            if len(key_takeaways) >= 4:
+                break
+
+    if not key_takeaways:
+        key_takeaways = [
+            "Insufficient structured claims detected. Keep chapter in Draft and enrich with analyst notes.",
+        ]
+
+    application_notes = [insight.strip() for insight in (trading_insights or []) if insight.strip()][:4]
+    if not application_notes:
+        application_notes = [
+            "Treat this chapter as context input and combine with trend, volume, and risk controls before execution.",
+            "Use signals from this chapter to narrow watchlist candidates, then validate with technical confirmation.",
+        ]
+
+    return {
+        "relevance_score": relevance_score,
+        "weighted_relevance_score": weighted_relevance_score,
+        "source_quality_score": source_assessment["source_quality_score"],
+        "confidence_band": source_assessment["confidence_band"],
+        "confidence_reasons": source_assessment["confidence_reasons"],
+        "prediction_skill_impact": skill_impact,
+        "primary_horizon": _infer_primary_horizon(corpus),
+        "market_dimensions": market_dimensions or ["General"],
+        "key_takeaways": key_takeaways,
+        "application_notes": application_notes,
+    }
+
+
+def _build_chapter_viewer_insights(markdown_content: str, default_title: str = "") -> dict:
+    """Build viewer summary and price-movement analysis for a chapter."""
+    chapter_title = _extract_frontmatter_field(markdown_content, "title") or default_title
+
+    source_summary_lines = _extract_markdown_bullets_under_heading(markdown_content, "Source Summary")
+    summary = source_summary_lines[0] if source_summary_lines else ""
+
+    if not summary:
+        extracted_claims = _extract_markdown_bullets_under_heading(markdown_content, "Extracted Claims")
+        summary = extracted_claims[0] if extracted_claims else ""
+
+    if not summary:
+        fallback = _extract_fallback_sentences(markdown_content, max_sentences=1)
+        summary = fallback[0] if fallback else "No summary available yet."
+
+    claims = _extract_markdown_bullets_under_heading(markdown_content, "Extracted Claims")
+    trading_insights = _extract_markdown_bullets_under_heading(markdown_content, "Actionable Rules Derived")
+
+    analysis = _build_price_movement_analysis(
+        topic=chapter_title,
+        summary=summary,
+        claims=claims,
+        trading_insights=trading_insights,
+        markdown_content=markdown_content,
+        source_urls=_extract_source_urls(markdown_content),
+    )
+
+    return {
+        "summary": summary,
+        "price_movement_analysis": analysis,
+    }
 
 
 def _auto_research_topic(topic: str) -> dict:

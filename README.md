@@ -170,6 +170,32 @@ Behavior:
 - If `AUTH_DATABASE_URL` is not set, auth falls back to `data/kb_users.json` for local development and tests.
 - On first startup with Postgres enabled, any existing JSON auth users are copied into Postgres once.
 
+### Persistent Paper Trading On Render
+
+Paper trading must use Postgres in production. If Postgres is not configured, the app will use local JSON files which are ephemeral on Render and can reset on deploy.
+
+Set at least one of these environment variables in Render:
+
+- `PAPER_TRADING_DATABASE_URL` (recommended)
+- `DATABASE_URL` (used as fallback)
+
+Recommended safety setting:
+
+- `PAPER_TRADING_ALLOW_JSON_FALLBACK=false`
+
+You can verify live mode from the dashboard paper-trading section or via:
+
+- `GET /paper-trading/storage-status`
+
+Expected healthy response in production:
+
+```json
+{
+  "mode": "postgres",
+  "healthy": true
+}
+```
+
 ### Knowledge Base Persistence on Render
 
 Render's filesystem is **ephemeral** — files written at runtime are lost on every redeploy.  

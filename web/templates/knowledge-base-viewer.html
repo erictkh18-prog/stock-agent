@@ -129,6 +129,23 @@
             margin-bottom: 12px;
         }
 
+        .analysis-controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .analysis-controls select {
+            width: 100%;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 10px;
+            min-height: 40px;
+            font-size: 0.86rem;
+            background: #fff;
+        }
+
         .quick-filter-btn {
             min-height: 36px;
             border: 1px solid var(--line);
@@ -283,6 +300,34 @@
             border-color: #fca5a5;
         }
 
+        .chapter-analysis-badge {
+            border-radius: 999px;
+            padding: 2px 8px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            border: 1px solid transparent;
+            white-space: nowrap;
+        }
+
+        .chapter-analysis-badge.high {
+            color: #14532d;
+            background: #dcfce7;
+            border-color: #86efac;
+        }
+
+        .chapter-analysis-badge.medium {
+            color: #92400e;
+            background: #fef3c7;
+            border-color: #fcd34d;
+        }
+
+        .chapter-analysis-badge.low,
+        .chapter-analysis-badge.unknown {
+            color: #1e3a8a;
+            background: #dbeafe;
+            border-color: #93c5fd;
+        }
+
         .chapter-open-explorer {
             border: 1px solid #dbe3f0;
             background: #fff;
@@ -310,6 +355,58 @@
             color: var(--muted);
             font-size: 0.85rem;
             margin-bottom: 10px;
+        }
+
+        .insight-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .insight-card {
+            border: 1px solid #dbe3f0;
+            border-radius: 10px;
+            background: #f8fafc;
+            padding: 10px;
+        }
+
+        .insight-card h3 {
+            margin: 0 0 8px;
+            font-size: 0.9rem;
+            color: #0c4a6e;
+        }
+
+        .insight-card p {
+            margin: 0;
+            color: #1e293b;
+            font-size: 0.88rem;
+            line-height: 1.45;
+        }
+
+        .analysis-metrics {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 8px;
+        }
+
+        .analysis-metric {
+            border-radius: 999px;
+            border: 1px solid #bae6fd;
+            background: #e0f2fe;
+            color: #075985;
+            padding: 3px 9px;
+            font-size: 0.76rem;
+            font-weight: 700;
+        }
+
+        .analysis-list {
+            margin: 0;
+            padding-left: 18px;
+            color: #1e293b;
+            font-size: 0.84rem;
+            line-height: 1.4;
         }
 
         .doc-body {
@@ -405,6 +502,10 @@
                 min-height: 40vh;
             }
 
+            .insight-grid {
+                grid-template-columns: 1fr;
+            }
+
             .chapter-row {
                 grid-template-columns: 1fr;
             }
@@ -427,6 +528,10 @@
             .filter-row {
                 grid-template-columns: 1fr;
             }
+
+            .analysis-controls {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
@@ -440,6 +545,7 @@
             <div class="topbar-actions">
                 <button class="button" id="refreshBtn" type="button">Refresh Tree</button>
                 <button class="button" id="openBuilderBtn" type="button">Open Builder</button>
+                <button class="button" id="authBtn" type="button">Sign In</button>
             </div>
         </header>
 
@@ -456,12 +562,38 @@
                     <button class="quick-filter-btn" type="button" data-status="approved">Approved</button>
                     <button class="quick-filter-btn" type="button" data-status="rejected">Rejected</button>
                 </div>
+                <div class="analysis-controls" aria-label="Analysis filters and sorting">
+                    <select id="confidenceFilter" aria-label="Confidence filter">
+                        <option value="all">Confidence: All</option>
+                        <option value="high">Confidence: High</option>
+                        <option value="medium">Confidence: Medium</option>
+                        <option value="low">Confidence: Low</option>
+                        <option value="unknown">Confidence: Unknown</option>
+                    </select>
+                    <select id="chapterSort" aria-label="Chapter sort order">
+                        <option value="weighted_desc">Sort: Weighted Relevance (High to Low)</option>
+                        <option value="weighted_asc">Sort: Weighted Relevance (Low to High)</option>
+                        <option value="updated_desc">Sort: Most Recently Updated</option>
+                        <option value="updated_asc">Sort: Oldest Updated</option>
+                    </select>
+                </div>
                 <ul class="tree" id="tree"></ul>
             </section>
 
             <section class="card" aria-label="Chapter preview">
                 <h2 id="docTitle">Select a chapter</h2>
                 <div class="doc-meta" id="docMeta">Choose a chapter from the left panel to view its content.</div>
+                <div class="insight-grid">
+                    <section class="insight-card" aria-label="Source summary">
+                        <h3>Source Summary</h3>
+                        <p id="docSummary">Summary will appear after selecting a chapter.</p>
+                    </section>
+                    <section class="insight-card" aria-label="Price movement analysis">
+                        <h3>Price-Movement Analysis</h3>
+                        <div class="analysis-metrics" id="analysisMetrics"></div>
+                        <ul class="analysis-list" id="analysisTakeaways"></ul>
+                    </section>
+                </div>
                 <div class="doc-actions">
                     <button class="doc-action-button" id="openSelectedExplorerBtn" type="button" disabled>Open in Explorer</button>
                     <button class="doc-action-button" id="approveChapterBtn" type="button" disabled>Approve Chapter</button>
@@ -480,23 +612,157 @@
         const statsEl = document.getElementById("stats");
         const docTitleEl = document.getElementById("docTitle");
         const docMetaEl = document.getElementById("docMeta");
+        const docSummaryEl = document.getElementById("docSummary");
+        const analysisMetricsEl = document.getElementById("analysisMetrics");
+        const analysisTakeawaysEl = document.getElementById("analysisTakeaways");
         const docBodyEl = document.getElementById("docBody");
         const statusEl = document.getElementById("status");
         const refreshBtn = document.getElementById("refreshBtn");
         const openBuilderBtn = document.getElementById("openBuilderBtn");
+        const authBtn = document.getElementById("authBtn");
         const treeFilterInput = document.getElementById("treeFilter");
         const clearFilterBtn = document.getElementById("clearFilterBtn");
         const quickFilters = document.getElementById("quickFilters");
+        const confidenceFilter = document.getElementById("confidenceFilter");
+        const chapterSort = document.getElementById("chapterSort");
         const openSelectedExplorerBtn = document.getElementById("openSelectedExplorerBtn");
         const approveChapterBtn = document.getElementById("approveChapterBtn");
         const rejectChapterBtn = document.getElementById("rejectChapterBtn");
 
+        const adminHomeBtn = document.createElement("button");
+        adminHomeBtn.className = "button";
+        adminHomeBtn.type = "button";
+        adminHomeBtn.textContent = "Admin Home";
+        adminHomeBtn.style.display = "none";
+
+        const accountApprovalBtn = document.createElement("button");
+        accountApprovalBtn.className = "button";
+        accountApprovalBtn.type = "button";
+        accountApprovalBtn.textContent = "Account Approvals";
+        accountApprovalBtn.style.display = "none";
+
+        const apiDocsModuleBtn = document.createElement("button");
+        apiDocsModuleBtn.className = "button";
+        apiDocsModuleBtn.type = "button";
+        apiDocsModuleBtn.textContent = "API Docs Module";
+        apiDocsModuleBtn.style.display = "none";
+
+        const dashboardBtn = document.createElement("button");
+        dashboardBtn.className = "button";
+        dashboardBtn.type = "button";
+        dashboardBtn.textContent = "Dashboard";
+        dashboardBtn.style.display = "none";
+
+        document.querySelector(".topbar-actions").appendChild(adminHomeBtn);
+        document.querySelector(".topbar-actions").appendChild(accountApprovalBtn);
+        document.querySelector(".topbar-actions").appendChild(apiDocsModuleBtn);
+        document.querySelector(".topbar-actions").appendChild(dashboardBtn);
+
         let activeChapterPath = "";
         let fullSections = [];
         let activeStatusFilter = "all";
+        let activeConfidenceFilter = "all";
+        let activeSortOrder = "weighted_desc";
+        let currentUser = null;
+
+        function getAuthToken() {
+            return localStorage.getItem("kb_token") || "";
+        }
+
+        function getAuthHeaders() {
+            const token = getAuthToken();
+            return token ? { "Authorization": `Bearer ${token}` } : {};
+        }
+
+        function setModerationActionState() {
+            const isAdmin = Boolean(currentUser && currentUser.is_admin);
+
+            openSelectedExplorerBtn.style.display = isAdmin ? "inline-block" : "none";
+            approveChapterBtn.style.display = isAdmin ? "inline-block" : "none";
+            rejectChapterBtn.style.display = isAdmin ? "inline-block" : "none";
+
+            openSelectedExplorerBtn.disabled = !isAdmin || !activeChapterPath;
+            approveChapterBtn.disabled = !isAdmin || !activeChapterPath;
+            rejectChapterBtn.disabled = !isAdmin || !activeChapterPath;
+
+            adminHomeBtn.style.display = isAdmin ? "inline-block" : "none";
+            accountApprovalBtn.style.display = isAdmin ? "inline-block" : "none";
+            apiDocsModuleBtn.style.display = isAdmin ? "inline-block" : "none";
+            dashboardBtn.style.display = isAdmin ? "inline-block" : "none";
+        }
+
+        function updateAuthButtonState() {
+            authBtn.textContent = currentUser ? "Sign Out" : "Sign In";
+        }
+
+        async function initializeAuthState() {
+            const token = getAuthToken();
+            if (!token) {
+                currentUser = null;
+                updateAuthButtonState();
+                setModerationActionState();
+                return;
+            }
+
+            try {
+                const response = await fetch("/auth/me", {
+                    headers: {
+                        ...getAuthHeaders(),
+                    },
+                });
+
+                if (!response.ok) {
+                    localStorage.removeItem("kb_token");
+                    currentUser = null;
+                } else {
+                    currentUser = await response.json();
+                }
+            } catch (_) {
+                currentUser = null;
+            }
+
+            updateAuthButtonState();
+            setModerationActionState();
+        }
+
+        function handleProtectedActionAuthFailure() {
+            localStorage.removeItem("kb_token");
+            currentUser = null;
+            updateAuthButtonState();
+            setModerationActionState();
+            window.location.href = "/login?next=/knowledge-base";
+        }
 
         openBuilderBtn.addEventListener("click", () => {
             window.location.href = "/knowledge-base-builder";
+        });
+
+        authBtn.addEventListener("click", () => {
+            if (currentUser) {
+                localStorage.removeItem("kb_token");
+                currentUser = null;
+                updateAuthButtonState();
+                setModerationActionState();
+                statusEl.textContent = "Signed out. Read-only mode is active.";
+                return;
+            }
+            window.location.href = "/login?next=/knowledge-base";
+        });
+
+        adminHomeBtn.addEventListener("click", () => {
+            window.location.href = "/admin";
+        });
+
+        accountApprovalBtn.addEventListener("click", () => {
+            window.location.href = "/admin/accounts";
+        });
+
+        apiDocsModuleBtn.addEventListener("click", () => {
+            window.location.href = "/admin/api-docs";
+        });
+
+        dashboardBtn.addEventListener("click", () => {
+            window.location.href = "/";
         });
 
         refreshBtn.addEventListener("click", () => {
@@ -505,11 +771,11 @@
 
         clearFilterBtn.addEventListener("click", () => {
             treeFilterInput.value = "";
-            renderTree(fullSections, "", activeStatusFilter);
+            renderTree(fullSections, "", activeStatusFilter, activeConfidenceFilter, activeSortOrder);
         });
 
         treeFilterInput.addEventListener("input", () => {
-            renderTree(fullSections, treeFilterInput.value.trim().toLowerCase(), activeStatusFilter);
+            renderTree(fullSections, treeFilterInput.value.trim().toLowerCase(), activeStatusFilter, activeConfidenceFilter, activeSortOrder);
         });
 
         quickFilters.addEventListener("click", (event) => {
@@ -524,7 +790,17 @@
                 button.classList.toggle("active", button === target);
             });
 
-            renderTree(fullSections, treeFilterInput.value.trim().toLowerCase(), activeStatusFilter);
+            renderTree(fullSections, treeFilterInput.value.trim().toLowerCase(), activeStatusFilter, activeConfidenceFilter, activeSortOrder);
+        });
+
+        confidenceFilter.addEventListener("change", () => {
+            activeConfidenceFilter = (confidenceFilter.value || "all").toLowerCase();
+            renderTree(fullSections, treeFilterInput.value.trim().toLowerCase(), activeStatusFilter, activeConfidenceFilter, activeSortOrder);
+        });
+
+        chapterSort.addEventListener("change", () => {
+            activeSortOrder = chapterSort.value || "weighted_desc";
+            renderTree(fullSections, treeFilterInput.value.trim().toLowerCase(), activeStatusFilter, activeConfidenceFilter, activeSortOrder);
         });
 
         openSelectedExplorerBtn.addEventListener("click", async () => {
@@ -571,7 +847,7 @@
 
                 fullSections = payload.sections || [];
                 renderStats(payload);
-                renderTree(fullSections, treeFilterInput.value.trim().toLowerCase(), activeStatusFilter);
+                renderTree(fullSections, treeFilterInput.value.trim().toLowerCase(), activeStatusFilter, activeConfidenceFilter, activeSortOrder);
 
                 statusEl.textContent = "Knowledge-base tree loaded.";
             } catch (error) {
@@ -591,7 +867,7 @@
             statsEl.innerHTML = chips.map((text) => `<span class="chip">${text}</span>`).join("");
         }
 
-        function renderTree(sections, filterText, statusFilter = "all") {
+        function renderTree(sections, filterText, statusFilter = "all", confidenceFilterValue = "all", sortOrder = "weighted_desc") {
             if (!sections.length) {
                 treeEl.innerHTML = '<li class="empty">No sections found in knowledge-base.</li>';
                 return;
@@ -599,6 +875,7 @@
 
             const normalizedFilter = (filterText || "").toLowerCase();
             const normalizedStatus = (statusFilter || "all").toLowerCase();
+            const normalizedConfidence = (confidenceFilterValue || "all").toLowerCase();
             const hasFilter = normalizedFilter.length > 0;
             treeEl.innerHTML = "";
             let matchedSections = 0;
@@ -657,13 +934,33 @@
                                 chapterList.appendChild(emptyChapter);
                             }
                         } else {
-                            for (const chapter of topic.chapters) {
+                            const sortedChapters = [...topic.chapters].sort((a, b) => {
+                                const aWeighted = Number(a.weighted_relevance_score || 0);
+                                const bWeighted = Number(b.weighted_relevance_score || 0);
+                                const aUpdated = Date.parse(a.updated_at || "") || 0;
+                                const bUpdated = Date.parse(b.updated_at || "") || 0;
+
+                                if (sortOrder === "weighted_asc") {
+                                    return aWeighted - bWeighted;
+                                }
+                                if (sortOrder === "updated_desc") {
+                                    return bUpdated - aUpdated;
+                                }
+                                if (sortOrder === "updated_asc") {
+                                    return aUpdated - bUpdated;
+                                }
+                                return bWeighted - aWeighted;
+                            });
+
+                            for (const chapter of sortedChapters) {
                                 const chapterMatch = chapter.name.toLowerCase().includes(normalizedFilter)
                                     || chapter.relative_path.toLowerCase().includes(normalizedFilter);
                                 const chapterStatus = (chapter.status || "Draft").toLowerCase();
+                                const chapterConfidence = (chapter.confidence_band || "Unknown").toLowerCase();
                                 const statusMatch = normalizedStatus === "all" || chapterStatus === normalizedStatus;
+                                const confidenceMatch = normalizedConfidence === "all" || chapterConfidence === normalizedConfidence;
 
-                                if (!statusMatch) {
+                                if (!statusMatch || !confidenceMatch) {
                                     continue;
                                 }
 
@@ -686,8 +983,14 @@
                                 chapterStatusBadge.className = `chapter-status-badge ${chapterStatus}`;
                                 chapterStatusBadge.textContent = chapter.status || "Draft";
 
+                                const chapterAnalysisBadge = document.createElement("span");
+                                chapterAnalysisBadge.className = `chapter-analysis-badge ${chapterConfidence}`;
+                                const weightedScore = Number(chapter.weighted_relevance_score || 0);
+                                chapterAnalysisBadge.textContent = `W${weightedScore} ${chapter.confidence_band || "Unknown"}`;
+
                                 button.appendChild(chapterName);
                                 button.appendChild(chapterStatusBadge);
+                                button.appendChild(chapterAnalysisBadge);
                                 button.dataset.path = chapter.relative_path;
                                 button.addEventListener("click", async () => {
                                     await loadChapter(chapter.relative_path, button);
@@ -702,7 +1005,9 @@
                                 });
 
                                 chapterRow.appendChild(button);
-                                chapterRow.appendChild(openExplorerBtn);
+                                if (currentUser && currentUser.is_admin) {
+                                    chapterRow.appendChild(openExplorerBtn);
+                                }
                                 chapterItem.appendChild(chapterRow);
                                 chapterList.appendChild(chapterItem);
                             }
@@ -740,6 +1045,47 @@
             }
         }
 
+        function renderPriceMovementAnalysis(analysis) {
+            analysisMetricsEl.innerHTML = "";
+            analysisTakeawaysEl.innerHTML = "";
+
+            if (!analysis || typeof analysis !== "object") {
+                analysisMetricsEl.innerHTML = '<span class="analysis-metric">No analysis available</span>';
+                return;
+            }
+
+            const dimensions = Array.isArray(analysis.market_dimensions)
+                ? analysis.market_dimensions.join(", ")
+                : "General";
+
+            const metrics = [
+                `Relevance ${analysis.relevance_score ?? "N/A"}/100`,
+                `Weighted ${analysis.weighted_relevance_score ?? "N/A"}/100`,
+                `Source Quality ${analysis.source_quality_score ?? "N/A"}/100`,
+                `Confidence ${analysis.confidence_band || "N/A"}`,
+                `Impact ${analysis.prediction_skill_impact || "N/A"}`,
+                `Horizon ${analysis.primary_horizon || "N/A"}`,
+                `Dimensions ${dimensions}`,
+            ];
+
+            for (const metric of metrics) {
+                const chip = document.createElement("span");
+                chip.className = "analysis-metric";
+                chip.textContent = metric;
+                analysisMetricsEl.appendChild(chip);
+            }
+
+            const takeaways = Array.isArray(analysis.key_takeaways) ? analysis.key_takeaways : [];
+            const notes = Array.isArray(analysis.application_notes) ? analysis.application_notes : [];
+            const confidenceReasons = Array.isArray(analysis.confidence_reasons) ? analysis.confidence_reasons : [];
+
+            for (const itemText of [...takeaways.slice(0, 2), ...notes.slice(0, 2), ...confidenceReasons.slice(0, 2)]) {
+                const item = document.createElement("li");
+                item.textContent = itemText;
+                analysisTakeawaysEl.appendChild(item);
+            }
+        }
+
         async function loadChapter(relativePath, button, titleOverride) {
             statusEl.textContent = "Loading chapter...";
 
@@ -754,11 +1100,11 @@
                 activeChapterPath = payload.path;
                 docTitleEl.textContent = titleOverride || payload.title;
                 docMetaEl.textContent = `Path: ${payload.path} | Updated: ${new Date(payload.updated_at).toLocaleString()}`;
+                docSummaryEl.textContent = payload.summary || "No summary available yet.";
+                renderPriceMovementAnalysis(payload.price_movement_analysis || null);
                 renderMarkdown(payload.content);
                 setActiveButton(button);
-                openSelectedExplorerBtn.disabled = false;
-                approveChapterBtn.disabled = false;
-                rejectChapterBtn.disabled = false;
+                setModerationActionState();
                 statusEl.textContent = "Chapter loaded.";
             } catch (error) {
                 statusEl.textContent = `Error: ${error.message}`;
@@ -786,9 +1132,14 @@
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
+                        ...getAuthHeaders(),
                     },
                     body: JSON.stringify({ path: relativePath }),
                 });
+                if (response.status === 401 || response.status === 403) {
+                    handleProtectedActionAuthFailure();
+                    return;
+                }
                 const payload = await response.json();
                 if (!response.ok) {
                     throw new Error(payload.detail || "Could not open explorer");
@@ -807,6 +1158,7 @@
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
+                        ...getAuthHeaders(),
                     },
                     body: JSON.stringify({
                         path: relativePath,
@@ -814,6 +1166,11 @@
                         note,
                     }),
                 });
+
+                if (response.status === 401 || response.status === 403) {
+                    handleProtectedActionAuthFailure();
+                    return;
+                }
 
                 const payload = await response.json();
                 if (!response.ok) {
@@ -826,7 +1183,10 @@
             }
         }
 
-        void loadTree();
+        (async () => {
+            await initializeAuthState();
+            await loadTree();
+        })();
     </script>
 </body>
 </html>

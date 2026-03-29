@@ -109,6 +109,13 @@ def test_knowledge_base_chapter_returns_markdown_for_existing_file():
     payload = response.json()
     assert payload["path"] == "INDEX.md"
     assert "Knowledge Base Index" in payload["content"]
+    assert "summary" in payload
+    assert "price_movement_analysis" in payload
+    assert isinstance(payload["price_movement_analysis"], dict)
+    assert "relevance_score" in payload["price_movement_analysis"]
+    assert "weighted_relevance_score" in payload["price_movement_analysis"]
+    assert "source_quality_score" in payload["price_movement_analysis"]
+    assert "confidence_band" in payload["price_movement_analysis"]
 
 
 # ──────────────────────────────────────────────
@@ -234,6 +241,13 @@ def test_knowledge_base_ingest_without_url_runs_auto_research(monkeypatch, tmp_p
     chapter_path = Path(payload["created_chapter"])
     assert chapter_path.exists()
     chapter_content = chapter_path.read_text(encoding="utf-8")
+    assert "# Source Summary" in chapter_content
+    assert "# Price Movement Relevance Analysis" in chapter_content
+    assert "Weighted Relevance Score:" in chapter_content
+    assert "Source Quality Score:" in chapter_content
+    assert "Confidence Band:" in chapter_content
+    assert "## Why This Matters For Forecasting" in chapter_content
+    assert "## How To Apply This In Screening" in chapter_content
     assert "# Trading Application Notes" in chapter_content
     assert "# Source Acquisition Mode" in chapter_content
     assert "Auto multi-source topic research" in chapter_content
@@ -373,7 +387,7 @@ def test_chapter_status_endpoint_updates_frontmatter(monkeypatch, tmp_path):
 
 
 def test_build_kb_tree_includes_chapter_status(monkeypatch, tmp_path):
-    """Tree endpoint payload should include chapter status for UI badges."""
+    """Tree endpoint payload should include chapter status and analysis metrics for ranking."""
 
     monkeypatch.setattr(kb_module, "KB_ROOT", tmp_path)
     chapter_rel = "sections/02-trading-domain/topics/auto-test/chapters/chapter-a.md"
@@ -393,6 +407,12 @@ def test_build_kb_tree_includes_chapter_status(monkeypatch, tmp_path):
                 "  - https://www.reuters.com/",
                 "---",
                 "",
+                "# Price Movement Relevance Analysis",
+                "- Relevance Score: 74/100",
+                "- Weighted Relevance Score: 81/100",
+                "- Source Quality Score: 88/100",
+                "- Confidence Band: High",
+                "",
                 "# Body",
                 "- test",
             ]
@@ -404,3 +424,6 @@ def test_build_kb_tree_includes_chapter_status(monkeypatch, tmp_path):
     assert tree["sections"]
     chapter = tree["sections"][0]["topics"][0]["chapters"][0]
     assert chapter["status"] == "Rejected"
+    assert chapter["weighted_relevance_score"] == 81
+    assert chapter["source_quality_score"] == 88
+    assert chapter["confidence_band"] == "High"

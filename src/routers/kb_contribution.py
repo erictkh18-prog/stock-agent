@@ -77,6 +77,13 @@ async def knowledge_base_ingest(
     timestamp = datetime.now()
     chapter_name = f"{timestamp.strftime('%Y%m%d-%H%M%S')}-{kb._slugify(topic)}.md"
     chapter_path = chapters_dir / chapter_name
+    relevance_analysis = kb._build_price_movement_analysis(
+        topic=topic,
+        summary=summary,
+        claims=claims,
+        trading_insights=trading_insights,
+        source_urls=source_urls,
+    )
 
     chapter_lines = [
         "---",
@@ -102,9 +109,26 @@ async def knowledge_base_ingest(
             "# Core Concepts",
             f"- Source synthesis: {source_title}",
             "",
-            "# Extracted Claims",
+            "# Source Summary",
+            f"- {summary}",
+            "",
+            "# Price Movement Relevance Analysis",
+            f"- Relevance Score: {relevance_analysis['relevance_score']}/100",
+            f"- Weighted Relevance Score: {relevance_analysis['weighted_relevance_score']}/100",
+            f"- Source Quality Score: {relevance_analysis['source_quality_score']}/100",
+            f"- Confidence Band: {relevance_analysis['confidence_band']}",
+            f"- Prediction Skill Impact: {relevance_analysis['prediction_skill_impact']}",
+            f"- Primary Horizon: {relevance_analysis['primary_horizon']}",
+            f"- Market Dimensions: {', '.join(relevance_analysis['market_dimensions'])}",
+            "",
+            "## Why This Matters For Forecasting",
         ]
     )
+
+    for takeaway in relevance_analysis["key_takeaways"]:
+        chapter_lines.append(f"- {takeaway}")
+
+    chapter_lines.extend(["", "# Extracted Claims"])
 
     if claims:
         for claim in claims:
@@ -115,6 +139,10 @@ async def knowledge_base_ingest(
     chapter_lines.extend(["", "# Actionable Rules Derived"])
     for insight in trading_insights:
         chapter_lines.append(f"- {insight}")
+
+    chapter_lines.extend(["", "## How To Apply This In Screening"])
+    for note in relevance_analysis["application_notes"]:
+        chapter_lines.append(f"- {note}")
 
     chapter_lines.extend(
         [

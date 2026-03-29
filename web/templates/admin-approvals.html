@@ -191,6 +191,26 @@
         .approve-btn:hover { background: var(--accent-dark); }
         .approve-btn:disabled { opacity: 0.65; cursor: wait; }
 
+        .reject-btn {
+            border: 1px solid #fecaca;
+            border-radius: 8px;
+            background: #fff;
+            color: #991b1b;
+            padding: 8px 10px;
+            font-size: 0.84rem;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .reject-btn:hover { background: #fef2f2; }
+        .reject-btn:disabled { opacity: 0.65; cursor: wait; }
+
+        .action-row {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
         @media (max-width: 700px) {
             .header {
                 flex-direction: column;
@@ -209,7 +229,9 @@
                 <p class="subtitle">Review pending account requests and approve contributor access for Knowledge Base Builder.</p>
             </div>
             <div class="actions">
-                <a class="btn secondary" href="/knowledge-base-builder">KB Builder</a>
+                <a class="btn secondary" href="/admin">Admin Home</a>
+                <a class="btn secondary" href="/knowledge-base">KB Content Moderation</a>
+                <a class="btn secondary" href="/admin/api-docs">API Docs Module</a>
                 <a class="btn secondary" href="/">Dashboard</a>
                 <button id="refreshBtn" class="btn" type="button">Refresh</button>
                 <button id="logoutBtn" class="btn secondary" type="button">Log Out</button>
@@ -330,7 +352,12 @@
                 tr.innerHTML = `
                     <td>${user.email || "-"}</td>
                     <td>${toLocalTime(user.created_at)}</td>
-                    <td><button class="approve-btn" data-email="${user.email}">Approve</button></td>
+                    <td>
+                        <div class="action-row">
+                            <button class="approve-btn" data-email="${user.email}">Approve</button>
+                            <button class="reject-btn" data-email="${user.email}">Reject</button>
+                        </div>
+                    </td>
                 `;
                 pendingBody.appendChild(tr);
             });
@@ -350,6 +377,28 @@
                     } finally {
                         btn.disabled = false;
                         btn.textContent = "Approve";
+                    }
+                });
+            });
+
+            pendingBody.querySelectorAll(".reject-btn").forEach(btn => {
+                btn.addEventListener("click", async () => {
+                    const email = btn.dataset.email;
+                    if (!email) return;
+                    const confirmed = window.confirm(`Reject account request for ${email}?`);
+                    if (!confirmed) return;
+
+                    btn.disabled = true;
+                    btn.textContent = "Rejecting...";
+                    try {
+                        await fetchJson("/auth/reject/" + encodeURIComponent(email), { method: "POST" });
+                        setStatus("ok", "Rejected " + email + " successfully.");
+                        await reloadData();
+                    } catch (err) {
+                        setStatus("err", err.message || "Rejection failed.");
+                    } finally {
+                        btn.disabled = false;
+                        btn.textContent = "Reject";
                     }
                 });
             });

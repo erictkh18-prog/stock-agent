@@ -41,7 +41,16 @@ async def trigger_auto_buy(
     from src.market_universe import _get_us_market_universe
     from src.models import ScreeningFilter
     from src.recommendations import _build_exit_strategy
-    from src.paper_trading import has_open_position, open_position
+    from src.paper_trading import (
+        assert_persistent_storage_ready_for_trading,
+        has_open_position,
+        open_position,
+    )
+
+    try:
+        assert_persistent_storage_ready_for_trading()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     symbols = _get_us_market_universe(universe)[:80]
     filters = ScreeningFilter(min_overall_score=50)
@@ -116,7 +125,15 @@ async def check_positions():
     Closes any position whose current price has reached the target, stop loss,
     or expiry date.
     """
-    from src.paper_trading import check_and_close_positions
+    from src.paper_trading import (
+        assert_persistent_storage_ready_for_trading,
+        check_and_close_positions,
+    )
+
+    try:
+        assert_persistent_storage_ready_for_trading()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     closed = await asyncio.to_thread(check_and_close_positions)
     return {
@@ -135,6 +152,15 @@ async def list_positions():
 
     positions = await asyncio.to_thread(get_open_positions)
     return {"count": len(positions), "positions": positions}
+
+
+@router.get("/paper-trading/storage-status")
+async def storage_status():
+    """Return persistence mode/health for paper trading storage."""
+    from src.paper_trading import get_storage_status
+
+    status = await asyncio.to_thread(get_storage_status)
+    return status
 
 
 @router.get("/paper-trading/trades")

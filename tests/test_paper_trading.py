@@ -214,6 +214,116 @@ def test_check_skips_position_on_fetch_error(monkeypatch, tmp_path):
     assert len(pt_module._load_positions()) == 1  # position stays open
 
 
+def test_postgres_enabled_does_not_silently_fallback_on_load_failure(monkeypatch):
+    monkeypatch.setenv("PAPER_TRADING_DATABASE_URL", "postgres://example")
+    monkeypatch.delenv("PAPER_TRADING_ALLOW_JSON_FALLBACK", raising=False)
+
+    def _boom():
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(pt_module, "_ensure_storage_ready", _boom)
+
+    with pytest.raises(RuntimeError, match="Paper trading persistence unavailable"):
+        pt_module._load_positions()
+
+
+def test_postgres_enabled_can_optionally_fallback_when_flag_set(monkeypatch, tmp_path):
+    monkeypatch.setenv("PAPER_TRADING_DATABASE_URL", "postgres://example")
+    monkeypatch.setenv("PAPER_TRADING_ALLOW_JSON_FALLBACK", "true")
+    monkeypatch.setattr(pt_module, "POSITIONS_PATH", tmp_path / "positions.json")
+
+    def _boom():
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(pt_module, "_ensure_storage_ready", _boom)
+
+    records = pt_module._load_positions()
+    assert records == []
+
+
+def test_storage_status_json_local_when_postgres_not_enabled(monkeypatch):
+    monkeypatch.delenv("PAPER_TRADING_DATABASE_URL", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    status = pt_module.get_storage_status()
+    assert status["mode"] == "json-local"
+    assert status["healthy"] is True
+    assert status["postgres_enabled"] is False
+
+
+def test_storage_status_uses_auth_database_url_as_fallback(monkeypatch):
+    monkeypatch.delenv("PAPER_TRADING_DATABASE_URL", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("AUTH_DATABASE_URL", "postgres://example")
+
+    monkeypatch.setattr(pt_module, "_ensure_storage_ready", lambda: None)
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, _query):
+            return None
+
+        def fetchone(self):
+            return (1,)
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return _Cursor()
+
+    monkeypatch.setattr(pt_module, "_connect_postgres", lambda: _Conn())
+
+    status = pt_module.get_storage_status()
+    assert status["mode"] == "postgres"
+    assert status["healthy"] is True
+    assert status["postgres_enabled"] is True
+
+
+def test_auto_buy_guard_blocks_in_production_when_storage_not_persistent(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv("PAPER_TRADING_REQUIRE_PERSISTENT_STORAGE", "true")
+    monkeypatch.delenv("PAPER_TRADING_DATABASE_URL", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("AUTH_DATABASE_URL", raising=False)
+
+    with pytest.raises(RuntimeError, match="Trading action blocked"):
+        pt_module.assert_persistent_storage_ready_for_auto_buy()
+
+
+def test_auto_buy_guard_allows_when_requirement_disabled(monkeypatch):
+    monkeypatch.setenv("PAPER_TRADING_REQUIRE_PERSISTENT_STORAGE", "false")
+    monkeypatch.delenv("PAPER_TRADING_DATABASE_URL", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("AUTH_DATABASE_URL", raising=False)
+
+    pt_module.assert_persistent_storage_ready_for_auto_buy()
+
+
+def test_storage_status_postgres_error_when_health_check_fails(monkeypatch):
+    monkeypatch.setenv("PAPER_TRADING_DATABASE_URL", "postgres://example")
+
+    def _boom():
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(pt_module, "_ensure_storage_ready", _boom)
+
+    status = pt_module.get_storage_status()
+    assert status["mode"] == "postgres-error"
+    assert status["healthy"] is False
+    assert status["postgres_enabled"] is True
+    assert "db down" in status["message"]
+
+
 # ── Unit: summarize_closed_trades ─────────────────────────────────────────────
 
 def test_summarize_empty_records():
@@ -267,6 +377,26 @@ def test_api_list_positions_returns_open(monkeypatch, tmp_path):
     assert data["positions"][0]["unrealized_pct"] == 5.0
 
 
+def test_api_storage_status(monkeypatch):
+    monkeypatch.setattr(
+        pt_module,
+        "get_storage_status",
+        lambda: {
+            "mode": "postgres",
+            "postgres_enabled": True,
+            "fallback_allowed": False,
+            "healthy": True,
+            "message": "Postgres storage is connected and healthy.",
+        },
+    )
+
+    response = client.get("/paper-trading/storage-status")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["mode"] == "postgres"
+    assert data["healthy"] is True
+
+
 # ── API: GET /paper-trading/trades ────────────────────────────────────────────
 
 def test_api_list_trades_empty(monkeypatch, tmp_path):
@@ -295,32 +425,6 @@ def test_api_list_trades_after_close(monkeypatch, tmp_path):
     assert data["summary"]["win_rate_pct"] == 100.0
 
 
-# ── API: POST /paper-trading/positions/{id}/close ─────────────────────────────
-
-def test_api_manual_close_position(monkeypatch, tmp_path):
-    monkeypatch.setattr(pt_module, "POSITIONS_PATH", tmp_path / "positions.json")
-    monkeypatch.setattr(pt_module, "CLOSED_TRADES_PATH", tmp_path / "closed_trades.json")
-
-    import yfinance as yf
-    monkeypatch.setattr(yf.Ticker, "history", lambda self, period: _fake_yf_history(105.0))
-
-    pos = pt_module.open_position("AAPL", 10, 100.0, 108.0, 94.0, 30, 8.0, 75.0)
-
-    response = client.post(f"/paper-trading/positions/{pos['id']}/close")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "ok"
-    assert data["trade"]["exit_reason"] == "manual"
-    assert data["trade"]["return_pct"] == 5.0
-
-
-def test_api_manual_close_unknown_position(monkeypatch, tmp_path):
-    monkeypatch.setattr(pt_module, "POSITIONS_PATH", tmp_path / "positions.json")
-    monkeypatch.setattr(pt_module, "CLOSED_TRADES_PATH", tmp_path / "closed_trades.json")
-
-    response = client.post("/paper-trading/positions/nonexistent-id/close")
-    assert response.status_code == 404
-
 
 # ── API: POST /paper-trading/check-positions ─────────────────────────────────
 
@@ -338,6 +442,18 @@ def test_api_check_positions_closes_target(monkeypatch, tmp_path):
     data = response.json()
     assert data["closed_count"] == 1
     assert data["closed"][0]["exit_reason"] == "target_hit"
+
+
+def test_api_check_positions_returns_503_when_persistent_storage_required(monkeypatch):
+    monkeypatch.setattr(
+        pt_module,
+        "assert_persistent_storage_ready_for_trading",
+        lambda: (_ for _ in ()).throw(RuntimeError("Trading action blocked: persistence unavailable")),
+    )
+
+    response = client.post("/paper-trading/check-positions")
+    assert response.status_code == 503
+    assert "Trading action blocked" in response.json().get("detail", "")
 
 
 # ── API: POST /paper-trading/auto-buy ────────────────────────────────────────
@@ -433,6 +549,18 @@ def test_api_auto_buy_opens_multiple_positions(monkeypatch, tmp_path):
     assert data["opened_count"] == 3
     symbols = {p["symbol"] for p in data.get("opened_positions", [])}
     assert symbols == {"AAPL", "MSFT", "NVDA"}
+
+
+def test_api_auto_buy_returns_503_when_persistent_storage_required(monkeypatch):
+    monkeypatch.setattr(
+        pt_module,
+        "assert_persistent_storage_ready_for_trading",
+        lambda: (_ for _ in ()).throw(RuntimeError("Trading action blocked: persistence unavailable")),
+    )
+
+    response = client.post("/paper-trading/auto-buy")
+    assert response.status_code == 503
+    assert "Trading action blocked" in response.json().get("detail", "")
 
 
 def test_api_auto_buy_returns_no_buy_when_none_qualify(monkeypatch, tmp_path):

@@ -21,15 +21,38 @@ logger = logging.getLogger(__name__)
 
 POSITIONS_PATH = Path(__file__).parent.parent / "data" / "positions.json"
 CLOSED_TRADES_PATH = Path(__file__).parent.parent / "data" / "closed_trades.json"
-PAPER_TRADING_DATABASE_URL = os.getenv("PAPER_TRADING_DATABASE_URL", os.getenv("DATABASE_URL", "")).strip()
 
 _lock = threading.Lock()
 _schema_ready = False
 _schema_lock = threading.Lock()
 
 
+def _paper_trading_database_url() -> str:
+    return os.getenv(
+        "PAPER_TRADING_DATABASE_URL",
+        os.getenv("DATABASE_URL", os.getenv("AUTH_DATABASE_URL", "")),
+    ).strip()
+
+
+def _allow_json_fallback_when_postgres_enabled() -> bool:
+    # In production, silent fallback to ephemeral JSON can hide persistence failures.
+    return os.getenv("PAPER_TRADING_ALLOW_JSON_FALLBACK", "false").strip().lower() == "true"
+
+
+def _is_production_environment() -> bool:
+    env = os.getenv("ENVIRONMENT", "").strip().lower()
+    return bool(os.getenv("RENDER")) or env in {"prod", "production"}
+
+
+def _require_persistent_storage_for_trading() -> bool:
+    raw = os.getenv("PAPER_TRADING_REQUIRE_PERSISTENT_STORAGE")
+    if raw is not None:
+        return raw.strip().lower() in {"1", "true", "yes", "on"}
+    return _is_production_environment()
+
+
 def _is_postgres_enabled() -> bool:
-    return bool(PAPER_TRADING_DATABASE_URL)
+    return bool(_paper_trading_database_url())
 
 
 def _import_psycopg():
@@ -44,7 +67,24 @@ def _import_psycopg():
 
 def _connect_postgres():
     psycopg = _import_psycopg()
-    return psycopg.connect(PAPER_TRADING_DATABASE_URL, connect_timeout=10, autocommit=True)
+    db_url = _paper_trading_database_url()
+    if not db_url:
+        raise RuntimeError("Postgres is not enabled for paper trading.")
+    return psycopg.connect(db_url, connect_timeout=10, autocommit=True)
+
+
+def _handle_postgres_failure(action: str, exc: Exception) -> None:
+    if _allow_json_fallback_when_postgres_enabled():
+        logger.warning("Postgres %s failed, using JSON fallback: %s", action, exc)
+        return
+    logger.error(
+        "Postgres %s failed while paper-trading DB is enabled. "
+        "Refusing JSON fallback to prevent persistence loss. Set PAPER_TRADING_ALLOW_JSON_FALLBACK=true "
+        "only for temporary recovery. Error: %s",
+        action,
+        exc,
+    )
+    raise RuntimeError("Paper trading persistence unavailable (Postgres error)") from exc
 
 
 def _ensure_postgres_schema() -> None:
@@ -111,6 +151,62 @@ def _ensure_file(path: Path) -> None:
         path.write_text("[]", encoding="utf-8")
 
 
+def get_storage_status() -> dict:
+    """Return current paper-trading persistence mode and health."""
+    postgres_enabled = _is_postgres_enabled()
+    fallback_allowed = _allow_json_fallback_when_postgres_enabled()
+
+    if not postgres_enabled:
+        return {
+            "mode": "json-local",
+            "postgres_enabled": False,
+            "fallback_allowed": fallback_allowed,
+            "healthy": True,
+            "message": "Using local JSON storage (non-persistent across container redeploys).",
+        }
+
+    try:
+        _ensure_storage_ready()
+        with _connect_postgres() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+        return {
+            "mode": "postgres",
+            "postgres_enabled": True,
+            "fallback_allowed": fallback_allowed,
+            "healthy": True,
+            "message": "Postgres storage is connected and healthy.",
+        }
+    except Exception as exc:
+        return {
+            "mode": "postgres-error",
+            "postgres_enabled": True,
+            "fallback_allowed": fallback_allowed,
+            "healthy": False,
+            "message": f"Postgres storage check failed: {exc}",
+        }
+
+
+def assert_persistent_storage_ready_for_trading() -> None:
+    """Raise when trading actions should not run without healthy persistent storage."""
+    if not _require_persistent_storage_for_trading():
+        return
+
+    status = get_storage_status()
+    if status.get("mode") == "postgres" and status.get("healthy"):
+        return
+
+    raise RuntimeError(
+        "Trading action blocked: persistent paper-trading storage is not healthy. "
+        "Configure PAPER_TRADING_DATABASE_URL/DATABASE_URL (or AUTH_DATABASE_URL) to Postgres."
+    )
+
+
+def assert_persistent_storage_ready_for_auto_buy() -> None:
+    """Backward-compatible alias for existing auto-buy call sites/tests."""
+    assert_persistent_storage_ready_for_trading()
+
+
 def _load_positions() -> list[dict]:
     if _is_postgres_enabled():
         try:
@@ -125,7 +221,7 @@ def _load_positions() -> list[dict]:
                 )
                 return [row[0] for row in cur.fetchall()]
         except Exception as exc:
-            logger.warning("Postgres load positions failed, using JSON fallback: %s", exc)
+            _handle_postgres_failure("load positions", exc)
 
     _ensure_file(POSITIONS_PATH)
     with _lock:
@@ -161,7 +257,7 @@ def _save_positions(records: list[dict]) -> None:
                     )
             return
         except Exception as exc:
-            logger.warning("Postgres save positions failed, using JSON fallback: %s", exc)
+            _handle_postgres_failure("save positions", exc)
 
     _ensure_file(POSITIONS_PATH)
     with _lock:
@@ -182,7 +278,7 @@ def _load_closed_trades() -> list[dict]:
                 )
                 return [row[0] for row in cur.fetchall()]
         except Exception as exc:
-            logger.warning("Postgres load closed trades failed, using JSON fallback: %s", exc)
+            _handle_postgres_failure("load closed trades", exc)
 
     _ensure_file(CLOSED_TRADES_PATH)
     with _lock:
@@ -218,7 +314,7 @@ def _save_closed_trades(records: list[dict]) -> None:
                     )
             return
         except Exception as exc:
-            logger.warning("Postgres save closed trades failed, using JSON fallback: %s", exc)
+            _handle_postgres_failure("save closed trades", exc)
 
     _ensure_file(CLOSED_TRADES_PATH)
     with _lock:

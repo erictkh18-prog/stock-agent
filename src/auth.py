@@ -290,6 +290,28 @@ def _upsert_user(user: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def _delete_user(email: str) -> bool:
+    normalized_email = email.strip().lower()
+    if not normalized_email:
+        return False
+
+    if _is_postgres_enabled():
+        try:
+            _ensure_storage_ready()
+            with _connect_postgres() as conn, conn.cursor() as cur:
+                cur.execute("DELETE FROM kb_users WHERE email = %s", (normalized_email,))
+                return cur.rowcount > 0
+        except Exception as exc:
+            logger.warning("Postgres delete failed, falling back to JSON (error: %s)", exc)
+
+    users = _load_users_from_json()
+    if normalized_email not in users:
+        return False
+    users.pop(normalized_email, None)
+    _save_users_to_json(users)
+    return True
+
+
 def _ensure_admin_exists() -> None:
     """Ensure the admin account exists in the active storage backend."""
     admin_plain_pw: str = os.getenv("ADMIN_PASSWORD", "")
@@ -461,6 +483,44 @@ def approve_user(email: str) -> dict:
         user["is_approved"] = True
         _upsert_user(user)
     return {"message": f"{email} has been approved"}
+
+
+def reject_user(email: str) -> dict:
+    email = email.strip().lower()
+    if email == ADMIN_EMAIL:
+        raise HTTPException(status_code=400, detail="Cannot reject the configured admin account")
+
+    with _users_lock:
+        user = _get_user(email)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if user.get("is_approved"):
+            raise HTTPException(status_code=400, detail="Approved users cannot be rejected")
+        deleted = _delete_user(email)
+
+    if not deleted:
+        raise HTTPException(status_code=500, detail="Failed to reject user")
+    return {"message": f"{email} has been rejected and removed"}
+
+
+def revoke_user(email: str) -> dict:
+    email = email.strip().lower()
+    if email == ADMIN_EMAIL:
+        raise HTTPException(status_code=400, detail="Cannot revoke the configured admin account")
+
+    with _users_lock:
+        user = _get_user(email)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if user.get("is_admin"):
+            raise HTTPException(status_code=400, detail="Cannot revoke an admin account")
+        if not user.get("is_approved"):
+            return {"message": f"{email} is already not approved"}
+
+        user["is_approved"] = False
+        _upsert_user(user)
+
+    return {"message": f"{email} access has been revoked"}
 
 
 def list_pending_users() -> list[dict]:

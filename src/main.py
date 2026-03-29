@@ -95,6 +95,20 @@ screener = StockScreener()
 
 @asynccontextmanager
 async def _lifespan(app):
+    try:
+        from src.paper_trading import get_storage_status
+
+        storage_status = get_storage_status()
+        if storage_status.get("healthy") and storage_status.get("mode") == "postgres":
+            logger.info("Paper-trading storage: Postgres connected")
+        else:
+            logger.warning(
+                "Paper-trading storage is not in healthy Postgres mode: %s",
+                storage_status,
+            )
+    except Exception as exc:
+        logger.warning("Paper-trading storage health check failed at startup: %s", exc)
+
     start_scheduler(screener)
     yield
     stop_scheduler()
@@ -276,6 +290,33 @@ async def admin_approvals_page():
     return {"message": "Admin approvals page not available"}
 
 
+@app.get("/admin/accounts")
+async def admin_accounts_page():
+    """Serve the admin account management page."""
+    accounts_path = templates_dir / "admin-accounts.html"
+    if accounts_path.exists():
+        return FileResponse(str(accounts_path))
+    return {"message": "Admin accounts page not available"}
+
+
+@app.get("/admin/kb-content")
+async def admin_kb_content_page():
+    """Serve the admin KB content management page."""
+    kb_content_path = templates_dir / "admin-kb-content.html"
+    if kb_content_path.exists():
+        return FileResponse(str(kb_content_path))
+    return {"message": "Admin KB content page not available"}
+
+
+@app.get("/admin/api-docs")
+async def admin_api_docs_page():
+    """Serve admin API docs module page with cross-links."""
+    docs_path = templates_dir / "admin-api-docs.html"
+    if docs_path.exists():
+        return FileResponse(str(docs_path))
+    return {"message": "Admin API docs page not available"}
+
+
 @app.get("/knowledge-base-builder")
 async def knowledge_base_builder():
     """Serve the knowledge-base ingestion UI (login required client-side)."""
@@ -298,8 +339,39 @@ async def knowledge_base_viewer():
 
 @app.get("/health")
 async def health():
-    """Health check endpoint."""
-    return {"status": "healthy", "timestamp": datetime.now()}
+    """Health check endpoint with paper-trading persistence status."""
+    from src.paper_trading import get_storage_status
+
+    storage_status = get_storage_status()
+    storage_ok = bool(storage_status.get("healthy")) and storage_status.get("mode") == "postgres"
+
+    # Default behavior: enforce in Render/production unless explicitly disabled.
+    strict_raw = os.getenv("HEALTHCHECK_ENFORCE_TRADING_PERSISTENCE")
+    if strict_raw is None:
+        strict_mode = bool(os.getenv("RENDER")) or os.getenv("ENVIRONMENT", "").strip().lower() in {"prod", "production"}
+    else:
+        strict_mode = strict_raw.strip().lower() in {"1", "true", "yes", "on"}
+
+    payload = {
+        "status": "healthy" if (storage_ok or not strict_mode) else "degraded",
+        "timestamp": datetime.now().isoformat(),
+        "paper_trading_storage": storage_status,
+        "strict_persistence_healthcheck": strict_mode,
+    }
+
+    if strict_mode and not storage_ok:
+        return JSONResponse(status_code=503, content=payload)
+    return payload
+
+
+@app.get("/healthz")
+async def healthz():
+    """Liveness endpoint for platform health checks (does not enforce readiness)."""
+    return {
+        "status": "ok",
+        "timestamp": datetime.now().isoformat(),
+        "service": "stock-agent",
+    }
 
 
 @app.get("/version")

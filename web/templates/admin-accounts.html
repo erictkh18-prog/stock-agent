@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Account Management</title>
+    <style>
+        :root {
+            --bg: #f4f8fb;
+            --panel: #ffffff;
+            --text: #0f172a;
+            --muted: #475569;
+            --accent: #0e7490;
+            --accent-dark: #155e75;
+            --border: #d1d5db;
+            --success-bg: #ecfdf5;
+            --success-text: #065f46;
+            --warning-bg: #fffbeb;
+            --warning-text: #92400e;
+            --error-bg: #fef2f2;
+            --error-text: #991b1b;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            color: var(--text);
+            background: radial-gradient(circle at top right, #cffafe 0%, var(--bg) 50%);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px 16px 48px;
+        }
+
+        .top-nav {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .btn {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: #fff;
+            color: var(--text);
+            padding: 9px 14px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 38px;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            background: #f8fafc;
+            border-color: var(--accent);
+        }
+
+        .btn.primary {
+            background: linear-gradient(135deg, var(--accent), #0f766e);
+            color: #fff;
+            border: none;
+        }
+
+        .btn.primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(14, 116, 144, 0.25);
+        }
+
+        .divider {
+            width: 1px;
+            height: 24px;
+            background: var(--border);
+            margin: 0 4px;
+        }
+
+        .header {
+            margin-bottom: 24px;
+        }
+
+        h1 {
+            margin: 0 0 6px;
+            font-size: 1.75rem;
+            font-weight: 700;
+        }
+
+        .header p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+
+        .status {
+            background: var(--success-bg);
+            color: var(--success-text);
+            border: 1px solid #a7f3d0;
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 16px;
+            display: none;
+            font-size: 0.9rem;
+        }
+
+        .status.show { display: block; }
+        .status.error { background: var(--error-bg); color: var(--error-text); border-color: #fecaca; }
+
+        .table-wrapper {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 10px 24px rgba(2, 6, 23, 0.08);
+            margin-bottom: 16px;
+        }
+
+        .table-wrapper.empty {
+            padding: 32px 16px;
+            text-align: center;
+            color: var(--muted);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            background: #f8fafc;
+            border-bottom: 2px solid var(--border);
+            padding: 12px;
+            text-align: left;
+            font-weight: 700;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--muted);
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.9rem;
+        }
+
+        tr:last-child td { border-bottom: none; }
+
+        .actions {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+
+        .action-btn {
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: #fff;
+            color: var(--text);
+            padding: 6px 12px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .action-btn:hover {
+            background: #f8fafc;
+            border-color: var(--accent);
+        }
+
+        .action-btn.approve {
+            background: var(--success-bg);
+            color: var(--success-text);
+            border-color: #a7f3d0;
+        }
+
+        .action-btn.approve:hover {
+            background: #dcf8ef;
+        }
+
+        .action-btn.reject {
+            background: var(--error-bg);
+            color: var(--error-text);
+            border-color: #fecaca;
+        }
+
+        .action-btn.reject:hover {
+            background: #fce6e6;
+        }
+
+        .action-btn.revoke {
+            background: #fff7ed;
+            color: #9a3412;
+            border-color: #fdba74;
+        }
+
+        .action-btn.revoke:hover {
+            background: #ffedd5;
+        }
+
+        .action-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            background: #f0f9ff;
+            color: #0369a1;
+            border: 1px solid #bae6fd;
+        }
+
+        .badge.pending {
+            background: var(--warning-bg);
+            color: var(--warning-text);
+            border-color: #fde68a;
+        }
+
+        .badge.approved {
+            background: var(--success-bg);
+            color: var(--success-text);
+            border-color: #a7f3d0;
+        }
+
+        .badge.rejected {
+            background: var(--error-bg);
+            color: var(--error-text);
+            border-color: #fecaca;
+        }
+
+        .header-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .section-title {
+            margin: 0;
+            padding: 12px 14px;
+            font-size: 1rem;
+            border-bottom: 1px solid var(--border);
+            background: #f8fafc;
+        }
+
+        .logout-btn {
+            background: #fff;
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 9px 14px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+
+        .logout-btn:hover {
+            background: #f8fafc;
+        }
+
+        @media (max-width: 768px) {
+            table {
+                font-size: 0.85rem;
+            }
+
+            th, td {
+                padding: 10px 8px;
+            }
+
+            .actions {
+                gap: 4px;
+            }
+
+            .action-btn {
+                padding: 5px 10px;
+                font-size: 0.8rem;
+            }
+
+            .top-nav {
+                gap: 6px;
+            }
+
+            .btn {
+                padding: 8px 12px;
+                font-size: 0.85rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="container">
+        <div class="header-actions">
+            <div class="header">
+                <h1>Account Management</h1>
+                <p>Review and approve or reject pending account creation requests</p>
+            </div>
+            <button id="logoutBtn" class="logout-btn">Log Out</button>
+        </div>
+
+        <div class="top-nav">
+            <a href="/" class="btn">← Back to Dashboard</a>
+            <a href="/admin" class="btn">Admin Home</a>
+            <div class="divider"></div>
+            <a href="/admin/kb-content" class="btn">KB Content Management</a>
+            <a href="/admin/api-docs" class="btn">API Documentation</a>
+        </div>
+
+        <div id="statusMsg" class="status"></div>
+
+        <div id="pendingContainer" class="table-wrapper">
+            <h2 class="section-title">Pending Account Requests</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Email</th>
+                        <th>Status</th>
+                        <th>Requested On</th>
+                        <th style="width: 180px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="pendingTable">
+                    <tr><td colspan="4" style="text-align: center; color: var(--muted);">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div id="approvedContainer" class="table-wrapper">
+            <h2 class="section-title">Approved Accounts</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Email</th>
+                        <th>Role</th>
+                        <th>Status</th>
+                        <th>Created On</th>
+                        <th style="width: 180px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="approvedTable">
+                    <tr><td colspan="5" style="text-align: center; color: var(--muted);">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </main>
+
+    <script>
+        const API_BASE = '';
+        let authToken = localStorage.getItem('kb_token');
+
+        async function requireAdmin() {
+            if (!authToken) {
+                window.location.href = '/login?next=/admin/accounts';
+                return false;
+            }
+            try {
+                const res = await fetch(`${API_BASE}/auth/me`, {
+                    headers: { 'Authorization': `Bearer ${authToken}` },
+                });
+                if (!res.ok) {
+                    window.location.href = '/login?next=/admin/accounts';
+                    return false;
+                }
+                const user = await res.json();
+                if (!user.is_admin) {
+                    alert('You do not have admin access.');
+                    window.location.href = '/';
+                    return false;
+                }
+                return true;
+            } catch (err) {
+                console.error('Auth check failed:', err);
+                window.location.href = '/login?next=/admin/accounts';
+                return false;
+            }
+        }
+
+        async function loadPendingAccounts() {
+            if (!(await requireAdmin())) return;
+
+            try {
+                const [pendingRes, usersRes] = await Promise.all([
+                    fetch(`${API_BASE}/auth/pending-users`, {
+                        headers: { 'Authorization': `Bearer ${authToken}` },
+                    }),
+                    fetch(`${API_BASE}/auth/users`, {
+                        headers: { 'Authorization': `Bearer ${authToken}` },
+                    }),
+                ]);
+
+                if (!pendingRes.ok || !usersRes.ok) throw new Error('Failed to load account lists');
+
+                const pendingUsers = await pendingRes.json();
+                const allUsers = await usersRes.json();
+                const approvedUsers = allUsers.filter((u) => Boolean(u.is_approved));
+
+                const pendingTbody = document.getElementById('pendingTable');
+                const approvedTbody = document.getElementById('approvedTable');
+                
+                if (pendingUsers.length === 0) {
+                    pendingTbody.innerHTML = '<tr><td colspan="4" style="padding: 16px; text-align: center; color: var(--muted);">No pending account requests</td></tr>';
+                } else {
+                    pendingTbody.innerHTML = pendingUsers.map(user => `
+                        <tr>
+                            <td><strong>${escapeHtml(user.email)}</strong></td>
+                            <td><span class="badge pending">Pending</span></td>
+                            <td>${new Date(user.created_at || Date.now()).toLocaleDateString()}</td>
+                            <td>
+                                <div class="actions">
+                                    <button class="action-btn approve" onclick="approveUser('${escapeHtml(user.email)}')">Approve</button>
+                                    <button class="action-btn reject" onclick="rejectUser('${escapeHtml(user.email)}')">Reject</button>
+                                </div>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+
+                if (approvedUsers.length === 0) {
+                    approvedTbody.innerHTML = '<tr><td colspan="5" style="padding: 16px; text-align: center; color: var(--muted);">No approved users found</td></tr>';
+                } else {
+                    approvedTbody.innerHTML = approvedUsers.map(user => `
+                    <tr>
+                        <td><strong>${escapeHtml(user.email)}</strong></td>
+                        <td>${user.is_admin ? '<span class="badge">Admin</span>' : '<span class="badge">Contributor</span>'}</td>
+                        <td><span class="badge approved">Approved</span></td>
+                        <td>${new Date(user.created_at || Date.now()).toLocaleDateString()}</td>
+                        <td>
+                            <div class="actions">
+                                ${user.is_admin ? '' : `<button class="action-btn revoke" onclick="revokeUser('${escapeHtml(user.email)}')">Revoke</button>`}
+                            </div>
+                        </td>
+                    </tr>
+                `).join('');
+                }
+            } catch (err) {
+                console.error('Error loading pending accounts:', err);
+                showStatus('Failed to load account lists', 'error');
+            }
+        }
+
+        async function approveUser(email) {
+            if (!confirm(`Approve account creation for ${email}?`)) return;
+
+            try {
+                const res = await fetch(`${API_BASE}/auth/approve/${encodeURIComponent(email)}`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${authToken}` },
+                });
+                if (!res.ok) throw new Error('Failed to approve user');
+
+                showStatus(`✓ Account ${email} approved`, 'success');
+                await loadPendingAccounts();
+            } catch (err) {
+                console.error('Error approving user:', err);
+                showStatus(`Failed to approve ${email}`, 'error');
+            }
+        }
+
+        async function rejectUser(email) {
+            if (!confirm(`Reject account creation for ${email}? This cannot be undone.`)) return;
+
+            try {
+                const res = await fetch(`${API_BASE}/auth/reject/${encodeURIComponent(email)}`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${authToken}` },
+                });
+                if (!res.ok) throw new Error('Failed to reject user');
+
+                showStatus(`✓ Account ${email} rejected`, 'success');
+                await loadPendingAccounts();
+            } catch (err) {
+                console.error('Error rejecting user:', err);
+                showStatus(`Failed to reject ${email}`, 'error');
+            }
+        }
+
+        async function revokeUser(email) {
+            if (!confirm(`Revoke approved access for ${email}? User will not be able to log in until re-approved.`)) return;
+
+            try {
+                const res = await fetch(`${API_BASE}/auth/revoke/${encodeURIComponent(email)}`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${authToken}` },
+                });
+                if (!res.ok) throw new Error('Failed to revoke user');
+
+                showStatus(`✓ Access revoked for ${email}`, 'success');
+                await loadPendingAccounts();
+            } catch (err) {
+                console.error('Error revoking user:', err);
+                showStatus(`Failed to revoke ${email}`, 'error');
+            }
+        }
+
+        function showStatus(msg, type = 'success') {
+            const el = document.getElementById('statusMsg');
+            el.textContent = msg;
+            el.className = `status show ${type === 'error' ? 'error' : ''}`;
+            setTimeout(() => el.classList.remove('show'), 4000);
+        }
+
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;',
+            };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+            localStorage.removeItem('kb_token');
+            window.location.href = '/login';
+        });
+
+        loadPendingAccounts();
+    </script>
+</body>
+</html>

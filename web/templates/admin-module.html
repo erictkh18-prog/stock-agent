@@ -106,6 +106,7 @@
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 14px;
+            margin-bottom: 14px;
         }
 
         .tool-card {
@@ -139,8 +140,89 @@
             flex-wrap: wrap;
         }
 
+        .overview {
+            display: none;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 18px;
+            box-shadow: 0 10px 24px rgba(2, 6, 23, 0.06);
+        }
+
+        .overview.show {
+            display: block;
+        }
+
+        .overview h2 {
+            margin: 0 0 12px;
+            font-size: 1.2rem;
+        }
+
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .metric-card {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: #f8fafc;
+            padding: 10px;
+        }
+
+        .metric-label {
+            color: var(--muted);
+            font-size: 0.8rem;
+            margin-bottom: 4px;
+        }
+
+        .metric-value {
+            font-size: 1.3rem;
+            font-weight: 700;
+        }
+
+        .overview-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .overview-panel {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: #fff;
+            padding: 12px;
+        }
+
+        .overview-panel h3 {
+            margin: 0 0 8px;
+            font-size: 1rem;
+        }
+
+        .mini-list {
+            margin: 0;
+            padding-left: 18px;
+            color: var(--text);
+            line-height: 1.4;
+            font-size: 0.88rem;
+        }
+
+        .mini-list li {
+            margin-bottom: 6px;
+        }
+
         @media (max-width: 900px) {
             .tools-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .metric-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .overview-grid {
                 grid-template-columns: 1fr;
             }
 
@@ -157,8 +239,8 @@
             <div>
                 <h1>🛡️ Admin Module</h1>
                 <p class="subtitle">
-                    Account Management, Approval Queue, and API Docs are grouped here.
-                    Access is restricted to authenticated admin accounts.
+                    Three admin modules are grouped here: account approvals, KB content moderation,
+                    and API docs. Access is restricted to authenticated admin accounts.
                 </p>
             </div>
             <div class="top-actions">
@@ -173,41 +255,94 @@
             <article class="tool-card">
                 <h2>Account Management</h2>
                 <p>
-                    Sign in, request access, and manage contributor credentials.
-                    Use this module for all account-related operations.
+                    Review pending account requests and either approve or reject contributor onboarding.
                 </p>
                 <div class="actions">
-                    <a class="btn primary" href="/login">Open Account Module</a>
+                    <a class="btn primary" href="/admin/accounts">Open Account Management</a>
+                    <a class="btn" href="/admin/kb-content">KB Content Management</a>
+                    <a class="btn" href="/admin/api-docs">API Documentation</a>
                 </div>
             </article>
 
             <article class="tool-card">
-                <h2>Approvals Queue</h2>
+                <h2>KB Content Management</h2>
                 <p>
-                    Review and approve pending account requests for contributors.
-                    This tool is restricted to admin users.
+                    Moderate ingested KB chapters, approve strong content, and reject low-quality drafts.
                 </p>
                 <div class="actions">
-                    <a class="btn primary" href="/admin/approvals">Open Approvals</a>
+                    <a class="btn primary" href="/admin/kb-content">Open KB Content Management</a>
+                    <a class="btn" href="/admin/accounts">Account Management</a>
+                    <a class="btn" href="/admin/api-docs">API Documentation</a>
                 </div>
             </article>
 
             <article class="tool-card">
                 <h2>API Documentation</h2>
                 <p>
-                    Review and test API endpoints via Swagger UI.
-                    Keep docs access centralized under the admin module.
+                    Review and test API endpoints, including admin moderation APIs.
+                    Use the API Docs module for quick navigation and integration guidance.
                 </p>
                 <div class="actions">
-                    <a class="btn primary" href="/docs" target="_blank" rel="noopener noreferrer">Open API Docs</a>
+                    <a class="btn primary" href="/admin/api-docs">Open API Documentation</a>
+                    <a class="btn" href="/admin/accounts">Account Management</a>
+                    <a class="btn" href="/admin/kb-content">KB Content Management</a>
                 </div>
             </article>
+        </section>
+
+        <section id="adminOverview" class="overview" aria-label="Admin overview metrics">
+            <h2>Control Tower</h2>
+            <div class="metric-grid">
+                <article class="metric-card">
+                    <div class="metric-label">Pending Approvals</div>
+                    <div class="metric-value" id="metricPendingUsers">-</div>
+                </article>
+                <article class="metric-card">
+                    <div class="metric-label">Approved Users</div>
+                    <div class="metric-value" id="metricApprovedUsers">-</div>
+                </article>
+                <article class="metric-card">
+                    <div class="metric-label">Draft Chapters</div>
+                    <div class="metric-value" id="metricDraftChapters">-</div>
+                </article>
+                <article class="metric-card">
+                    <div class="metric-label">Approved Chapters</div>
+                    <div class="metric-value" id="metricApprovedChapters">-</div>
+                </article>
+            </div>
+
+            <div class="overview-grid">
+                <article class="overview-panel">
+                    <h3>Knowledge Base Coverage</h3>
+                    <ul class="mini-list" id="kbCoverageList">
+                        <li>Total sections: -</li>
+                        <li>Total topics: -</li>
+                        <li>Total chapters: -</li>
+                        <li>Rejected chapters: -</li>
+                    </ul>
+                </article>
+
+                <article class="overview-panel">
+                    <h3>Top Predictive Chapters</h3>
+                    <ul class="mini-list" id="topPredictiveList">
+                        <li>Loading predictive chapter ranking...</li>
+                    </ul>
+                </article>
+            </div>
         </section>
     </main>
 
     <script>
         const banner = document.getElementById("statusBanner");
         const tools = document.getElementById("adminTools");
+        const overview = document.getElementById("adminOverview");
+
+        const metricPendingUsers = document.getElementById("metricPendingUsers");
+        const metricApprovedUsers = document.getElementById("metricApprovedUsers");
+        const metricDraftChapters = document.getElementById("metricDraftChapters");
+        const metricApprovedChapters = document.getElementById("metricApprovedChapters");
+        const kbCoverageList = document.getElementById("kbCoverageList");
+        const topPredictiveList = document.getElementById("topPredictiveList");
 
         function setBanner(text, kind = "info") {
             banner.className = "banner show";
@@ -220,6 +355,51 @@
                 banner.style.background = "#ecfeff";
                 banner.style.borderColor = "#a5f3fc";
                 banner.style.color = "#155e75";
+            }
+        }
+
+        async function fetchAdminOverview(token) {
+            const response = await fetch("/admin/overview", {
+                headers: { "Authorization": "Bearer " + token },
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(payload.detail || "Failed to load admin overview");
+            }
+            return payload;
+        }
+
+        function renderAdminOverview(payload) {
+            const accounts = payload.accounts || {};
+            const knowledgeBase = payload.knowledge_base || {};
+            const statusCounts = knowledgeBase.status_counts || {};
+
+            metricPendingUsers.textContent = String(accounts.pending_users ?? 0);
+            metricApprovedUsers.textContent = String(accounts.approved_users ?? 0);
+            metricDraftChapters.textContent = String(statusCounts.draft ?? 0);
+            metricApprovedChapters.textContent = String(statusCounts.approved ?? 0);
+
+            kbCoverageList.innerHTML = [
+                `Total sections: ${knowledgeBase.total_sections ?? 0}`,
+                `Total topics: ${knowledgeBase.total_topics ?? 0}`,
+                `Total chapters: ${knowledgeBase.total_chapters ?? 0}`,
+                `Rejected chapters: ${statusCounts.rejected ?? 0}`,
+            ].map((item) => `<li>${item}</li>`).join("");
+
+            const topPredictive = Array.isArray(knowledgeBase.top_predictive_chapters)
+                ? knowledgeBase.top_predictive_chapters
+                : [];
+
+            if (!topPredictive.length) {
+                topPredictiveList.innerHTML = "<li>No scored chapters yet.</li>";
+            } else {
+                topPredictiveList.innerHTML = topPredictive.slice(0, 6).map((chapter) => {
+                    const score = chapter.weighted_relevance_score ?? 0;
+                    const confidence = chapter.confidence_band || "Unknown";
+                    const name = chapter.name || "Untitled chapter";
+                    const topic = chapter.topic || "-";
+                    return `<li><strong>${name}</strong> (W${score}, ${confidence}) - ${topic}</li>`;
+                }).join("");
             }
         }
 
@@ -247,11 +427,15 @@
                     return;
                 }
 
+                const overviewPayload = await fetchAdminOverview(token);
+                renderAdminOverview(overviewPayload);
+
                 banner.className = "banner";
                 banner.textContent = "";
                 tools.style.display = "grid";
+                overview.classList.add("show");
             } catch (err) {
-                setBanner("Could not verify admin session. Please sign in again.", "error");
+                setBanner(err?.message || "Could not verify admin session. Please sign in again.", "error");
                 setTimeout(() => { window.location.href = "/login?next=/admin"; }, 1200);
             }
         }
