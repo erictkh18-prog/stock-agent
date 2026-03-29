@@ -681,6 +681,136 @@ def _derive_trading_application_insights(topic: str, claims: list[str]) -> list[
     return insights
 
 
+_CONTENT_ADVANCED_KEYWORDS = frozenset([
+    "delta hedging", "volatility surface", "options chain", "gamma exposure",
+    "vix regime", "factor model", "multi-factor", "momentum factor", "alpha decay",
+    "market microstructure", "order flow", "dark pool", "statistical arbitrage",
+    "pairs trading", "cointegration", "mean reversion", "kelly criterion",
+    "sharpe ratio", "information ratio", "drawdown", "maximum drawdown",
+    "risk-adjusted", "attribution", "systematic strategy", "quant",
+])
+
+_CONTENT_INTERMEDIATE_KEYWORDS = frozenset([
+    "moving average", "rsi", "macd", "bollinger", "technical analysis",
+    "support", "resistance", "trend", "breakout", "volume", "sector rotation",
+    "earnings call", "guidance", "pe ratio", "price-to-earnings", "eps",
+    "free cash flow", "return on equity", "dividend yield", "valuation",
+    "portfolio", "diversification", "risk management", "stop loss",
+    "position sizing", "swing trading", "momentum",
+])
+
+_US_STOCK_IMPLICATIONS: dict[str, str] = {
+    "inflation": (
+        "Rising US CPI surprises tend to compress equity multiples. "
+        "Rotate toward value/energy stocks and reduce duration exposure in growth names."
+    ),
+    "interest": (
+        "Fed rate moves directly affect US bank stocks, REITs, and tech valuations. "
+        "Monitor the 2yr/10yr yield spread for rate-cycle positioning."
+    ),
+    "earnings": (
+        "US earnings season creates high-volatility catalyst windows. "
+        "Use defined-risk positions before reports; trade the reaction after confirmation."
+    ),
+    "gdp": (
+        "US GDP trend shifts signal broad risk-on/risk-off regime changes. "
+        "Favor cyclicals in expansion phases; rotate to defensives on deceleration signals."
+    ),
+    "employment": (
+        "Non-farm payrolls and jobless claims drive Fed expectations and market tone. "
+        "Avoid large positions heading into NFP Friday; re-enter after volatility settles."
+    ),
+    "oil": (
+        "Energy price swings ripple through US transportation, consumer discretionary, and inflation data. "
+        "Watch XLE and USO for sector momentum and macro hedging signals."
+    ),
+    "bond": (
+        "US Treasury yields compete with equity risk premium directly. "
+        "Track TLT direction as a leading indicator for growth stock multiple expansion/compression."
+    ),
+    "valuation": (
+        "Forward P/E and EV/EBITDA multiples compress when risk-free rates rise. "
+        "Apply stricter entry criteria for richly-valued US growth stocks in rate-rising environments."
+    ),
+    "earnings": (
+        "US earnings season creates high-volatility catalyst windows. "
+        "Use defined-risk positions before reports; trade the reaction after confirmation."
+    ),
+    "revenue": (
+        "Revenue beats vs. guidance are primary movers for US stocks post-earnings. "
+        "Screen for consecutive acceleration in quarterly revenue growth as a quality signal."
+    ),
+    "momentum": (
+        "Price momentum is historically one of the strongest return factors in US equities. "
+        "Combine with volume and relative strength vs. sector to improve signal quality."
+    ),
+    "volatility": (
+        "VIX above 25 signals elevated fear in US markets. "
+        "Reduce net exposure and widen stop distances; use VIX spike as contrarian entry signal after stabilization."
+    ),
+    "sector": (
+        "US sector rotation follows the economic cycle. "
+        "Use SPDR sector ETFs as quick filters to identify where institutional money is flowing."
+    ),
+    "liquidity": (
+        "Poor liquidity in small/micro-cap US stocks amplifies moves and widens spreads. "
+        "Require average daily volume > 1M shares for reliable technical signals."
+    ),
+    "sentiment": (
+        "Retail and institutional sentiment divergences (AAII survey, put/call ratio) are contrarian signals. "
+        "Extreme readings often mark short-term turning points in US markets."
+    ),
+    "federal reserve": (
+        "FOMC decisions are the single largest predictable volatility event for US stocks. "
+        "Reduce position sizes before meetings; use rate-decision reaction as a regime indicator."
+    ),
+}
+
+
+def _classify_content_level(markdown_content: str) -> str:
+    """Classify chapter content difficulty as Beginner, Intermediate, or Advanced."""
+    corpus = markdown_content.lower()
+
+    advanced_hits = sum(1 for kw in _CONTENT_ADVANCED_KEYWORDS if kw in corpus)
+    if advanced_hits >= 2:
+        return "Advanced"
+
+    intermediate_hits = sum(1 for kw in _CONTENT_INTERMEDIATE_KEYWORDS if kw in corpus)
+    if intermediate_hits >= 3:
+        return "Intermediate"
+
+    return "Beginner"
+
+
+def _build_us_stock_trading_implications(
+    topic: str,
+    summary: str,
+    claims: list[str],
+    markdown_content: str,
+) -> list[str]:
+    """Surface why this content matters specifically for US stock trading."""
+    corpus = " ".join([topic or "", summary or "", " ".join(claims or []), markdown_content or ""]).lower()
+    implications: list[str] = []
+    seen_keys: set[str] = set()
+
+    for keyword, implication in _US_STOCK_IMPLICATIONS.items():
+        if keyword in seen_keys:
+            continue
+        if keyword in corpus:
+            implications.append(implication)
+            seen_keys.add(keyword)
+        if len(implications) >= 4:
+            break
+
+    if not implications:
+        implications = [
+            "Apply US stock screening criteria: combine this topic with price trend, volume, and sector context.",
+            "Validate signals derived from this content with real-time US market data before acting.",
+        ]
+
+    return implications
+
+
 def _extract_frontmatter_field(markdown: str, field: str) -> str:
     """Extract a frontmatter field value from markdown, if present."""
     lines = markdown.splitlines()
@@ -971,9 +1101,28 @@ def _build_chapter_viewer_insights(markdown_content: str, default_title: str = "
         source_urls=_extract_source_urls(markdown_content),
     )
 
+    content_level = _classify_content_level(markdown_content)
+    trading_implications = _build_us_stock_trading_implications(
+        topic=chapter_title,
+        summary=summary,
+        claims=claims,
+        markdown_content=markdown_content,
+    )
+
+    weighted = analysis.get("weighted_relevance_score", 0)
+    if weighted >= 70:
+        relevance_tier = "High"
+    elif weighted >= 45:
+        relevance_tier = "Medium"
+    else:
+        relevance_tier = "Low"
+
     return {
         "summary": summary,
         "price_movement_analysis": analysis,
+        "content_level": content_level,
+        "trading_implications": trading_implications,
+        "relevance_tier": relevance_tier,
     }
 
 
