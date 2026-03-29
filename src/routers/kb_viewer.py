@@ -75,7 +75,7 @@ async def knowledge_base_chapter(
 
     chapter_path = kb._validate_kb_relative_path(path.strip())
     content = chapter_path.read_text(encoding="utf-8")
-    chapter_status = kb._extract_chapter_status(content)
+    chapter_status = kb._extract_chapter_status(chapter_path)
     if chapter_status.strip().lower() != "approved":
         raise HTTPException(status_code=404, detail="Chapter not available")
 
