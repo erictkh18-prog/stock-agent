@@ -337,6 +337,16 @@ async def health():
     return payload
 
 
+@app.get("/healthz")
+async def healthz():
+    """Liveness endpoint for platform health checks (does not enforce readiness)."""
+    return {
+        "status": "ok",
+        "timestamp": datetime.now().isoformat(),
+        "service": "stock-agent",
+    }
+
+
 @app.get("/version")
 async def version():
     """Return app version metadata for deployment verification."""
