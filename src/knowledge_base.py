@@ -714,12 +714,109 @@ def _infer_primary_horizon(corpus: str) -> str:
     return best if scores[best] > 0 else "Medium-term"
 
 
+def _extract_source_urls(markdown_content: str) -> list[str]:
+    """Extract source URLs from chapter markdown."""
+    references = _extract_markdown_bullets_under_heading(markdown_content, "References")
+    urls: list[str] = []
+    seen: set[str] = set()
+
+    for line in references:
+        match = re.search(r"https?://\S+", line)
+        if not match:
+            continue
+        url = match.group(0).rstrip(").,]}")
+        if url in seen:
+            continue
+        seen.add(url)
+        urls.append(url)
+
+    if urls:
+        return urls
+
+    for match in re.findall(r"https?://\S+", markdown_content):
+        url = match.rstrip(").,]}")
+        if url in seen:
+            continue
+        seen.add(url)
+        urls.append(url)
+        if len(urls) >= 8:
+            break
+
+    return urls
+
+
+def _build_source_quality_assessment(
+    source_urls: list[str],
+    summary: str,
+    claims: list[str],
+    trading_insights: list[str],
+    markdown_content: str,
+) -> dict:
+    """Assess confidence quality of extracted source material."""
+    score = 35
+    reasons: list[str] = []
+
+    unique_domains = {
+        _source_domain_from_url(url)
+        for url in (source_urls or [])
+        if url and url.startswith(("http://", "https://"))
+    }
+
+    if unique_domains:
+        domain_bonus = min(20, len(unique_domains) * 6)
+        score += domain_bonus
+        reasons.append(f"Diverse source domains detected ({len(unique_domains)}).")
+    else:
+        reasons.append("No explicit source URLs detected.")
+
+    trusted_domains = {"reuters.com", "bloomberg.com", "investopedia.com"}
+    trusted_count = len(unique_domains.intersection(trusted_domains))
+    if trusted_count:
+        trusted_bonus = min(20, trusted_count * 7)
+        score += trusted_bonus
+        reasons.append(f"Trusted market sources present ({trusted_count}).")
+
+    if len(claims or []) >= 3:
+        score += 10
+        reasons.append("Sufficient extracted claims available for synthesis.")
+
+    if len(trading_insights or []) >= 2:
+        score += 8
+        reasons.append("Actionable screening notes are available.")
+
+    summary_lower = (summary or "").lower()
+    markdown_lower = (markdown_content or "").lower()
+    if "manual review" in summary_lower or "insufficient" in summary_lower:
+        score -= 12
+        reasons.append("Summary indicates limited confidence and manual review requirement.")
+
+    if "blocked source" in markdown_lower:
+        score -= 10
+        reasons.append("At least one source had extraction/access limitations.")
+
+    score = max(0, min(100, score))
+
+    if score >= 75:
+        confidence_band = "High"
+    elif score >= 50:
+        confidence_band = "Medium"
+    else:
+        confidence_band = "Low"
+
+    return {
+        "source_quality_score": score,
+        "confidence_band": confidence_band,
+        "confidence_reasons": reasons[:5],
+    }
+
+
 def _build_price_movement_analysis(
     topic: str,
     summary: str,
     claims: list[str],
     trading_insights: list[str],
     markdown_content: str = "",
+    source_urls: Optional[list[str]] = None,
 ) -> dict:
     """Build deterministic analysis for how content improves price-movement prediction skill."""
     corpus = " ".join(
@@ -745,9 +842,19 @@ def _build_price_movement_analysis(
 
     relevance_score = min(100, relevance_score)
 
-    if relevance_score >= 75:
+    source_assessment = _build_source_quality_assessment(
+        source_urls=source_urls or [],
+        summary=summary,
+        claims=claims,
+        trading_insights=trading_insights,
+        markdown_content=markdown_content,
+    )
+
+    weighted_relevance_score = int(round((relevance_score * 0.7) + (source_assessment["source_quality_score"] * 0.3)))
+
+    if weighted_relevance_score >= 75:
         skill_impact = "High"
-    elif relevance_score >= 50:
+    elif weighted_relevance_score >= 50:
         skill_impact = "Medium"
     else:
         skill_impact = "Low"
@@ -789,6 +896,10 @@ def _build_price_movement_analysis(
 
     return {
         "relevance_score": relevance_score,
+        "weighted_relevance_score": weighted_relevance_score,
+        "source_quality_score": source_assessment["source_quality_score"],
+        "confidence_band": source_assessment["confidence_band"],
+        "confidence_reasons": source_assessment["confidence_reasons"],
         "prediction_skill_impact": skill_impact,
         "primary_horizon": _infer_primary_horizon(corpus),
         "market_dimensions": market_dimensions or ["General"],
@@ -821,6 +932,7 @@ def _build_chapter_viewer_insights(markdown_content: str, default_title: str = "
         claims=claims,
         trading_insights=trading_insights,
         markdown_content=markdown_content,
+        source_urls=_extract_source_urls(markdown_content),
     )
 
     return {

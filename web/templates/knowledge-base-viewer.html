@@ -905,6 +905,9 @@
 
             const metrics = [
                 `Relevance ${analysis.relevance_score ?? "N/A"}/100`,
+                `Weighted ${analysis.weighted_relevance_score ?? "N/A"}/100`,
+                `Source Quality ${analysis.source_quality_score ?? "N/A"}/100`,
+                `Confidence ${analysis.confidence_band || "N/A"}`,
                 `Impact ${analysis.prediction_skill_impact || "N/A"}`,
                 `Horizon ${analysis.primary_horizon || "N/A"}`,
                 `Dimensions ${dimensions}`,
@@ -919,8 +922,9 @@
 
             const takeaways = Array.isArray(analysis.key_takeaways) ? analysis.key_takeaways : [];
             const notes = Array.isArray(analysis.application_notes) ? analysis.application_notes : [];
+            const confidenceReasons = Array.isArray(analysis.confidence_reasons) ? analysis.confidence_reasons : [];
 
-            for (const itemText of [...takeaways.slice(0, 3), ...notes.slice(0, 2)]) {
+            for (const itemText of [...takeaways.slice(0, 2), ...notes.slice(0, 2), ...confidenceReasons.slice(0, 2)]) {
                 const item = document.createElement("li");
                 item.textContent = itemText;
                 analysisTakeawaysEl.appendChild(item);

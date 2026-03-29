@@ -113,6 +113,9 @@ def test_knowledge_base_chapter_returns_markdown_for_existing_file():
     assert "price_movement_analysis" in payload
     assert isinstance(payload["price_movement_analysis"], dict)
     assert "relevance_score" in payload["price_movement_analysis"]
+    assert "weighted_relevance_score" in payload["price_movement_analysis"]
+    assert "source_quality_score" in payload["price_movement_analysis"]
+    assert "confidence_band" in payload["price_movement_analysis"]
 
 
 # ──────────────────────────────────────────────
@@ -240,6 +243,9 @@ def test_knowledge_base_ingest_without_url_runs_auto_research(monkeypatch, tmp_p
     chapter_content = chapter_path.read_text(encoding="utf-8")
     assert "# Source Summary" in chapter_content
     assert "# Price Movement Relevance Analysis" in chapter_content
+    assert "Weighted Relevance Score:" in chapter_content
+    assert "Source Quality Score:" in chapter_content
+    assert "Confidence Band:" in chapter_content
     assert "## Why This Matters For Forecasting" in chapter_content
     assert "## How To Apply This In Screening" in chapter_content
     assert "# Trading Application Notes" in chapter_content
