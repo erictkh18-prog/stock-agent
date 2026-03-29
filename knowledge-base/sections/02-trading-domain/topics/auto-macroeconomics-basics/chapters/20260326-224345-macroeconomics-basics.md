@@ -1,9 +1,9 @@
 ---
 chapter_id: CH-AUTO-20260326224345
 title: Macroeconomics basics
-status: Draft
+status: Approved
 owner: Eric + Copilot
-last_reviewed: 2026-03-26
+last_reviewed: 2026-03-29
 confidence: Medium
 sources:
   - https://en.wikipedia.org/wiki/Macroeconomics
@@ -35,3 +35,7 @@ sources:
 
 # References
 - https://en.wikipedia.org/wiki/Macroeconomics
+
+# Review Decision
+- Status updated to Approved on 2026-03-29 14:05:19.
+- Note: Approved by admin
