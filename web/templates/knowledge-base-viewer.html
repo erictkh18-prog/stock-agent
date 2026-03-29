@@ -312,6 +312,58 @@
             margin-bottom: 10px;
         }
 
+        .insight-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .insight-card {
+            border: 1px solid #dbe3f0;
+            border-radius: 10px;
+            background: #f8fafc;
+            padding: 10px;
+        }
+
+        .insight-card h3 {
+            margin: 0 0 8px;
+            font-size: 0.9rem;
+            color: #0c4a6e;
+        }
+
+        .insight-card p {
+            margin: 0;
+            color: #1e293b;
+            font-size: 0.88rem;
+            line-height: 1.45;
+        }
+
+        .analysis-metrics {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 8px;
+        }
+
+        .analysis-metric {
+            border-radius: 999px;
+            border: 1px solid #bae6fd;
+            background: #e0f2fe;
+            color: #075985;
+            padding: 3px 9px;
+            font-size: 0.76rem;
+            font-weight: 700;
+        }
+
+        .analysis-list {
+            margin: 0;
+            padding-left: 18px;
+            color: #1e293b;
+            font-size: 0.84rem;
+            line-height: 1.4;
+        }
+
         .doc-body {
             margin: 0;
             padding: 14px;
@@ -405,6 +457,10 @@
                 min-height: 40vh;
             }
 
+            .insight-grid {
+                grid-template-columns: 1fr;
+            }
+
             .chapter-row {
                 grid-template-columns: 1fr;
             }
@@ -463,6 +519,17 @@
             <section class="card" aria-label="Chapter preview">
                 <h2 id="docTitle">Select a chapter</h2>
                 <div class="doc-meta" id="docMeta">Choose a chapter from the left panel to view its content.</div>
+                <div class="insight-grid">
+                    <section class="insight-card" aria-label="Source summary">
+                        <h3>Source Summary</h3>
+                        <p id="docSummary">Summary will appear after selecting a chapter.</p>
+                    </section>
+                    <section class="insight-card" aria-label="Price movement analysis">
+                        <h3>Price-Movement Analysis</h3>
+                        <div class="analysis-metrics" id="analysisMetrics"></div>
+                        <ul class="analysis-list" id="analysisTakeaways"></ul>
+                    </section>
+                </div>
                 <div class="doc-actions">
                     <button class="doc-action-button" id="openSelectedExplorerBtn" type="button" disabled>Open in Explorer</button>
                     <button class="doc-action-button" id="approveChapterBtn" type="button" disabled>Approve Chapter</button>
@@ -481,6 +548,9 @@
         const statsEl = document.getElementById("stats");
         const docTitleEl = document.getElementById("docTitle");
         const docMetaEl = document.getElementById("docMeta");
+        const docSummaryEl = document.getElementById("docSummary");
+        const analysisMetricsEl = document.getElementById("analysisMetrics");
+        const analysisTakeawaysEl = document.getElementById("analysisTakeaways");
         const docBodyEl = document.getElementById("docBody");
         const statusEl = document.getElementById("status");
         const refreshBtn = document.getElementById("refreshBtn");
@@ -820,6 +890,43 @@
             }
         }
 
+        function renderPriceMovementAnalysis(analysis) {
+            analysisMetricsEl.innerHTML = "";
+            analysisTakeawaysEl.innerHTML = "";
+
+            if (!analysis || typeof analysis !== "object") {
+                analysisMetricsEl.innerHTML = '<span class="analysis-metric">No analysis available</span>';
+                return;
+            }
+
+            const dimensions = Array.isArray(analysis.market_dimensions)
+                ? analysis.market_dimensions.join(", ")
+                : "General";
+
+            const metrics = [
+                `Relevance ${analysis.relevance_score ?? "N/A"}/100`,
+                `Impact ${analysis.prediction_skill_impact || "N/A"}`,
+                `Horizon ${analysis.primary_horizon || "N/A"}`,
+                `Dimensions ${dimensions}`,
+            ];
+
+            for (const metric of metrics) {
+                const chip = document.createElement("span");
+                chip.className = "analysis-metric";
+                chip.textContent = metric;
+                analysisMetricsEl.appendChild(chip);
+            }
+
+            const takeaways = Array.isArray(analysis.key_takeaways) ? analysis.key_takeaways : [];
+            const notes = Array.isArray(analysis.application_notes) ? analysis.application_notes : [];
+
+            for (const itemText of [...takeaways.slice(0, 3), ...notes.slice(0, 2)]) {
+                const item = document.createElement("li");
+                item.textContent = itemText;
+                analysisTakeawaysEl.appendChild(item);
+            }
+        }
+
         async function loadChapter(relativePath, button, titleOverride) {
             statusEl.textContent = "Loading chapter...";
 
@@ -834,6 +941,8 @@
                 activeChapterPath = payload.path;
                 docTitleEl.textContent = titleOverride || payload.title;
                 docMetaEl.textContent = `Path: ${payload.path} | Updated: ${new Date(payload.updated_at).toLocaleString()}`;
+                docSummaryEl.textContent = payload.summary || "No summary available yet.";
+                renderPriceMovementAnalysis(payload.price_movement_analysis || null);
                 renderMarkdown(payload.content);
                 setActiveButton(button);
                 setModerationActionState();

@@ -60,6 +60,42 @@ CLAIM_NOISE_PATTERNS = [
     "bloomberg the company",
 ]
 
+PRICE_MOVEMENT_KEYWORD_WEIGHTS = {
+    "inflation": 10,
+    "interest rate": 12,
+    "federal reserve": 12,
+    "gdp": 7,
+    "employment": 7,
+    "earnings": 12,
+    "guidance": 8,
+    "valuation": 8,
+    "revenue": 8,
+    "margin": 7,
+    "momentum": 6,
+    "trend": 6,
+    "breakout": 7,
+    "volume": 6,
+    "volatility": 6,
+    "sentiment": 6,
+    "liquidity": 6,
+    "risk": 5,
+    "sector": 5,
+}
+
+PRICE_MOVEMENT_DIMENSION_KEYWORDS = {
+    "Macro": ["inflation", "interest", "federal reserve", "gdp", "employment", "yield"],
+    "Fundamental": ["earnings", "valuation", "revenue", "margin", "cash flow", "guidance"],
+    "Technical": ["trend", "momentum", "breakout", "support", "resistance", "moving average"],
+    "Sentiment": ["sentiment", "positioning", "risk-on", "risk-off", "news flow"],
+    "Risk": ["volatility", "drawdown", "liquidity", "stop", "risk management"],
+}
+
+PRICE_MOVEMENT_HORIZON_KEYWORDS = {
+    "Short-term": ["intraday", "daily", "event window", "release", "catalyst", "near-term"],
+    "Medium-term": ["weekly", "monthly", "swing", "regime", "rotation"],
+    "Long-term": ["quarter", "multi-quarter", "long-term", "structural", "cycle"],
+}
+
 _WIKIPEDIA_REQUEST_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -607,6 +643,190 @@ def _derive_trading_application_insights(topic: str, claims: list[str]) -> list[
         )
 
     return insights
+
+
+def _extract_frontmatter_field(markdown: str, field: str) -> str:
+    """Extract a frontmatter field value from markdown, if present."""
+    lines = markdown.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return ""
+
+    field_prefix = f"{field.strip().lower()}:"
+    for line in lines[1:]:
+        stripped = line.strip()
+        if stripped == "---":
+            break
+        if stripped.lower().startswith(field_prefix):
+            return stripped.split(":", 1)[1].strip()
+    return ""
+
+
+def _extract_markdown_bullets_under_heading(markdown: str, heading: str) -> list[str]:
+    """Extract bullet lines under a specific markdown heading."""
+    target = heading.strip().lower()
+    lines = markdown.splitlines()
+    in_section = False
+    bullets: list[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+
+        if stripped.startswith("#"):
+            heading_text = stripped.lstrip("#").strip().lower()
+            if in_section and heading_text != target:
+                break
+            in_section = heading_text == target
+            continue
+
+        if in_section and stripped.startswith("- "):
+            bullets.append(stripped[2:].strip())
+
+    return bullets
+
+
+def _extract_fallback_sentences(markdown: str, max_sentences: int = 3) -> list[str]:
+    """Extract readable fallback sentences from markdown content."""
+    without_code = re.sub(r"```.*?```", " ", markdown, flags=re.DOTALL)
+    plain = re.sub(r"`[^`]*`", " ", without_code)
+    plain = re.sub(r"#+\s*", " ", plain)
+    plain = re.sub(r"\s+", " ", plain).strip()
+
+    if not plain:
+        return []
+
+    sentences = [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!?])\s+", plain)
+        if len(sentence.strip()) >= 35
+    ]
+    return sentences[:max_sentences]
+
+
+def _infer_primary_horizon(corpus: str) -> str:
+    """Infer dominant prediction horizon from keyword matches."""
+    scores = {key: 0 for key in PRICE_MOVEMENT_HORIZON_KEYWORDS}
+    for horizon, keywords in PRICE_MOVEMENT_HORIZON_KEYWORDS.items():
+        for keyword in keywords:
+            if keyword in corpus:
+                scores[horizon] += 1
+
+    best = max(scores, key=scores.get)
+    return best if scores[best] > 0 else "Medium-term"
+
+
+def _build_price_movement_analysis(
+    topic: str,
+    summary: str,
+    claims: list[str],
+    trading_insights: list[str],
+    markdown_content: str = "",
+) -> dict:
+    """Build deterministic analysis for how content improves price-movement prediction skill."""
+    corpus = " ".join(
+        [
+            topic or "",
+            summary or "",
+            " ".join(claims or []),
+            " ".join(trading_insights or []),
+            markdown_content or "",
+        ]
+    ).lower()
+
+    relevance_score = 20
+    for keyword, weight in PRICE_MOVEMENT_KEYWORD_WEIGHTS.items():
+        if keyword in corpus:
+            relevance_score += weight
+
+    market_dimensions: list[str] = []
+    for dimension, keywords in PRICE_MOVEMENT_DIMENSION_KEYWORDS.items():
+        if any(keyword in corpus for keyword in keywords):
+            market_dimensions.append(dimension)
+            relevance_score += 5
+
+    relevance_score = min(100, relevance_score)
+
+    if relevance_score >= 75:
+        skill_impact = "High"
+    elif relevance_score >= 50:
+        skill_impact = "Medium"
+    else:
+        skill_impact = "Low"
+
+    key_takeaways: list[str] = []
+    seen_takeaways: set[str] = set()
+
+    for candidate in [summary, *(claims or [])]:
+        text = (candidate or "").strip()
+        key = text.lower()
+        if not text or key in seen_takeaways:
+            continue
+        key_takeaways.append(text)
+        seen_takeaways.add(key)
+        if len(key_takeaways) >= 4:
+            break
+
+    if len(key_takeaways) < 2:
+        for sentence in _extract_fallback_sentences(markdown_content, max_sentences=4):
+            key = sentence.lower()
+            if key in seen_takeaways:
+                continue
+            key_takeaways.append(sentence)
+            seen_takeaways.add(key)
+            if len(key_takeaways) >= 4:
+                break
+
+    if not key_takeaways:
+        key_takeaways = [
+            "Insufficient structured claims detected. Keep chapter in Draft and enrich with analyst notes.",
+        ]
+
+    application_notes = [insight.strip() for insight in (trading_insights or []) if insight.strip()][:4]
+    if not application_notes:
+        application_notes = [
+            "Treat this chapter as context input and combine with trend, volume, and risk controls before execution.",
+            "Use signals from this chapter to narrow watchlist candidates, then validate with technical confirmation.",
+        ]
+
+    return {
+        "relevance_score": relevance_score,
+        "prediction_skill_impact": skill_impact,
+        "primary_horizon": _infer_primary_horizon(corpus),
+        "market_dimensions": market_dimensions or ["General"],
+        "key_takeaways": key_takeaways,
+        "application_notes": application_notes,
+    }
+
+
+def _build_chapter_viewer_insights(markdown_content: str, default_title: str = "") -> dict:
+    """Build viewer summary and price-movement analysis for a chapter."""
+    chapter_title = _extract_frontmatter_field(markdown_content, "title") or default_title
+
+    source_summary_lines = _extract_markdown_bullets_under_heading(markdown_content, "Source Summary")
+    summary = source_summary_lines[0] if source_summary_lines else ""
+
+    if not summary:
+        extracted_claims = _extract_markdown_bullets_under_heading(markdown_content, "Extracted Claims")
+        summary = extracted_claims[0] if extracted_claims else ""
+
+    if not summary:
+        fallback = _extract_fallback_sentences(markdown_content, max_sentences=1)
+        summary = fallback[0] if fallback else "No summary available yet."
+
+    claims = _extract_markdown_bullets_under_heading(markdown_content, "Extracted Claims")
+    trading_insights = _extract_markdown_bullets_under_heading(markdown_content, "Actionable Rules Derived")
+
+    analysis = _build_price_movement_analysis(
+        topic=chapter_title,
+        summary=summary,
+        claims=claims,
+        trading_insights=trading_insights,
+        markdown_content=markdown_content,
+    )
+
+    return {
+        "summary": summary,
+        "price_movement_analysis": analysis,
+    }
 
 
 def _auto_research_topic(topic: str) -> dict:

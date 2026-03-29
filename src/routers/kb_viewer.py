@@ -35,10 +35,14 @@ async def knowledge_base_chapter(
 
     chapter_path = kb._validate_kb_relative_path(path.strip())
     content = chapter_path.read_text(encoding="utf-8")
+    chapter_title = chapter_path.stem
+    insights = kb._build_chapter_viewer_insights(content, default_title=chapter_title)
 
     return {
         "path": kb._safe_rel_path(chapter_path, kb.KB_ROOT),
-        "title": chapter_path.stem,
+        "title": chapter_title,
         "updated_at": datetime.fromtimestamp(chapter_path.stat().st_mtime).isoformat(),
+        "summary": insights["summary"],
+        "price_movement_analysis": insights["price_movement_analysis"],
         "content": content,
     }
