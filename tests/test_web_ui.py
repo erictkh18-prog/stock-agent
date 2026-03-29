@@ -238,6 +238,8 @@ def test_dashboard_cta_uses_cta_row_class():
 def test_knowledge_base_viewer_has_markdown_and_filter_controls():
     html = _read_template("knowledge-base-viewer.html")
     assert 'id="treeFilter"' in html
+    assert 'id="confidenceFilter"' in html
+    assert 'id="chapterSort"' in html
     assert "marked.min.js" in html
     assert "dompurify" in html.lower()
     assert "Open in Explorer" in html

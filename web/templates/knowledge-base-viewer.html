@@ -129,6 +129,23 @@
             margin-bottom: 12px;
         }
 
+        .analysis-controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .analysis-controls select {
+            width: 100%;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 10px;
+            min-height: 40px;
+            font-size: 0.86rem;
+            background: #fff;
+        }
+
         .quick-filter-btn {
             min-height: 36px;
             border: 1px solid var(--line);
@@ -281,6 +298,34 @@
             color: #7f1d1d;
             background: #fee2e2;
             border-color: #fca5a5;
+        }
+
+        .chapter-analysis-badge {
+            border-radius: 999px;
+            padding: 2px 8px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            border: 1px solid transparent;
+            white-space: nowrap;
+        }
+
+        .chapter-analysis-badge.high {
+            color: #14532d;
+            background: #dcfce7;
+            border-color: #86efac;
+        }
+
+        .chapter-analysis-badge.medium {
+            color: #92400e;
+            background: #fef3c7;
+            border-color: #fcd34d;
+        }
+
+        .chapter-analysis-badge.low,
+        .chapter-analysis-badge.unknown {
+            color: #1e3a8a;
+            background: #dbeafe;
+            border-color: #93c5fd;
         }
 
         .chapter-open-explorer {
@@ -483,6 +528,10 @@
             .filter-row {
                 grid-template-columns: 1fr;
             }
+
+            .analysis-controls {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
@@ -512,6 +561,21 @@
                     <button class="quick-filter-btn" type="button" data-status="draft">Draft</button>
                     <button class="quick-filter-btn" type="button" data-status="approved">Approved</button>
                     <button class="quick-filter-btn" type="button" data-status="rejected">Rejected</button>
+                </div>
+                <div class="analysis-controls" aria-label="Analysis filters and sorting">
+                    <select id="confidenceFilter" aria-label="Confidence filter">
+                        <option value="all">Confidence: All</option>
+                        <option value="high">Confidence: High</option>
+                        <option value="medium">Confidence: Medium</option>
+                        <option value="low">Confidence: Low</option>
+                        <option value="unknown">Confidence: Unknown</option>
+                    </select>
+                    <select id="chapterSort" aria-label="Chapter sort order">
+                        <option value="weighted_desc">Sort: Weighted Relevance (High to Low)</option>
+                        <option value="weighted_asc">Sort: Weighted Relevance (Low to High)</option>
+                        <option value="updated_desc">Sort: Most Recently Updated</option>
+                        <option value="updated_asc">Sort: Oldest Updated</option>
+                    </select>
                 </div>
                 <ul class="tree" id="tree"></ul>
             </section>
@@ -559,6 +623,8 @@
         const treeFilterInput = document.getElementById("treeFilter");
         const clearFilterBtn = document.getElementById("clearFilterBtn");
         const quickFilters = document.getElementById("quickFilters");
+        const confidenceFilter = document.getElementById("confidenceFilter");
+        const chapterSort = document.getElementById("chapterSort");
         const openSelectedExplorerBtn = document.getElementById("openSelectedExplorerBtn");
         const approveChapterBtn = document.getElementById("approveChapterBtn");
         const rejectChapterBtn = document.getElementById("rejectChapterBtn");
@@ -566,6 +632,8 @@
         let activeChapterPath = "";
         let fullSections = [];
         let activeStatusFilter = "all";
+        let activeConfidenceFilter = "all";
+        let activeSortOrder = "weighted_desc";
         let currentUser = null;
 
         function getAuthToken() {
@@ -653,11 +721,11 @@
 
         clearFilterBtn.addEventListener("click", () => {
             treeFilterInput.value = "";
-            renderTree(fullSections, "", activeStatusFilter);
+            renderTree(fullSections, "", activeStatusFilter, activeConfidenceFilter, activeSortOrder);
         });
 
         treeFilterInput.addEventListener("input", () => {
-            renderTree(fullSections, treeFilterInput.value.trim().toLowerCase(), activeStatusFilter);
+            renderTree(fullSections, treeFilterInput.value.trim().toLowerCase(), activeStatusFilter, activeConfidenceFilter, activeSortOrder);
         });
 
         quickFilters.addEventListener("click", (event) => {
@@ -672,7 +740,17 @@
                 button.classList.toggle("active", button === target);
             });
 
-            renderTree(fullSections, treeFilterInput.value.trim().toLowerCase(), activeStatusFilter);
+            renderTree(fullSections, treeFilterInput.value.trim().toLowerCase(), activeStatusFilter, activeConfidenceFilter, activeSortOrder);
+        });
+
+        confidenceFilter.addEventListener("change", () => {
+            activeConfidenceFilter = (confidenceFilter.value || "all").toLowerCase();
+            renderTree(fullSections, treeFilterInput.value.trim().toLowerCase(), activeStatusFilter, activeConfidenceFilter, activeSortOrder);
+        });
+
+        chapterSort.addEventListener("change", () => {
+            activeSortOrder = chapterSort.value || "weighted_desc";
+            renderTree(fullSections, treeFilterInput.value.trim().toLowerCase(), activeStatusFilter, activeConfidenceFilter, activeSortOrder);
         });
 
         openSelectedExplorerBtn.addEventListener("click", async () => {
@@ -719,7 +797,7 @@
 
                 fullSections = payload.sections || [];
                 renderStats(payload);
-                renderTree(fullSections, treeFilterInput.value.trim().toLowerCase(), activeStatusFilter);
+                renderTree(fullSections, treeFilterInput.value.trim().toLowerCase(), activeStatusFilter, activeConfidenceFilter, activeSortOrder);
 
                 statusEl.textContent = "Knowledge-base tree loaded.";
             } catch (error) {
@@ -739,7 +817,7 @@
             statsEl.innerHTML = chips.map((text) => `<span class="chip">${text}</span>`).join("");
         }
 
-        function renderTree(sections, filterText, statusFilter = "all") {
+        function renderTree(sections, filterText, statusFilter = "all", confidenceFilterValue = "all", sortOrder = "weighted_desc") {
             if (!sections.length) {
                 treeEl.innerHTML = '<li class="empty">No sections found in knowledge-base.</li>';
                 return;
@@ -747,6 +825,7 @@
 
             const normalizedFilter = (filterText || "").toLowerCase();
             const normalizedStatus = (statusFilter || "all").toLowerCase();
+            const normalizedConfidence = (confidenceFilterValue || "all").toLowerCase();
             const hasFilter = normalizedFilter.length > 0;
             treeEl.innerHTML = "";
             let matchedSections = 0;
@@ -805,13 +884,33 @@
                                 chapterList.appendChild(emptyChapter);
                             }
                         } else {
-                            for (const chapter of topic.chapters) {
+                            const sortedChapters = [...topic.chapters].sort((a, b) => {
+                                const aWeighted = Number(a.weighted_relevance_score || 0);
+                                const bWeighted = Number(b.weighted_relevance_score || 0);
+                                const aUpdated = Date.parse(a.updated_at || "") || 0;
+                                const bUpdated = Date.parse(b.updated_at || "") || 0;
+
+                                if (sortOrder === "weighted_asc") {
+                                    return aWeighted - bWeighted;
+                                }
+                                if (sortOrder === "updated_desc") {
+                                    return bUpdated - aUpdated;
+                                }
+                                if (sortOrder === "updated_asc") {
+                                    return aUpdated - bUpdated;
+                                }
+                                return bWeighted - aWeighted;
+                            });
+
+                            for (const chapter of sortedChapters) {
                                 const chapterMatch = chapter.name.toLowerCase().includes(normalizedFilter)
                                     || chapter.relative_path.toLowerCase().includes(normalizedFilter);
                                 const chapterStatus = (chapter.status || "Draft").toLowerCase();
+                                const chapterConfidence = (chapter.confidence_band || "Unknown").toLowerCase();
                                 const statusMatch = normalizedStatus === "all" || chapterStatus === normalizedStatus;
+                                const confidenceMatch = normalizedConfidence === "all" || chapterConfidence === normalizedConfidence;
 
-                                if (!statusMatch) {
+                                if (!statusMatch || !confidenceMatch) {
                                     continue;
                                 }
 
@@ -834,8 +933,14 @@
                                 chapterStatusBadge.className = `chapter-status-badge ${chapterStatus}`;
                                 chapterStatusBadge.textContent = chapter.status || "Draft";
 
+                                const chapterAnalysisBadge = document.createElement("span");
+                                chapterAnalysisBadge.className = `chapter-analysis-badge ${chapterConfidence}`;
+                                const weightedScore = Number(chapter.weighted_relevance_score || 0);
+                                chapterAnalysisBadge.textContent = `W${weightedScore} ${chapter.confidence_band || "Unknown"}`;
+
                                 button.appendChild(chapterName);
                                 button.appendChild(chapterStatusBadge);
+                                button.appendChild(chapterAnalysisBadge);
                                 button.dataset.path = chapter.relative_path;
                                 button.addEventListener("click", async () => {
                                     await loadChapter(chapter.relative_path, button);

@@ -253,6 +253,36 @@ def _extract_chapter_status(chapter_path: Path) -> str:
     return "Draft"
 
 
+def _extract_chapter_analysis_metrics(markdown_content: str) -> dict:
+    """Extract chapter analysis metrics from markdown content when available."""
+    defaults = {
+        "weighted_relevance_score": 0,
+        "relevance_score": 0,
+        "source_quality_score": 0,
+        "confidence_band": "Unknown",
+    }
+
+    if not markdown_content:
+        return defaults
+
+    weighted_match = re.search(r"Weighted Relevance Score:\s*(\d{1,3})/100", markdown_content, flags=re.IGNORECASE)
+    relevance_match = re.search(r"(?:^|\n)-\s*Relevance Score:\s*(\d{1,3})/100", markdown_content, flags=re.IGNORECASE)
+    source_quality_match = re.search(r"Source Quality Score:\s*(\d{1,3})/100", markdown_content, flags=re.IGNORECASE)
+    confidence_match = re.search(r"Confidence Band:\s*([A-Za-z]+)", markdown_content, flags=re.IGNORECASE)
+
+    weighted_score = int(weighted_match.group(1)) if weighted_match else defaults["weighted_relevance_score"]
+    relevance_score = int(relevance_match.group(1)) if relevance_match else defaults["relevance_score"]
+    source_quality_score = int(source_quality_match.group(1)) if source_quality_match else defaults["source_quality_score"]
+    confidence_band = confidence_match.group(1).title() if confidence_match else defaults["confidence_band"]
+
+    return {
+        "weighted_relevance_score": max(0, min(100, weighted_score)),
+        "relevance_score": max(0, min(100, relevance_score)),
+        "source_quality_score": max(0, min(100, source_quality_score)),
+        "confidence_band": confidence_band,
+    }
+
+
 def _build_kb_tree() -> dict:
     """Build section/topic/chapter tree for knowledge-base viewer."""
     sections_dir = KB_ROOT / "sections"
@@ -284,13 +314,19 @@ def _build_kb_tree() -> dict:
                         [p for p in chapter_dir.iterdir() if p.is_file() and p.suffix.lower() == ".md"],
                         reverse=True,
                     ):
+                        try:
+                            chapter_content = chapter_path.read_text(encoding="utf-8")
+                        except OSError:
+                            chapter_content = ""
                         chapter_status = _extract_chapter_status(chapter_path)
+                        chapter_analysis = _extract_chapter_analysis_metrics(chapter_content)
                         chapters.append(
                             {
                                 "name": chapter_path.stem,
                                 "relative_path": _safe_rel_path(chapter_path, KB_ROOT),
                                 "updated_at": datetime.fromtimestamp(chapter_path.stat().st_mtime).isoformat(),
                                 "status": chapter_status,
+                                **chapter_analysis,
                             }
                         )
 

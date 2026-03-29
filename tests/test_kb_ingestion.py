@@ -387,7 +387,7 @@ def test_chapter_status_endpoint_updates_frontmatter(monkeypatch, tmp_path):
 
 
 def test_build_kb_tree_includes_chapter_status(monkeypatch, tmp_path):
-    """Tree endpoint payload should include chapter status for UI badges."""
+    """Tree endpoint payload should include chapter status and analysis metrics for ranking."""
 
     monkeypatch.setattr(kb_module, "KB_ROOT", tmp_path)
     chapter_rel = "sections/02-trading-domain/topics/auto-test/chapters/chapter-a.md"
@@ -407,6 +407,12 @@ def test_build_kb_tree_includes_chapter_status(monkeypatch, tmp_path):
                 "  - https://www.reuters.com/",
                 "---",
                 "",
+                "# Price Movement Relevance Analysis",
+                "- Relevance Score: 74/100",
+                "- Weighted Relevance Score: 81/100",
+                "- Source Quality Score: 88/100",
+                "- Confidence Band: High",
+                "",
                 "# Body",
                 "- test",
             ]
@@ -418,3 +424,6 @@ def test_build_kb_tree_includes_chapter_status(monkeypatch, tmp_path):
     assert tree["sections"]
     chapter = tree["sections"][0]["topics"][0]["chapters"][0]
     assert chapter["status"] == "Rejected"
+    assert chapter["weighted_relevance_score"] == 81
+    assert chapter["source_quality_score"] == 88
+    assert chapter["confidence_band"] == "High"
