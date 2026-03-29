@@ -629,6 +629,35 @@
         const approveChapterBtn = document.getElementById("approveChapterBtn");
         const rejectChapterBtn = document.getElementById("rejectChapterBtn");
 
+        const adminHomeBtn = document.createElement("button");
+        adminHomeBtn.className = "button";
+        adminHomeBtn.type = "button";
+        adminHomeBtn.textContent = "Admin Home";
+        adminHomeBtn.style.display = "none";
+
+        const accountApprovalBtn = document.createElement("button");
+        accountApprovalBtn.className = "button";
+        accountApprovalBtn.type = "button";
+        accountApprovalBtn.textContent = "Account Approvals";
+        accountApprovalBtn.style.display = "none";
+
+        const apiDocsModuleBtn = document.createElement("button");
+        apiDocsModuleBtn.className = "button";
+        apiDocsModuleBtn.type = "button";
+        apiDocsModuleBtn.textContent = "API Docs Module";
+        apiDocsModuleBtn.style.display = "none";
+
+        const dashboardBtn = document.createElement("button");
+        dashboardBtn.className = "button";
+        dashboardBtn.type = "button";
+        dashboardBtn.textContent = "Dashboard";
+        dashboardBtn.style.display = "none";
+
+        document.querySelector(".topbar-actions").appendChild(adminHomeBtn);
+        document.querySelector(".topbar-actions").appendChild(accountApprovalBtn);
+        document.querySelector(".topbar-actions").appendChild(apiDocsModuleBtn);
+        document.querySelector(".topbar-actions").appendChild(dashboardBtn);
+
         let activeChapterPath = "";
         let fullSections = [];
         let activeStatusFilter = "all";
@@ -655,6 +684,11 @@
             openSelectedExplorerBtn.disabled = !isAdmin || !activeChapterPath;
             approveChapterBtn.disabled = !isAdmin || !activeChapterPath;
             rejectChapterBtn.disabled = !isAdmin || !activeChapterPath;
+
+            adminHomeBtn.style.display = isAdmin ? "inline-block" : "none";
+            accountApprovalBtn.style.display = isAdmin ? "inline-block" : "none";
+            apiDocsModuleBtn.style.display = isAdmin ? "inline-block" : "none";
+            dashboardBtn.style.display = isAdmin ? "inline-block" : "none";
         }
 
         function updateAuthButtonState() {
@@ -713,6 +747,22 @@
                 return;
             }
             window.location.href = "/login?next=/knowledge-base";
+        });
+
+        adminHomeBtn.addEventListener("click", () => {
+            window.location.href = "/admin";
+        });
+
+        accountApprovalBtn.addEventListener("click", () => {
+            window.location.href = "/admin/approvals";
+        });
+
+        apiDocsModuleBtn.addEventListener("click", () => {
+            window.location.href = "/admin/api-docs";
+        });
+
+        dashboardBtn.addEventListener("click", () => {
+            window.location.href = "/";
         });
 
         refreshBtn.addEventListener("click", () => {

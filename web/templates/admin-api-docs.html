@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin API Docs Module</title>
+    <style>
+        :root {
+            --bg: #f3f7fa;
+            --panel: #ffffff;
+            --text: #0f172a;
+            --muted: #475569;
+            --accent: #0e7490;
+            --accent-dark: #155e75;
+            --border: #d1d5db;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            background: radial-gradient(circle at top right, #d1fae5 0%, var(--bg) 45%);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 24px 16px;
+        }
+
+        .container {
+            max-width: 980px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: 1.8rem;
+        }
+
+        .subtitle {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        .links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+
+        .btn {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: #fff;
+            color: #0f172a;
+            text-decoration: none;
+            padding: 9px 12px;
+            font-size: 0.9rem;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 42px;
+            cursor: pointer;
+        }
+
+        .btn.primary {
+            border: 0;
+            background: linear-gradient(135deg, var(--accent), #0f766e);
+            color: #fff;
+        }
+
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 18px;
+            box-shadow: 0 10px 24px rgba(2, 6, 23, 0.06);
+        }
+
+        .card h2 {
+            margin: 0 0 10px;
+            font-size: 1.2rem;
+        }
+
+        .api-list {
+            margin: 0;
+            padding-left: 18px;
+            color: var(--text);
+            line-height: 1.5;
+        }
+
+        .status {
+            margin-top: 12px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid #a5f3fc;
+            background: #ecfeff;
+            color: #155e75;
+            display: none;
+        }
+
+        .status.show {
+            display: block;
+        }
+
+        @media (max-width: 760px) {
+            .header {
+                flex-direction: column;
+                align-items: stretch;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="container">
+        <div class="header">
+            <div>
+                <h1>Admin API Docs Module</h1>
+                <p class="subtitle">
+                    Quick access to API documentation with admin workflow navigation.
+                </p>
+            </div>
+            <button id="logoutBtn" class="btn" type="button">Log Out</button>
+        </div>
+
+        <div class="links">
+            <a class="btn" href="/admin">Admin Home</a>
+            <a class="btn" href="/admin/approvals">Approve / Reject Account Creation</a>
+            <a class="btn" href="/knowledge-base">Approve / Reject KB Content</a>
+            <a class="btn" href="/">Back to Dashboard</a>
+            <a class="btn primary" href="/docs" target="_blank" rel="noopener noreferrer">Open Swagger API Docs</a>
+        </div>
+
+        <section class="card">
+            <h2>Common Admin Endpoints</h2>
+            <ul class="api-list">
+                <li>POST /auth/approve/{email} - approve account creation request</li>
+                <li>POST /auth/reject/{email} - reject account creation request</li>
+                <li>POST /knowledge-base/chapter-status - approve/reject KB chapter content</li>
+                <li>GET /admin/overview - admin control-tower summary metrics</li>
+            </ul>
+            <div id="statusBox" class="status">Checking admin session...</div>
+        </section>
+    </main>
+
+    <script>
+        const statusBox = document.getElementById("statusBox");
+
+        function setStatus(text) {
+            statusBox.textContent = text;
+            statusBox.classList.add("show");
+        }
+
+        async function requireAdmin() {
+            const token = localStorage.getItem("kb_token");
+            if (!token) {
+                window.location.href = "/login?next=/admin/api-docs";
+                return;
+            }
+
+            try {
+                const resp = await fetch("/auth/me", {
+                    headers: { "Authorization": "Bearer " + token },
+                });
+                if (!resp.ok) {
+                    localStorage.removeItem("kb_token");
+                    window.location.href = "/login?next=/admin/api-docs";
+                    return;
+                }
+
+                const me = await resp.json();
+                if (!me || !me.is_admin) {
+                    setStatus("Admin privileges are required for this module.");
+                    setTimeout(() => { window.location.href = "/"; }, 1200);
+                    return;
+                }
+
+                statusBox.classList.remove("show");
+            } catch (_) {
+                setStatus("Could not verify admin session.");
+                setTimeout(() => { window.location.href = "/login?next=/admin/api-docs"; }, 1200);
+            }
+        }
+
+        document.getElementById("logoutBtn").addEventListener("click", () => {
+            localStorage.removeItem("kb_token");
+            window.location.href = "/login";
+        });
+
+        requireAdmin();
+    </script>
+</body>
+</html>

@@ -290,6 +290,15 @@ async def admin_approvals_page():
     return {"message": "Admin approvals page not available"}
 
 
+@app.get("/admin/api-docs")
+async def admin_api_docs_page():
+    """Serve admin API docs module page with cross-links."""
+    docs_path = templates_dir / "admin-api-docs.html"
+    if docs_path.exists():
+        return FileResponse(str(docs_path))
+    return {"message": "Admin API docs page not available"}
+
+
 @app.get("/knowledge-base-builder")
 async def knowledge_base_builder():
     """Serve the knowledge-base ingestion UI (login required client-side)."""

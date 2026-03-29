@@ -239,8 +239,8 @@
             <div>
                 <h1>🛡️ Admin Module</h1>
                 <p class="subtitle">
-                    Account Management, Approval Queue, and API Docs are grouped here.
-                    Access is restricted to authenticated admin accounts.
+                    Three admin modules are grouped here: account approvals, KB content moderation,
+                    and API docs. Access is restricted to authenticated admin accounts.
                 </p>
             </div>
             <div class="top-actions">
@@ -253,35 +253,39 @@
 
         <section id="adminTools" class="tools-grid" style="display:none;">
             <article class="tool-card">
-                <h2>Account Management</h2>
+                <h2>Approve / Reject Account Creation</h2>
                 <p>
-                    Sign in, request access, and manage contributor credentials.
-                    Use this module for all account-related operations.
+                    Review pending account requests and either approve or reject contributor onboarding.
                 </p>
                 <div class="actions">
-                    <a class="btn primary" href="/login">Open Account Module</a>
+                    <a class="btn primary" href="/admin/approvals">Open Account Approval Module</a>
+                    <a class="btn" href="/knowledge-base">KB Content Module</a>
+                    <a class="btn" href="/admin/api-docs">API Docs Module</a>
                 </div>
             </article>
 
             <article class="tool-card">
-                <h2>Approvals Queue</h2>
+                <h2>Approve / Reject KB Content</h2>
                 <p>
-                    Review and approve pending account requests for contributors.
-                    This tool is restricted to admin users.
+                    Moderate ingested KB chapters, approve strong content, and reject low-quality drafts.
                 </p>
                 <div class="actions">
-                    <a class="btn primary" href="/admin/approvals">Open Approvals</a>
+                    <a class="btn primary" href="/knowledge-base">Open KB Content Moderation Module</a>
+                    <a class="btn" href="/admin/approvals">Account Approval Module</a>
+                    <a class="btn" href="/admin/api-docs">API Docs Module</a>
                 </div>
             </article>
 
             <article class="tool-card">
                 <h2>API Documentation</h2>
                 <p>
-                    Review and test API endpoints via Swagger UI.
-                    Keep docs access centralized under the admin module.
+                    Review and test API endpoints, including admin moderation APIs.
+                    Use the Admin API Docs module for quick navigation and guidance.
                 </p>
                 <div class="actions">
-                    <a class="btn primary" href="/docs" target="_blank" rel="noopener noreferrer">Open API Docs</a>
+                    <a class="btn primary" href="/admin/api-docs">Open API Docs Module</a>
+                    <a class="btn" href="/admin/approvals">Account Approval Module</a>
+                    <a class="btn" href="/knowledge-base">KB Content Module</a>
                 </div>
             </article>
         </section>
