@@ -9,6 +9,7 @@ local file explorer integration for quick editing:
 import asyncio
 import logging
 import threading
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -83,16 +84,24 @@ async def admin_overview(admin: UserInfo = Depends(require_admin)):
 
 
 @router.get("/admin/kb-chapters")
-async def admin_kb_chapters(status: str = "Draft", admin: UserInfo = Depends(require_admin)):
-    """Return chapters filtered by status (Draft, Approved, Rejected) for admin moderation."""
+async def admin_kb_chapters(status: str = "all", admin: UserInfo = Depends(require_admin)):
+    """Return chapters filtered by status for admin moderation.
+
+    status values: all, Draft, Approved, Rejected
+    """
     kb_tree = kb._build_kb_tree()
     chapters: list[dict] = []
-    
+    normalized_status = status.strip().lower()
+
+    allowed = {"all", "draft", "approved", "rejected"}
+    if normalized_status not in allowed:
+        raise HTTPException(status_code=400, detail="Status must be one of: all, Draft, Approved, Rejected")
+
     for section in kb_tree.get("sections", []):
         for topic in section.get("topics", []):
             for chapter in topic.get("chapters", []):
                 chapter_status = str(chapter.get("status", "Draft")).strip()
-                if chapter_status.lower() == status.lower():
+                if normalized_status == "all" or chapter_status.lower() == normalized_status:
                     chapters.append({
                         "relative_path": chapter.get("relative_path", ""),
                         "name": chapter.get("name", ""),
@@ -104,11 +113,34 @@ async def admin_kb_chapters(status: str = "Draft", admin: UserInfo = Depends(req
                         "source_quality_score": int(chapter.get("source_quality_score", 0) or 0),
                         "updated_at": chapter.get("updated_at", ""),
                     })
-    
+
     return {
         "status": status,
         "total": len(chapters),
         "chapters": chapters,
+    }
+
+
+@router.get("/admin/kb-chapter-details")
+async def admin_kb_chapter_details(path: str, admin: UserInfo = Depends(require_admin)):
+    """Return chapter details (including non-approved content) for admin moderation."""
+    relative_path = path.strip()
+    if not relative_path:
+        raise HTTPException(status_code=400, detail="Chapter path is required")
+
+    chapter_path = kb._validate_kb_relative_path(relative_path)
+    content = chapter_path.read_text(encoding="utf-8")
+    chapter_title = chapter_path.stem
+    insights = kb._build_chapter_viewer_insights(content, default_title=chapter_title)
+
+    return {
+        "path": kb._safe_rel_path(chapter_path, kb.KB_ROOT),
+        "title": chapter_title,
+        "status": kb._extract_chapter_status(content),
+        "updated_at": datetime.fromtimestamp(chapter_path.stat().st_mtime).isoformat(),
+        "summary": insights["summary"],
+        "price_movement_analysis": insights["price_movement_analysis"],
+        "content": content,
     }
 
 

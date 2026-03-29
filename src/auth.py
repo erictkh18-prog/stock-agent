@@ -503,6 +503,26 @@ def reject_user(email: str) -> dict:
     return {"message": f"{email} has been rejected and removed"}
 
 
+def revoke_user(email: str) -> dict:
+    email = email.strip().lower()
+    if email == ADMIN_EMAIL:
+        raise HTTPException(status_code=400, detail="Cannot revoke the configured admin account")
+
+    with _users_lock:
+        user = _get_user(email)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if user.get("is_admin"):
+            raise HTTPException(status_code=400, detail="Cannot revoke an admin account")
+        if not user.get("is_approved"):
+            return {"message": f"{email} is already not approved"}
+
+        user["is_approved"] = False
+        _upsert_user(user)
+
+    return {"message": f"{email} access has been revoked"}
+
+
 def list_pending_users() -> list[dict]:
     with _users_lock:
         users = _list_users()

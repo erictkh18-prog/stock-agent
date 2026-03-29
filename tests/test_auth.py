@@ -215,6 +215,47 @@ def test_reject_user_non_admin_forbidden():
     assert resp.status_code == 403
 
 
+def test_revoke_user_as_admin():
+    admin_token = _get_admin_token()
+    client.post("/auth/register", json={"email": "approved@example.com", "password": "UserPass1!"})
+    client.post(
+        "/auth/approve/approved@example.com",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    revoke_resp = client.post(
+        "/auth/revoke/approved@example.com",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert revoke_resp.status_code == 200
+
+    login = client.post("/auth/login", json={"email": "approved@example.com", "password": "UserPass1!"})
+    assert login.status_code == 403
+
+
+def test_revoke_user_non_admin_forbidden():
+    admin_token = _get_admin_token()
+    client.post("/auth/register", json={"email": "user@example.com", "password": "UserPass1!"})
+    client.post(
+        "/auth/approve/user@example.com",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    user_login = client.post("/auth/login", json={"email": "user@example.com", "password": "UserPass1!"})
+    user_token = user_login.json()["access_token"]
+
+    client.post("/auth/register", json={"email": "approved2@example.com", "password": "UserPass2!"})
+    client.post(
+        "/auth/approve/approved2@example.com",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    resp = client.post(
+        "/auth/revoke/approved2@example.com",
+        headers={"Authorization": f"Bearer {user_token}"},
+    )
+    assert resp.status_code == 403
+
+
 def test_list_pending_users():
     admin_token = _get_admin_token()
     client.post("/auth/register", json={"email": "user1@example.com", "password": "UserPass1!"})

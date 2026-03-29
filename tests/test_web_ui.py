@@ -131,7 +131,9 @@ def test_admin_kb_content_page_returns_html():
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
     assert "KB Content Management" in resp.text
-    assert "Draft (Pending Review)" in resp.text  # Filter option
+    assert "Draft Content" in resp.text
+    assert "Approved Content" in resp.text
+    assert "Rejected Content" in resp.text
 
 
 def test_knowledge_base_viewer_returns_html():
@@ -147,6 +149,42 @@ def test_knowledge_base_index_returns_tree_payload():
     assert "sections" in body
     assert "total_topics" in body
     assert "total_chapters" in body
+
+
+def test_knowledge_base_index_returns_only_approved_chapters(monkeypatch):
+    monkeypatch.setattr(
+        "src.routers.kb_viewer.kb._build_kb_tree",
+        lambda: {
+            "kb_root": "knowledge-base",
+            "sections": [
+                {
+                    "name": "S1",
+                    "topic_count": 1,
+                    "topics": [
+                        {
+                            "name": "T1",
+                            "chapter_count": 3,
+                            "topic_index": "sections/s1/topics/t1/TOPIC.md",
+                            "chapters": [
+                                {"name": "A", "relative_path": "a.md", "status": "Approved"},
+                                {"name": "D", "relative_path": "d.md", "status": "Draft"},
+                                {"name": "R", "relative_path": "r.md", "status": "Rejected"},
+                            ],
+                        }
+                    ],
+                }
+            ],
+            "total_sections": 1,
+            "total_topics": 1,
+            "total_chapters": 3,
+        },
+    )
+
+    resp = client.get("/knowledge-base/index")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total_chapters"] == 1
+    assert body["sections"][0]["topics"][0]["chapters"][0]["status"] == "Approved"
 
 
 def test_knowledge_base_chapter_rejects_invalid_path_traversal():
@@ -178,6 +216,11 @@ def test_knowledge_base_open_explorer_accepts_valid_path(monkeypatch):
         assert body["path"] == "INDEX.md"
     finally:
         app.dependency_overrides.pop(require_admin, None)
+
+
+def test_admin_kb_chapter_details_requires_admin():
+    resp = client.get("/admin/kb-chapter-details", params={"path": "INDEX.md"})
+    assert resp.status_code == 401
 
 
 # ──────────────────────────────────────────────

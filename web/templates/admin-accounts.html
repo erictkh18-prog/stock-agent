@@ -122,6 +122,7 @@
             border-radius: 12px;
             overflow: hidden;
             box-shadow: 0 10px 24px rgba(2, 6, 23, 0.08);
+            margin-bottom: 16px;
         }
 
         .table-wrapper.empty {
@@ -198,6 +199,16 @@
             background: #fce6e6;
         }
 
+        .action-btn.revoke {
+            background: #fff7ed;
+            color: #9a3412;
+            border-color: #fdba74;
+        }
+
+        .action-btn.revoke:hover {
+            background: #ffedd5;
+        }
+
         .action-btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
@@ -237,6 +248,14 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 16px;
+        }
+
+        .section-title {
+            margin: 0;
+            padding: 12px 14px;
+            font-size: 1rem;
+            border-bottom: 1px solid var(--border);
+            background: #f8fafc;
         }
 
         .logout-btn {
@@ -303,7 +322,8 @@
 
         <div id="statusMsg" class="status"></div>
 
-        <div id="tableContainer" class="table-wrapper">
+        <div id="pendingContainer" class="table-wrapper">
+            <h2 class="section-title">Pending Account Requests</h2>
             <table>
                 <thead>
                     <tr>
@@ -315,6 +335,24 @@
                 </thead>
                 <tbody id="pendingTable">
                     <tr><td colspan="4" style="text-align: center; color: var(--muted);">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div id="approvedContainer" class="table-wrapper">
+            <h2 class="section-title">Approved Accounts</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Email</th>
+                        <th>Role</th>
+                        <th>Status</th>
+                        <th>Created On</th>
+                        <th style="width: 180px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="approvedTable">
+                    <tr><td colspan="5" style="text-align: center; color: var(--muted);">Loading...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -355,35 +393,62 @@
             if (!(await requireAdmin())) return;
 
             try {
-                const res = await fetch(`${API_BASE}/auth/pending-users`, {
-                    headers: { 'Authorization': `Bearer ${authToken}` },
-                });
-                if (!res.ok) throw new Error('Failed to load pending accounts');
+                const [pendingRes, usersRes] = await Promise.all([
+                    fetch(`${API_BASE}/auth/pending-users`, {
+                        headers: { 'Authorization': `Bearer ${authToken}` },
+                    }),
+                    fetch(`${API_BASE}/auth/users`, {
+                        headers: { 'Authorization': `Bearer ${authToken}` },
+                    }),
+                ]);
 
-                const users = await res.json();
-                const tbody = document.getElementById('pendingTable');
+                if (!pendingRes.ok || !usersRes.ok) throw new Error('Failed to load account lists');
+
+                const pendingUsers = await pendingRes.json();
+                const allUsers = await usersRes.json();
+                const approvedUsers = allUsers.filter((u) => Boolean(u.is_approved));
+
+                const pendingTbody = document.getElementById('pendingTable');
+                const approvedTbody = document.getElementById('approvedTable');
                 
-                if (users.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="4" style="padding: 32px; text-align: center; color: var(--muted);">No pending account requests</td></tr>';
-                    return;
+                if (pendingUsers.length === 0) {
+                    pendingTbody.innerHTML = '<tr><td colspan="4" style="padding: 16px; text-align: center; color: var(--muted);">No pending account requests</td></tr>';
+                } else {
+                    pendingTbody.innerHTML = pendingUsers.map(user => `
+                        <tr>
+                            <td><strong>${escapeHtml(user.email)}</strong></td>
+                            <td><span class="badge pending">Pending</span></td>
+                            <td>${new Date(user.created_at || Date.now()).toLocaleDateString()}</td>
+                            <td>
+                                <div class="actions">
+                                    <button class="action-btn approve" onclick="approveUser('${escapeHtml(user.email)}')">Approve</button>
+                                    <button class="action-btn reject" onclick="rejectUser('${escapeHtml(user.email)}')">Reject</button>
+                                </div>
+                            </td>
+                        </tr>
+                    `).join('');
                 }
 
-                tbody.innerHTML = users.map(user => `
+                if (approvedUsers.length === 0) {
+                    approvedTbody.innerHTML = '<tr><td colspan="5" style="padding: 16px; text-align: center; color: var(--muted);">No approved users found</td></tr>';
+                } else {
+                    approvedTbody.innerHTML = approvedUsers.map(user => `
                     <tr>
                         <td><strong>${escapeHtml(user.email)}</strong></td>
-                        <td><span class="badge pending">Pending</span></td>
+                        <td>${user.is_admin ? '<span class="badge">Admin</span>' : '<span class="badge">Contributor</span>'}</td>
+                        <td><span class="badge approved">Approved</span></td>
                         <td>${new Date(user.created_at || Date.now()).toLocaleDateString()}</td>
                         <td>
                             <div class="actions">
-                                <button class="action-btn approve" onclick="approveUser('${escapeHtml(user.email)}')">Approve</button>
-                                <button class="action-btn reject" onclick="rejectUser('${escapeHtml(user.email)}')">Reject</button>
+                                ${user.is_admin ? '' : `<button class="action-btn revoke" onclick="revokeUser('${escapeHtml(user.email)}')">Revoke</button>`}
                             </div>
                         </td>
                     </tr>
                 `).join('');
+                }
             } catch (err) {
                 console.error('Error loading pending accounts:', err);
-                showStatus('Failed to load pending accounts', 'error');
+                showStatus('Failed to load account lists', 'error');
             }
         }
 
@@ -420,6 +485,24 @@
             } catch (err) {
                 console.error('Error rejecting user:', err);
                 showStatus(`Failed to reject ${email}`, 'error');
+            }
+        }
+
+        async function revokeUser(email) {
+            if (!confirm(`Revoke approved access for ${email}? User will not be able to log in until re-approved.`)) return;
+
+            try {
+                const res = await fetch(`${API_BASE}/auth/revoke/${encodeURIComponent(email)}`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${authToken}` },
+                });
+                if (!res.ok) throw new Error('Failed to revoke user');
+
+                showStatus(`✓ Access revoked for ${email}`, 'success');
+                await loadPendingAccounts();
+            } catch (err) {
+                console.error('Error revoking user:', err);
+                showStatus(`Failed to revoke ${email}`, 'error');
             }
         }
 

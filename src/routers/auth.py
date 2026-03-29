@@ -18,6 +18,7 @@ from src.auth import (
     list_pending_users,
     login_user,
     reject_user,
+    revoke_user,
     register_user,
     require_admin,
 )
@@ -63,6 +64,12 @@ async def auth_approve(email: str, admin: UserInfo = Depends(require_admin)):
 async def auth_reject(email: str, admin: UserInfo = Depends(require_admin)):
     """Reject and remove a pending user account (admin only)."""
     return reject_user(email)
+
+
+@router.post("/auth/revoke/{email}")
+async def auth_revoke(email: str, admin: UserInfo = Depends(require_admin)):
+    """Revoke an approved non-admin user account (admin only)."""
+    return revoke_user(email)
 
 
 @router.get("/auth/pending-users")

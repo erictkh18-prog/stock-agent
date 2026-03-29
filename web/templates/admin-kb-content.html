@@ -124,6 +124,23 @@
             align-items: center;
         }
 
+        .section-card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 10px 24px rgba(2, 6, 23, 0.08);
+            margin-bottom: 16px;
+        }
+
+        .section-title {
+            margin: 0;
+            padding: 12px 14px;
+            font-size: 1rem;
+            border-bottom: 1px solid var(--border);
+            background: #f8fafc;
+        }
+
         .filter-group {
             display: flex;
             align-items: center;
@@ -265,6 +282,16 @@
             background: #fce6e6;
         }
 
+        .action-btn.view {
+            background: #f0f9ff;
+            color: #0369a1;
+            border-color: #bae6fd;
+        }
+
+        .action-btn.view:hover {
+            background: #e0f2fe;
+        }
+
         .action-btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
@@ -313,6 +340,34 @@
 
         .logout-btn:hover {
             background: #f8fafc;
+        }
+
+        .details-panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: 0 10px 24px rgba(2, 6, 23, 0.08);
+            padding: 14px;
+            margin-top: 16px;
+        }
+
+        .details-meta {
+            color: var(--muted);
+            font-size: 0.9rem;
+            margin-bottom: 10px;
+        }
+
+        .details-content {
+            background: #f8fafc;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            max-height: 360px;
+            overflow: auto;
+            white-space: pre-wrap;
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 0.85rem;
+            line-height: 1.45;
         }
 
         @media (max-width: 768px) {
@@ -378,32 +433,73 @@
         </div>
 
         <div class="filters">
-            <div class="filter-group">
-                <label>Status:</label>
-                <select id="statusFilter" onchange="loadChapters()">
-                    <option value="Draft">Draft (Pending Review)</option>
-                    <option value="Approved">Approved</option>
-                    <option value="Rejected">Rejected</option>
-                </select>
-            </div>
+            <button class="btn" id="refreshBtn" type="button">Refresh Lists</button>
         </div>
 
         <div id="statusMsg" class="status"></div>
 
-        <div id="tableContainer" class="table-wrapper">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Chapter</th>
-                        <th>Section / Topic</th>
-                        <th>Metrics</th>
-                        <th style="width: 180px;">Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="chaptersTable">
-                    <tr><td colspan="4" style="text-align: center; color: var(--muted);">Loading...</td></tr>
-                </tbody>
-            </table>
+        <div class="section-card">
+            <h2 class="section-title">Draft Content</h2>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Chapter</th>
+                            <th>Section / Topic</th>
+                            <th>Metrics</th>
+                            <th style="width: 240px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="draftTable">
+                        <tr><td colspan="4" style="text-align: center; color: var(--muted);">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="section-card">
+            <h2 class="section-title">Approved Content</h2>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Chapter</th>
+                            <th>Section / Topic</th>
+                            <th>Metrics</th>
+                            <th style="width: 240px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="approvedTable">
+                        <tr><td colspan="4" style="text-align: center; color: var(--muted);">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="section-card">
+            <h2 class="section-title">Rejected Content</h2>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Chapter</th>
+                            <th>Section / Topic</th>
+                            <th>Metrics</th>
+                            <th style="width: 240px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rejectedTable">
+                        <tr><td colspan="4" style="text-align: center; color: var(--muted);">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="details-panel" id="detailsPanel">
+            <h2 id="detailsTitle">Content Details</h2>
+            <div class="details-meta" id="detailsMeta">Select any chapter from the lists above to view details.</div>
+            <p id="detailsSummary" style="margin-top:0; color: var(--muted);">No chapter selected.</p>
+            <div class="details-content" id="detailsContent">-</div>
         </div>
     </main>
 
@@ -441,73 +537,102 @@
         async function loadChapters() {
             if (!(await requireAdmin())) return;
 
-            const status = document.getElementById('statusFilter').value;
-
             try {
-                const res = await fetch(`${API_BASE}/admin/kb-chapters?status=${encodeURIComponent(status)}`, {
-                    headers: { 'Authorization': `Bearer ${authToken}` },
-                });
-                if (!res.ok) throw new Error('Failed to load chapters');
+                const [draftRes, approvedRes, rejectedRes] = await Promise.all([
+                    fetch(`${API_BASE}/admin/kb-chapters?status=Draft`, { headers: { 'Authorization': `Bearer ${authToken}` } }),
+                    fetch(`${API_BASE}/admin/kb-chapters?status=Approved`, { headers: { 'Authorization': `Bearer ${authToken}` } }),
+                    fetch(`${API_BASE}/admin/kb-chapters?status=Rejected`, { headers: { 'Authorization': `Bearer ${authToken}` } }),
+                ]);
 
-                const data = await res.json();
-                const tbody = document.getElementById('chaptersTable');
-                
-                if (data.chapters.length === 0) {
-                    tbody.innerHTML = `<tr><td colspan="4" style="padding: 32px; text-align: center; color: var(--muted);">
-                        No ${status.toLowerCase()} chapters found
-                    </td></tr>`;
-                    return;
-                }
+                if (!draftRes.ok || !approvedRes.ok || !rejectedRes.ok) throw new Error('Failed to load chapter lists');
 
-                tbody.innerHTML = data.chapters.map(ch => {
-                    const isApproved = status === 'Approved';
-                    const isRejected = status === 'Rejected';
-                    const isDraft = status === 'Draft';
+                const draft = await draftRes.json();
+                const approved = await approvedRes.json();
+                const rejected = await rejectedRes.json();
 
-                    return `
-                        <tr>
-                            <td>
-                                <div class="chapter-info">
-                                    <div class="chapter-name">${escapeHtml(ch.name)}</div>
-                                    <div class="chapter-path">${escapeHtml(ch.relative_path)}</div>
-                                </div>
-                            </td>
-                            <td>
-                                <div style="font-size: 0.9rem; line-height: 1.5;">
-                                    <div><strong>${escapeHtml(ch.section)}</strong></div>
-                                    <div style="color: var(--muted);">${escapeHtml(ch.topic)}</div>
-                                </div>
-                            </td>
-                            <td>
-                                <div class="metric">
-                                    <span class="metric-label">Relevance:</span>
-                                    <span class="metric-value">${ch.weighted_relevance_score}</span>
-                                </div>
-                                <div class="metric">
-                                    <span class="metric-label">Quality:</span>
-                                    <span class="metric-value">${ch.source_quality_score}</span>
-                                </div>
-                                <div class="metric" style="margin-top: 4px;">
-                                    <span class="metric-label">Confidence:</span>
-                                    <span style="font-size: 0.8rem; padding: 2px 6px; border-radius: 4px; background: ${ch.confidence_band === 'High' ? '#ecfdf5' : ch.confidence_band === 'Medium' ? '#fffbeb' : '#f3f4f6'}; color: ${ch.confidence_band === 'High' ? '#065f46' : ch.confidence_band === 'Medium' ? '#92400e' : '#374151'};">${ch.confidence_band}</span>
-                                </div>
-                            </td>
-                            <td>
-                                <div class="actions">
-                                    ${isDraft ? `
-                                        <button class="action-btn approve" onclick="approveChapter('${escapeHtml(ch.relative_path)}')">Approve</button>
-                                        <button class="action-btn reject" onclick="rejectChapter('${escapeHtml(ch.relative_path)}')">Reject</button>
-                                    ` : `
-                                        <button class="action-btn" onclick="moveToReview('${escapeHtml(ch.relative_path)}')">Back to Draft</button>
-                                    `}
-                                </div>
-                            </td>
-                        </tr>
-                    `;
-                }).join('');
+                renderChapterTable('draftTable', draft.chapters || [], 'Draft');
+                renderChapterTable('approvedTable', approved.chapters || [], 'Approved');
+                renderChapterTable('rejectedTable', rejected.chapters || [], 'Rejected');
             } catch (err) {
                 console.error('Error loading chapters:', err);
                 showStatus('Failed to load chapters', 'error');
+            }
+        }
+
+        function renderChapterTable(tableId, chapters, status) {
+            const tbody = document.getElementById(tableId);
+            if (!chapters.length) {
+                tbody.innerHTML = `<tr><td colspan="4" style="padding: 16px; text-align: center; color: var(--muted);">No ${status.toLowerCase()} chapters found</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = chapters.map((ch) => {
+                const escapedPath = escapeHtml(ch.relative_path);
+                const detailBtn = `<button class="action-btn view" onclick="viewChapterDetails('${escapedPath}')">View Details</button>`;
+                let actions = detailBtn;
+
+                if (status === 'Draft') {
+                    actions += `<button class="action-btn approve" onclick="approveChapter('${escapedPath}')">Approve</button>`;
+                    actions += `<button class="action-btn reject" onclick="rejectChapter('${escapedPath}')">Reject</button>`;
+                } else if (status === 'Approved') {
+                    actions += `<button class="action-btn reject" onclick="rejectChapter('${escapedPath}')">Reject</button>`;
+                    actions += `<button class="action-btn" onclick="moveToReview('${escapedPath}')">Back to Draft</button>`;
+                } else {
+                    actions += `<button class="action-btn approve" onclick="approveChapter('${escapedPath}')">Approve</button>`;
+                    actions += `<button class="action-btn" onclick="moveToReview('${escapedPath}')">Back to Draft</button>`;
+                }
+
+                return `
+                    <tr>
+                        <td>
+                            <div class="chapter-info">
+                                <div class="chapter-name">${escapeHtml(ch.name)}</div>
+                                <div class="chapter-path">${escapedPath}</div>
+                            </div>
+                        </td>
+                        <td>
+                            <div style="font-size: 0.9rem; line-height: 1.5;">
+                                <div><strong>${escapeHtml(ch.section)}</strong></div>
+                                <div style="color: var(--muted);">${escapeHtml(ch.topic)}</div>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="metric">
+                                <span class="metric-label">Relevance:</span>
+                                <span class="metric-value">${Number(ch.weighted_relevance_score || 0)}</span>
+                            </div>
+                            <div class="metric">
+                                <span class="metric-label">Quality:</span>
+                                <span class="metric-value">${Number(ch.source_quality_score || 0)}</span>
+                            </div>
+                            <div class="metric" style="margin-top: 4px;">
+                                <span class="metric-label">Confidence:</span>
+                                <span class="badge ${status.toLowerCase()}">${escapeHtml(ch.confidence_band || 'Unknown')}</span>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="actions">${actions}</div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function viewChapterDetails(path) {
+            try {
+                const res = await fetch(`${API_BASE}/admin/kb-chapter-details?path=${encodeURIComponent(path)}`, {
+                    headers: { 'Authorization': `Bearer ${authToken}` },
+                });
+                if (!res.ok) throw new Error('Failed to load chapter details');
+
+                const data = await res.json();
+                document.getElementById('detailsTitle').textContent = data.title || 'Content Details';
+                document.getElementById('detailsMeta').textContent = `Path: ${data.path} | Status: ${data.status} | Updated: ${new Date(data.updated_at).toLocaleString()}`;
+                document.getElementById('detailsSummary').textContent = data.summary || 'No summary available.';
+                document.getElementById('detailsContent').textContent = data.content || '-';
+            } catch (err) {
+                console.error('Error loading chapter details:', err);
+                showStatus('Failed to load chapter details', 'error');
             }
         }
 
@@ -610,6 +735,10 @@
         document.getElementById('logoutBtn').addEventListener('click', () => {
             localStorage.removeItem('kb_token');
             window.location.href = '/login';
+        });
+
+        document.getElementById('refreshBtn').addEventListener('click', () => {
+            loadChapters();
         });
 
         loadChapters();
