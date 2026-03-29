@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from src.auth import UserInfo, require_admin
 from src.main import app
 
 client = TestClient(app, raise_server_exceptions=True)
@@ -126,17 +127,29 @@ def test_knowledge_base_chapter_rejects_invalid_path_traversal():
 
 
 def test_knowledge_base_open_explorer_rejects_invalid_path_traversal():
-    resp = client.post("/knowledge-base/open-explorer", json={"path": "../README.md"})
-    assert resp.status_code == 400
+    app.dependency_overrides[require_admin] = lambda: UserInfo(
+        email="admin@example.com", is_admin=True, is_approved=True
+    )
+    try:
+        resp = client.post("/knowledge-base/open-explorer", json={"path": "../README.md"})
+        assert resp.status_code == 400
+    finally:
+        app.dependency_overrides.pop(require_admin, None)
 
 
 def test_knowledge_base_open_explorer_accepts_valid_path(monkeypatch):
     monkeypatch.setattr("src.knowledge_base._open_in_explorer", lambda path: None)
-    resp = client.post("/knowledge-base/open-explorer", json={"path": "INDEX.md"})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["status"] == "ok"
-    assert body["path"] == "INDEX.md"
+    app.dependency_overrides[require_admin] = lambda: UserInfo(
+        email="admin@example.com", is_admin=True, is_approved=True
+    )
+    try:
+        resp = client.post("/knowledge-base/open-explorer", json={"path": "INDEX.md"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body["path"] == "INDEX.md"
+    finally:
+        app.dependency_overrides.pop(require_admin, None)
 
 
 # ──────────────────────────────────────────────

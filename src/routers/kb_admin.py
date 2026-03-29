@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 import src.knowledge_base as kb
 from src.auth import UserInfo, get_current_user
+from src.auth import require_admin
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,10 @@ async def knowledge_base_chapter_status(
 
 
 @router.post("/knowledge-base/open-explorer", response_model=kb.KnowledgeOpenExplorerResponse)
-async def knowledge_base_open_explorer(payload: kb.KnowledgeOpenExplorerRequest):
+async def knowledge_base_open_explorer(
+    payload: kb.KnowledgeOpenExplorerRequest,
+    admin: UserInfo = Depends(require_admin),
+):
     """Open chapter file location in local file explorer for quick editing."""
     relative_path = payload.path.strip()
     if not relative_path:
