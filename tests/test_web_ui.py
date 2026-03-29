@@ -106,16 +106,32 @@ def test_admin_module_returns_html():
     assert "text/html" in resp.headers["content-type"]
     assert "Control Tower" in resp.text
     assert 'id="adminOverview"' in resp.text
-    assert "Approve / Reject Account Creation" in resp.text
-    assert "Approve / Reject KB Content" in resp.text
+    assert "Account Management" in resp.text
+    assert "KB Content Management" in resp.text
 
 
 def test_admin_api_docs_module_returns_html():
     resp = client.get("/admin/api-docs")
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
-    assert "Admin API Docs Module" in resp.text
+    assert "API Documentation" in resp.text
     assert "Open Swagger API Docs" in resp.text
+
+
+def test_admin_accounts_page_returns_html():
+    resp = client.get("/admin/accounts")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+    assert "Account Management" in resp.text
+    assert "Approve / Reject Account Creation" not in resp.text  # Old text should not be here
+
+
+def test_admin_kb_content_page_returns_html():
+    resp = client.get("/admin/kb-content")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+    assert "KB Content Management" in resp.text
+    assert "Draft (Pending Review)" in resp.text  # Filter option
 
 
 def test_knowledge_base_viewer_returns_html():

@@ -290,6 +290,24 @@ async def admin_approvals_page():
     return {"message": "Admin approvals page not available"}
 
 
+@app.get("/admin/accounts")
+async def admin_accounts_page():
+    """Serve the admin account management page."""
+    accounts_path = templates_dir / "admin-accounts.html"
+    if accounts_path.exists():
+        return FileResponse(str(accounts_path))
+    return {"message": "Admin accounts page not available"}
+
+
+@app.get("/admin/kb-content")
+async def admin_kb_content_page():
+    """Serve the admin KB content management page."""
+    kb_content_path = templates_dir / "admin-kb-content.html"
+    if kb_content_path.exists():
+        return FileResponse(str(kb_content_path))
+    return {"message": "Admin KB content page not available"}
+
+
 @app.get("/admin/api-docs")
 async def admin_api_docs_page():
     """Serve admin API docs module page with cross-links."""

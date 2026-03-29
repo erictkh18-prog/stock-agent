@@ -82,6 +82,36 @@ async def admin_overview(admin: UserInfo = Depends(require_admin)):
     }
 
 
+@router.get("/admin/kb-chapters")
+async def admin_kb_chapters(status: str = "Draft", admin: UserInfo = Depends(require_admin)):
+    """Return chapters filtered by status (Draft, Approved, Rejected) for admin moderation."""
+    kb_tree = kb._build_kb_tree()
+    chapters: list[dict] = []
+    
+    for section in kb_tree.get("sections", []):
+        for topic in section.get("topics", []):
+            for chapter in topic.get("chapters", []):
+                chapter_status = str(chapter.get("status", "Draft")).strip()
+                if chapter_status.lower() == status.lower():
+                    chapters.append({
+                        "relative_path": chapter.get("relative_path", ""),
+                        "name": chapter.get("name", ""),
+                        "section": section.get("name", ""),
+                        "topic": topic.get("name", ""),
+                        "status": chapter_status,
+                        "confidence_band": chapter.get("confidence_band", "Unknown"),
+                        "weighted_relevance_score": int(chapter.get("weighted_relevance_score", 0) or 0),
+                        "source_quality_score": int(chapter.get("source_quality_score", 0) or 0),
+                        "updated_at": chapter.get("updated_at", ""),
+                    })
+    
+    return {
+        "status": status,
+        "total": len(chapters),
+        "chapters": chapters,
+    }
+
+
 @router.post("/knowledge-base/chapter-status", response_model=kb.KnowledgeChapterStatusResponse)
 async def knowledge_base_chapter_status(
     payload: kb.KnowledgeChapterStatusRequest,
