@@ -209,8 +209,8 @@
             <!-- Register Tab -->
             <div id="tab-register" class="tab-panel">
                 <div class="info-box">
-                    Account requests require admin approval before you can log in.
-                    You will receive an email once your access is granted.
+                    After submitting, check your inbox for a <strong>verification email</strong>.
+                    Click the link inside to verify your address, then wait for admin approval before you can log in.
                 </div>
                 <form id="registerForm">
                     <div class="field">
@@ -228,6 +228,13 @@
                     <button class="btn" id="registerBtn" type="submit">Request Access</button>
                 </form>
                 <div id="registerMsg" class="msg"></div>
+                <div id="resendArea" style="display:none;margin-top:14px;text-align:center">
+                    <span style="font-size:0.87rem;color:var(--muted)">Didn't receive the email?</span>
+                    <button id="resendBtn" type="button"
+                        style="background:none;border:none;color:var(--accent);font-size:0.87rem;font-weight:600;cursor:pointer;text-decoration:underline;padding:0 4px">
+                        Resend verification email
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -246,6 +253,18 @@
                 document.getElementById("tab-" + target).classList.add("active");
             });
         });
+
+        // ── Handle verification redirect params ─────────────────────────────
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get("verified") === "1") {
+            const loginMsg = document.getElementById("loginMsg");
+            loginMsg.className = "msg ok";
+            loginMsg.textContent = "✅ Email verified! Your request is now awaiting admin approval.";
+        } else if (urlParams.get("verified_error") === "1") {
+            const loginMsg = document.getElementById("loginMsg");
+            loginMsg.className = "msg err";
+            loginMsg.textContent = "Verification link is invalid or has expired. Please register again or use Resend.";
+        }
 
         // ── Redirect if already authenticated ──────────────────────────────
         const existingToken = localStorage.getItem("kb_token");
@@ -312,6 +331,8 @@
         const registerMsg  = document.getElementById("registerMsg");
         const registerBtn  = document.getElementById("registerBtn");
 
+        let _lastRegisteredEmail = "";
+
         registerForm.addEventListener("submit", async e => {
             e.preventDefault();
             registerMsg.className = "msg";
@@ -339,9 +360,15 @@
                 const data = await resp.json();
                 if (!resp.ok) throw new Error(data.detail || "Registration failed");
 
+                _lastRegisteredEmail = email;
                 registerMsg.className = "msg ok";
                 registerMsg.textContent = data.message || "Request submitted.";
                 registerForm.reset();
+
+                // Show resend option if a verification email was sent
+                if (data.email_verification_sent) {
+                    document.getElementById("resendArea").style.display = "block";
+                }
 
                 // Auto-redirect admin immediately
                 if (data.approved && data.token) {
@@ -354,6 +381,35 @@
             } finally {
                 registerBtn.disabled = false;
                 registerBtn.textContent = "Request Access";
+            }
+        });
+
+        // ── Resend verification ─────────────────────────────────────────────
+        const resendBtn = document.getElementById("resendBtn");
+
+        resendBtn.addEventListener("click", async () => {
+            const email = _lastRegisteredEmail || document.getElementById("regEmail").value.trim();
+            if (!email) {
+                registerMsg.className = "msg err";
+                registerMsg.textContent = "Enter your email address above, then click Resend.";
+                return;
+            }
+            resendBtn.disabled = true;
+            resendBtn.textContent = "Sending…";
+            try {
+                await fetch("/auth/resend-verification", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email })
+                });
+                registerMsg.className = "msg ok";
+                registerMsg.textContent = "If that address is registered and unverified, a new link has been sent. Check your inbox.";
+            } catch (_) {
+                registerMsg.className = "msg err";
+                registerMsg.textContent = "Could not resend email. Please try again.";
+            } finally {
+                resendBtn.disabled = false;
+                resendBtn.textContent = "Resend verification email";
             }
         });
     </script>

@@ -69,6 +69,7 @@ def test_register_non_admin_pending():
     data = resp.json()
     assert data["approved"] is False
     assert "token" not in data
+    assert data.get("email_verification_sent") is True
 
 
 def test_register_duplicate_email():
@@ -112,7 +113,74 @@ def test_login_unknown_email():
 def test_login_pending_account_blocked():
     client.post("/auth/register", json={"email": "user@example.com", "password": "UserPass1!"})
     resp = client.post("/auth/login", json={"email": "user@example.com", "password": "UserPass1!"})
+    # Blocked because email not yet verified
     assert resp.status_code == 403
+
+
+# ── Email verification ────────────────────────────────────────────────────────
+
+def test_verify_email_success_redirects():
+    client.post("/auth/register", json={"email": "user@example.com", "password": "UserPass1!"})
+    token = auth_module.generate_verification_token("user@example.com")
+    resp = client.get(f"/auth/verify-email?token={token}", follow_redirects=False)
+    assert resp.status_code == 302
+    assert "verified=1" in resp.headers["location"]
+
+
+def test_verify_email_then_still_blocked_until_admin_approval():
+    client.post("/auth/register", json={"email": "user@example.com", "password": "UserPass1!"})
+    _verify_user("user@example.com")
+    # Email verified but not yet admin-approved
+    resp = client.post("/auth/login", json={"email": "user@example.com", "password": "UserPass1!"})
+    assert resp.status_code == 403
+    assert "approval" in resp.json()["detail"].lower()
+
+
+def test_verify_email_invalid_token_redirects_error():
+    resp = client.get("/auth/verify-email?token=invalid-token-xyz", follow_redirects=False)
+    assert resp.status_code == 302
+    assert "verified_error=1" in resp.headers["location"]
+
+
+def test_verify_email_token_is_single_use():
+    client.post("/auth/register", json={"email": "user@example.com", "password": "UserPass1!"})
+    token = auth_module.generate_verification_token("user@example.com")
+    client.get(f"/auth/verify-email?token={token}", follow_redirects=False)
+    # Second use of the same token must fail
+    resp = client.get(f"/auth/verify-email?token={token}", follow_redirects=False)
+    assert resp.status_code == 302
+    assert "verified_error=1" in resp.headers["location"]
+
+
+def test_resend_verification_returns_ok():
+    client.post("/auth/register", json={"email": "user@example.com", "password": "UserPass1!"})
+    resp = client.post(
+        "/auth/resend-verification",
+        json={"email": "user@example.com"},
+    )
+    assert resp.status_code == 200
+    assert "link" in resp.json()["message"].lower()
+
+
+def test_resend_verification_unknown_email_generic_response():
+    resp = client.post(
+        "/auth/resend-verification",
+        json={"email": "nobody@example.com"},
+    )
+    assert resp.status_code == 200  # Always generic — no user enumeration
+
+
+def test_full_verification_and_approve_flow():
+    admin_token = _get_admin_token()
+    client.post("/auth/register", json={"email": "user@example.com", "password": "UserPass1!"})
+    _verify_user("user@example.com")
+    client.post(
+        "/auth/approve/user@example.com",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    login = client.post("/auth/login", json={"email": "user@example.com", "password": "UserPass1!"})
+    assert login.status_code == 200
+    assert "access_token" in login.json()
 
 
 # ── /auth/me ──────────────────────────────────────────────────────────────────
@@ -142,6 +210,12 @@ def test_admin_approvals_page_available():
 
 # ── Admin approval flow ───────────────────────────────────────────────────────
 
+def _verify_user(email: str) -> None:
+    """Fast-path email verification in tests (bypasses SMTP — generates token directly)."""
+    token = auth_module.generate_verification_token(email)
+    client.get(f"/auth/verify-email?token={token}", follow_redirects=False)
+
+
 def _get_admin_token():
     client.post("/auth/register", json={"email": "admin@test.com", "password": "AdminPass1!"})
     resp = client.post("/auth/login", json={"email": "admin@test.com", "password": "AdminPass1!"})
@@ -151,6 +225,7 @@ def _get_admin_token():
 def test_approve_user_as_admin():
     admin_token = _get_admin_token()
     client.post("/auth/register", json={"email": "user@example.com", "password": "UserPass1!"})
+    _verify_user("user@example.com")
 
     resp = client.post(
         "/auth/approve/user@example.com",
@@ -166,6 +241,7 @@ def test_approve_user_non_admin_forbidden():
     admin_token = _get_admin_token()
     # Register and approve a regular user
     client.post("/auth/register", json={"email": "user@example.com", "password": "UserPass1!"})
+    _verify_user("user@example.com")
     client.post(
         "/auth/approve/user@example.com",
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -200,6 +276,7 @@ def test_reject_user_as_admin():
 def test_reject_user_non_admin_forbidden():
     admin_token = _get_admin_token()
     client.post("/auth/register", json={"email": "user@example.com", "password": "UserPass1!"})
+    _verify_user("user@example.com")
     client.post(
         "/auth/approve/user@example.com",
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -218,6 +295,7 @@ def test_reject_user_non_admin_forbidden():
 def test_revoke_user_as_admin():
     admin_token = _get_admin_token()
     client.post("/auth/register", json={"email": "approved@example.com", "password": "UserPass1!"})
+    _verify_user("approved@example.com")
     client.post(
         "/auth/approve/approved@example.com",
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -236,6 +314,7 @@ def test_revoke_user_as_admin():
 def test_revoke_user_non_admin_forbidden():
     admin_token = _get_admin_token()
     client.post("/auth/register", json={"email": "user@example.com", "password": "UserPass1!"})
+    _verify_user("user@example.com")
     client.post(
         "/auth/approve/user@example.com",
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -244,6 +323,7 @@ def test_revoke_user_non_admin_forbidden():
     user_token = user_login.json()["access_token"]
 
     client.post("/auth/register", json={"email": "approved2@example.com", "password": "UserPass2!"})
+    _verify_user("approved2@example.com")
     client.post(
         "/auth/approve/approved2@example.com",
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -282,6 +362,7 @@ def test_list_all_users():
 def test_admin_overview_requires_admin():
     admin_token = _get_admin_token()
     client.post("/auth/register", json={"email": "user@example.com", "password": "UserPass1!"})
+    _verify_user("user@example.com")
     client.post(
         "/auth/approve/user@example.com",
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -331,8 +412,9 @@ def test_kb_ingest_with_pending_account_returns_403():
 
 def test_chapter_status_approve_requires_admin(tmp_path):
     admin_token = _get_admin_token()
-    # Register and approve a regular user
+    # Register, verify, and approve a regular user
     client.post("/auth/register", json={"email": "user@example.com", "password": "UserPass1!"})
+    _verify_user("user@example.com")
     client.post(
         "/auth/approve/user@example.com",
         headers={"Authorization": f"Bearer {admin_token}"},

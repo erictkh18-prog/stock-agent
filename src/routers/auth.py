@@ -3,8 +3,8 @@
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Depends
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import FileResponse, RedirectResponse
 
 import src.auth as auth_module
 from src.auth import (
@@ -18,9 +18,11 @@ from src.auth import (
     list_pending_users,
     login_user,
     reject_user,
+    resend_verification,
     revoke_user,
     register_user,
     require_admin,
+    verify_email_token,
 )
 
 logger = logging.getLogger(__name__)
@@ -82,3 +84,21 @@ async def auth_pending_users(admin: UserInfo = Depends(require_admin)):
 async def auth_all_users(admin: UserInfo = Depends(require_admin)):
     """List all registered users (admin only)."""
     return list_all_users()
+
+
+@router.get("/auth/verify-email")
+async def auth_verify_email(token: str):
+    """Validate an email verification token and redirect to the login page."""
+    try:
+        verify_email_token(token)
+        return RedirectResponse(url="/login?verified=1", status_code=302)
+    except Exception:
+        return RedirectResponse(url="/login?verified_error=1", status_code=302)
+
+
+@router.post("/auth/resend-verification")
+async def auth_resend_verification(request: Request):
+    """Resend a verification email. Accepts JSON body {\"email\": \"...\"}."""
+    body = await request.json()
+    email = body.get("email", "")
+    return resend_verification(email)
