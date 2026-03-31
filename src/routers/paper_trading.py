@@ -20,12 +20,41 @@ def set_screener(screener) -> None:
     _screener = screener
 
 
+def _resolve_auto_buy_duration_days(duration_days: Optional[int]) -> tuple[int, str]:
+    """Resolve hold window for auto-buy.
+
+    Rules:
+    - Explicit API input wins.
+    - Bear/high-vol regimes use longer holding window (45d).
+    - Choppy/high-vol neutral regimes use shorter window (21d).
+    - Default baseline is 30d.
+    """
+    if duration_days is not None:
+        return duration_days, "manual"
+
+    try:
+        from src.macro_regime import get_macro_regime
+
+        macro = get_macro_regime()
+        regime = str(macro.get("regime", "neutral")).lower()
+        vix_signal = str(macro.get("vix_signal", "unknown")).lower()
+
+        if regime == "bear" or vix_signal in {"high", "extreme"}:
+            return 45, "adaptive_bear_or_high_vol"
+        if regime == "neutral" and vix_signal == "elevated":
+            return 21, "adaptive_choppy_or_elevated_vol"
+        return 30, "adaptive_default"
+    except Exception as exc:
+        logger.warning("Macro regime unavailable for adaptive duration; using 30d default: %s", exc)
+        return 30, "fallback_default"
+
+
 # ── Auto-buy trigger ──────────────────────────────────────────────────────────
 
 @router.post("/paper-trading/auto-buy")
 async def trigger_auto_buy(
     universe: str = Query("combined", pattern="^(sp500|nasdaq100|combined)$"),
-    duration_days: int = Query(30, ge=1, le=365),
+    duration_days: Optional[int] = Query(None, ge=1, le=365),
     target_pct: float = Query(8.0, ge=1.0, le=100.0),
     shares: int = Query(10, ge=1, le=10000),
     max_positions: int = Query(5, ge=1, le=20),
@@ -51,6 +80,8 @@ async def trigger_auto_buy(
         assert_persistent_storage_ready_for_trading()
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    effective_duration_days, duration_source = _resolve_auto_buy_duration_days(duration_days)
 
     symbols = _get_us_market_universe(universe)[:80]
     filters = ScreeningFilter(min_overall_score=50)
@@ -89,7 +120,7 @@ async def trigger_auto_buy(
             entry_price=analysis.current_price,
             target_price=exit_strategy["target_price"],
             stop_loss_price=exit_strategy["stop_loss_price"],
-            duration_days=duration_days,
+            duration_days=effective_duration_days,
             target_pct=target_pct,
             recommendation_score=round(analysis.overall_score, 2),
             source="manual_trigger",
@@ -103,6 +134,8 @@ async def trigger_auto_buy(
             "opened_count": 0,
             "opened_positions": [],
             "skipped_existing_symbols": skipped_existing,
+            "duration_days": effective_duration_days,
+            "duration_source": duration_source,
         }
 
     return {
@@ -112,6 +145,8 @@ async def trigger_auto_buy(
         "opened_positions": opened_positions,
         "position": opened_positions[0],
         "skipped_existing_symbols": skipped_existing,
+        "duration_days": effective_duration_days,
+        "duration_source": duration_source,
     }
 
 

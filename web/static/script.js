@@ -809,14 +809,18 @@ async function loadPaperTrading() {
             } else {
                 let html = `<table>
                     <thead><tr>
-                        <th>Symbol</th><th>Shares</th><th>Entry $</th>
+                        <th>Symbol</th><th>Entry Date</th><th>Shares</th><th>Entry $</th>
                         <th>Target $</th><th>Stop $</th>
-                        <th>Current $</th><th>P&L</th><th>Days Left</th>
+                        <th>Current $</th><th>P&L</th><th>Days Left (to expiry)</th>
                     </tr></thead><tbody>`;
                 positions.forEach((p) => {
                     const pnlCls = (p.unrealized_pnl || 0) >= 0 ? 'pnl-positive' : 'pnl-negative';
+                    const entryDate = p.opened_at
+                        ? new Date(p.opened_at).toLocaleString()
+                        : '—';
                     html += `<tr>
                         <td class="symbol">${escapeHtml(p.symbol)}</td>
+                        <td>${escapeHtml(entryDate)}</td>
                         <td>${p.shares}</td>
                         <td>$${Number(p.entry_price).toFixed(2)}</td>
                         <td>$${Number(p.target_price).toFixed(2)}</td>

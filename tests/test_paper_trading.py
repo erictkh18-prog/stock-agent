@@ -588,3 +588,65 @@ def test_api_auto_buy_returns_no_buy_when_none_qualify(monkeypatch, tmp_path):
     data = response.json()
     assert data["status"] == "no_buy"
     assert len(pt_module._load_positions()) == 0
+
+
+def test_api_auto_buy_adaptive_duration_default(monkeypatch, tmp_path):
+    import src.main as main_module
+
+    monkeypatch.setattr(pt_module, "POSITIONS_PATH", tmp_path / "positions.json")
+    monkeypatch.setattr(pt_module, "CLOSED_TRADES_PATH", tmp_path / "closed_trades.json")
+
+    buy_analysis = _make_analysis("AAPL", 80.0, "BUY")
+
+    def fake_screen(symbols, filters, top_n, seed=None, fast_mode=False):
+        return ScreeningResult(
+            total_candidates=len(symbols),
+            filtered_count=1,
+            top_picks=[buy_analysis],
+            screening_timestamp=datetime.now(),
+            deterministic_mode=False,
+            seed=seed,
+        )
+
+    monkeypatch.setattr(main_module.screener, "screen_stocks", fake_screen)
+    monkeypatch.setattr(
+        "src.routers.paper_trading._resolve_auto_buy_duration_days",
+        lambda d: (45, "adaptive_bear_or_high_vol"),
+    )
+
+    response = client.post("/paper-trading/auto-buy")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert data["duration_days"] == 45
+    assert data["duration_source"] == "adaptive_bear_or_high_vol"
+    assert data["position"]["duration_days"] == 45
+
+
+def test_api_auto_buy_manual_duration_override(monkeypatch, tmp_path):
+    import src.main as main_module
+
+    monkeypatch.setattr(pt_module, "POSITIONS_PATH", tmp_path / "positions.json")
+    monkeypatch.setattr(pt_module, "CLOSED_TRADES_PATH", tmp_path / "closed_trades.json")
+
+    buy_analysis = _make_analysis("AAPL", 80.0, "BUY")
+
+    def fake_screen(symbols, filters, top_n, seed=None, fast_mode=False):
+        return ScreeningResult(
+            total_candidates=len(symbols),
+            filtered_count=1,
+            top_picks=[buy_analysis],
+            screening_timestamp=datetime.now(),
+            deterministic_mode=False,
+            seed=seed,
+        )
+
+    monkeypatch.setattr(main_module.screener, "screen_stocks", fake_screen)
+
+    response = client.post("/paper-trading/auto-buy", params={"duration_days": 18})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert data["duration_days"] == 18
+    assert data["duration_source"] == "manual"
+    assert data["position"]["duration_days"] == 18
