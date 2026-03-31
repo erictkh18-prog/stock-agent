@@ -1,0 +1,62 @@
+---
+chapter_id: CH-AUTO-20260329151611
+title: Useful technique on picking stock
+status: Approved
+owner: Eric + Copilot
+last_reviewed: 2026-03-29
+confidence: Medium
+sources:
+  - https://www.bloomberg.com/search?query=Useful+technique+on+picking+stock
+---
+
+# Objective
+- Capture source knowledge for topic: Useful technique on picking stock and map it to practical trading use.
+
+# Core Concepts
+- Source synthesis: Auto research synthesis from Reuters, Bloomberg, and Investopedia
+
+# Source Summary
+- Connecting decision makers to a dynamic network of information, people and ideas, Bloomberg quickly and accurately delivers business and financial information, news and insight around the world
+
+# Price Movement Relevance Analysis
+- Relevance Score: 37/100
+- Weighted Relevance Score: 40/100
+- Source Quality Score: 48/100
+- Confidence Band: Low
+- Prediction Skill Impact: Low
+- Primary Horizon: Medium-term
+- Market Dimensions: Technical
+
+## Why This Matters For Forecasting
+- Connecting decision makers to a dynamic network of information, people and ideas, Bloomberg quickly and accurately delivers business and financial information, news and insight around the world
+
+# Extracted Claims
+- Connecting decision makers to a dynamic network of information, people and ideas, Bloomberg quickly and accurately delivers business and financial information, news and insight around the world
+
+# Actionable Rules Derived
+- Connecting decision makers to a dynamic network of information, people and ideas, Bloomberg quickly and accurately delivers business and financial information, news an... -> Use this as context only; require price, volume, and trend confirmation before entering a trade based on the narrative.
+
+## How To Apply This In Screening
+- Connecting decision makers to a dynamic network of information, people and ideas, Bloomberg quickly and accurately delivers business and financial information, news an... -> Use this as context only; require price, volume, and trend confirmation before entering a trade based on the narrative.
+
+# Trading Application Notes
+- Use insights as scenario context, not as standalone trade triggers.
+- Confirm entries with technical structure, liquidity, and risk limits.
+
+# Constraints And Caveats
+- Content is automatically extracted and may contain noise.
+- Requires human review before status promotion.
+
+# Implementation Guidance
+- This draft supports Step 2 (ingestion) and Step 3 (chapter placement).
+- Step 4 applies after chapter is promoted to Approved.
+
+# References
+- https://www.bloomberg.com/search?query=Useful+technique+on+picking+stock
+
+# Source Acquisition Mode
+- Auto multi-source topic research
+
+# Review Decision
+- Status updated to Approved on 2026-03-29 15:16:55.
+- Note: Approved by admin
