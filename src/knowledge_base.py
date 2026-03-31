@@ -732,10 +732,6 @@ _US_STOCK_IMPLICATIONS: dict[str, str] = {
         "Forward P/E and EV/EBITDA multiples compress when risk-free rates rise. "
         "Apply stricter entry criteria for richly-valued US growth stocks in rate-rising environments."
     ),
-    "earnings": (
-        "US earnings season creates high-volatility catalyst windows. "
-        "Use defined-risk positions before reports; trade the reaction after confirmation."
-    ),
     "revenue": (
         "Revenue beats vs. guidance are primary movers for US stocks post-earnings. "
         "Screen for consecutive acceleration in quarterly revenue growth as a quality signal."
