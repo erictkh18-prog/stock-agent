@@ -40,6 +40,7 @@ def test_health_returns_200():
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "healthy"
+    assert "auth_storage" in body
     assert "paper_trading_storage" in body
 
 

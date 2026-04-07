@@ -153,11 +153,19 @@ If you prefer manual setup in Render:
 - Free plans may sleep after inactivity; first request can be slow.
 - The app uses free public data sources and does not require paid API keys.
 
+### Database Provider Recommendation (April 2026)
+
+For a managed Postgres option that currently advertises a no-time-limit free plan, use Neon.
+
+- Neon pricing page currently shows: free plan, no credit card required, no stated time limit.
+- Supabase still has a free plan, but if your account/project terms are changing or becoming paid for your usage, migrate before billing starts.
+- Always re-check provider pricing pages before creating or upgrading production projects.
+
 ### Persistent Auth on Free Tier
 
 Knowledge Base login accounts should not use the local `data/kb_users.json` file on Render free tier because the filesystem is ephemeral.
 
-Use a free Postgres database such as Supabase and set these Render environment variables:
+Use a Postgres database and set these Render environment variables:
 
 - `AUTH_DATABASE_URL`: your Postgres connection string
 - `ADMIN_EMAIL`: your admin email
@@ -195,6 +203,41 @@ Expected healthy response in production:
   "healthy": true
 }
 ```
+
+### Supabase -> Neon Migration (Auth + Paper Trading)
+
+If you need to move away from Supabase billing, use the built-in migration script.
+
+1. Create a new Neon project and copy the Postgres connection string.
+2. Run a dry run:
+
+```bash
+python scripts/migrate_postgres_storage.py \
+  --source-url "postgresql://...supabase..." \
+  --target-url "postgresql://...neon..." \
+  --dry-run
+```
+
+3. Run the migration:
+
+```bash
+python scripts/migrate_postgres_storage.py \
+  --source-url "postgresql://...supabase..." \
+  --target-url "postgresql://...neon..."
+```
+
+4. In Render, update env vars to the new Neon URL(s):
+   - `AUTH_DATABASE_URL`
+   - `PAPER_TRADING_DATABASE_URL`
+   - optionally `DATABASE_URL` fallback
+5. Redeploy.
+6. Verify runtime backend status:
+   - `GET /health` should show both `auth_storage.mode` and `paper_trading_storage.mode` as `postgres` with `healthy: true`.
+
+Safety notes:
+
+- Keep `PAPER_TRADING_ALLOW_JSON_FALLBACK=false` in production.
+- If `HEALTHCHECK_ENFORCE_TRADING_PERSISTENCE=true`, `/health` returns 503 whenever persistent storage is not healthy.
 
 ### Knowledge Base Persistence on Render
 

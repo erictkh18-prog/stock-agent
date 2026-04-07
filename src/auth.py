@@ -272,6 +272,38 @@ def _ensure_storage_ready() -> None:
         logger.error("Failed to initialize Postgres storage (will use JSON fallback): %s", exc)
 
 
+def get_auth_storage_status() -> dict[str, Any]:
+    """Return current auth persistence mode and health."""
+    postgres_enabled = _is_postgres_enabled()
+
+    if not postgres_enabled:
+        return {
+            "mode": "json-local",
+            "postgres_enabled": False,
+            "healthy": True,
+            "message": "Using local JSON auth storage (non-persistent across container redeploys).",
+        }
+
+    try:
+        _ensure_storage_ready()
+        with _connect_postgres() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+        return {
+            "mode": "postgres",
+            "postgres_enabled": True,
+            "healthy": True,
+            "message": "Postgres auth storage is connected and healthy.",
+        }
+    except Exception as exc:
+        return {
+            "mode": "postgres-error",
+            "postgres_enabled": True,
+            "healthy": False,
+            "message": f"Postgres auth storage check failed: {exc}",
+        }
+
+
 def _list_users() -> list[dict[str, Any]]:
     if _is_postgres_enabled():
         try:

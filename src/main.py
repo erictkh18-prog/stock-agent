@@ -96,7 +96,17 @@ screener = StockScreener()
 @asynccontextmanager
 async def _lifespan(app):
     try:
+        from src.auth import get_auth_storage_status
         from src.paper_trading import get_storage_status
+
+        auth_storage_status = get_auth_storage_status()
+        if auth_storage_status.get("healthy") and auth_storage_status.get("mode") == "postgres":
+            logger.info("Auth storage: Postgres connected")
+        else:
+            logger.warning(
+                "Auth storage is not in healthy Postgres mode: %s",
+                auth_storage_status,
+            )
 
         storage_status = get_storage_status()
         if storage_status.get("healthy") and storage_status.get("mode") == "postgres":
@@ -340,10 +350,13 @@ async def knowledge_base_viewer():
 @app.get("/health")
 async def health():
     """Health check endpoint with paper-trading persistence status."""
+    from src.auth import get_auth_storage_status
     from src.paper_trading import get_storage_status
 
+    auth_storage_status = get_auth_storage_status()
     storage_status = get_storage_status()
     storage_ok = bool(storage_status.get("healthy")) and storage_status.get("mode") == "postgres"
+    auth_storage_ok = bool(auth_storage_status.get("healthy")) and auth_storage_status.get("mode") == "postgres"
 
     # Default behavior: enforce in Render/production unless explicitly disabled.
     strict_raw = os.getenv("HEALTHCHECK_ENFORCE_TRADING_PERSISTENCE")
@@ -353,13 +366,14 @@ async def health():
         strict_mode = strict_raw.strip().lower() in {"1", "true", "yes", "on"}
 
     payload = {
-        "status": "healthy" if (storage_ok or not strict_mode) else "degraded",
+        "status": "healthy" if ((storage_ok and auth_storage_ok) or not strict_mode) else "degraded",
         "timestamp": datetime.now().isoformat(),
+        "auth_storage": auth_storage_status,
         "paper_trading_storage": storage_status,
         "strict_persistence_healthcheck": strict_mode,
     }
 
-    if strict_mode and not storage_ok:
+    if strict_mode and (not storage_ok or not auth_storage_ok):
         return JSONResponse(status_code=503, content=payload)
     return payload
 
