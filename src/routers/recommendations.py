@@ -14,6 +14,8 @@ from src.market_universe import _normalize_sector
 from src.models import ScreeningFilter
 from src.recommendations import (
     _build_recommendation_candidate,
+    _compute_quality_rank_score,
+    _is_high_quality_recommendation,
     _recommendation_jobs_lock,
     _recommendation_scan_jobs,
     _recommendation_scan_worker,
@@ -96,49 +98,41 @@ async def stock_recommendations(
         True,
     )
 
-    candidates = [
-        _build_recommendation_candidate(analysis, duration_days, target_percentage)
-        for analysis in screen_result.top_picks
-    ]
+    candidates: list[dict] = []
+    for analysis in screen_result.top_picks:
+        candidate = _build_recommendation_candidate(analysis, duration_days, target_percentage)
+        candidates.append((analysis, candidate))
 
     outcome_summary = _summarize_trade_outcomes(_load_trade_outcomes())
-    for candidate in candidates:
+    qualified: list[dict] = []
+    for analysis, candidate in candidates:
         learning_adj = _learning_adjustment_for_symbol(candidate["symbol"], outcome_summary)
         adjusted_upside = round(candidate["expected_upside_pct"] + learning_adj, 2)
         candidate["learning_adjustment"] = learning_adj
         candidate["adjusted_upside_pct"] = max(0.0, adjusted_upside)
+        candidate["quality_score"] = _compute_quality_rank_score(analysis, candidate)
         if learning_adj > 0:
             candidate["reason"] += " Past tracked outcomes for this symbol have been favorable."
         elif learning_adj < 0:
             candidate["reason"] += " Past tracked outcomes for this symbol have been weaker, so confidence is trimmed."
 
-    qualified = [
-        c for c in candidates
-        if str(c.get("recommendation", "")).upper() == "BUY"
-        and str(c.get("trend", "")).lower() == "uptrend"
-    ]
+        if _is_high_quality_recommendation(analysis, candidate, target_percentage):
+            qualified.append(candidate)
 
-    if target_percentage is not None:
-        qualified = [c for c in qualified if c["adjusted_upside_pct"] >= target_percentage]
-
-    ranked = sorted(
-        qualified,
-        key=lambda item: (item["adjusted_upside_pct"], item["overall_score"], item["confidence"]),
-        reverse=True,
-    )[:top_n]
+    ranked = _rank_recommendation_candidates(qualified, top_n)
 
     if ranked:
         if target_percentage is not None and duration_days is not None:
             summary = (
-                f"Found {len(ranked)} BUY uptrend stocks with projected upside >= {target_percentage:.1f}% "
+                f"Found {len(ranked)} high-quality BUY uptrend stocks with projected upside >= {target_percentage:.1f}% "
                 f"within {duration_days} days."
             )
         elif target_percentage is not None:
-            summary = f"Found {len(ranked)} BUY uptrend stocks with projected upside >= {target_percentage:.1f}%."
+            summary = f"Found {len(ranked)} high-quality BUY uptrend stocks with projected upside >= {target_percentage:.1f}%."
         else:
-            summary = f"Found {len(ranked)} BUY uptrend stocks."
+            summary = f"Found {len(ranked)} high-quality BUY uptrend stocks."
     else:
-        summary = "No BUY uptrend stocks found for this universe/sector right now."
+        summary = "No high-quality BUY uptrend stocks found for this universe/sector right now."
 
     return {
         "universe": universe,

@@ -220,6 +220,82 @@ def _build_recommendation_candidate(
     }
 
 
+def _is_high_quality_recommendation(
+    analysis: StockAnalysis,
+    candidate: dict,
+    target_percentage: Optional[float],
+) -> bool:
+    """Return True when a recommendation passes stricter quality checks."""
+    if str(candidate.get("recommendation", "")).upper() != "BUY":
+        return False
+    if str(candidate.get("trend", "")).lower() != "uptrend":
+        return False
+
+    if float(candidate.get("overall_score", 0.0) or 0.0) < 54.0:
+        return False
+    if float(candidate.get("confidence", 0.0) or 0.0) < 0.45:
+        return False
+
+    conviction = candidate.get("conviction_score")
+    if conviction is not None and float(conviction) > 0 and float(conviction) < 0.30:
+        return False
+
+    fundamental = getattr(analysis, "fundamental", None)
+    technical = getattr(analysis, "technical", None)
+
+    eps = getattr(fundamental, "eps", None)
+    if eps is not None and float(eps) <= 0:
+        return False
+
+    revenue_growth = getattr(fundamental, "revenue_growth", None)
+    if revenue_growth is not None and float(revenue_growth) < -0.15:
+        return False
+
+    debt_to_equity = getattr(fundamental, "debt_to_equity", None)
+    if debt_to_equity is not None and float(debt_to_equity) > 4.0:
+        return False
+
+    rs_spy = getattr(technical, "relative_strength_vs_spy", None)
+    if rs_spy is not None and float(rs_spy) < -1.0:
+        return False
+
+    rsi = getattr(technical, "rsi", None)
+    if rsi is not None:
+        rsi_val = float(rsi)
+        if rsi_val < 32.0 or rsi_val > 78.0:
+            return False
+
+    price_change_3m = getattr(technical, "price_change_3m", None)
+    if price_change_3m is not None and float(price_change_3m) < -0.08:
+        return False
+
+    if target_percentage is not None and float(candidate.get("adjusted_upside_pct", 0.0) or 0.0) < target_percentage:
+        return False
+
+    return True
+
+
+def _compute_quality_rank_score(analysis: StockAnalysis, candidate: dict) -> float:
+    """Compute ranking score that favors consistent quality over single-factor spikes."""
+    overall = float(candidate.get("overall_score", 0.0) or 0.0)
+    confidence_pct = float(candidate.get("confidence", 0.0) or 0.0) * 100.0
+    upside_pct = float(candidate.get("adjusted_upside_pct", candidate.get("expected_upside_pct", 0.0)) or 0.0)
+    upside_score = min(100.0, max(0.0, upside_pct) * 2.0)
+    conviction_pct = float(candidate.get("conviction_score", 0.0) or 0.0) * 100.0
+
+    score = overall * 0.45 + confidence_pct * 0.20 + upside_score * 0.20 + conviction_pct * 0.10
+
+    technical = getattr(analysis, "technical", None)
+    if bool(getattr(technical, "is_breakout", False)):
+        score += 3.0
+
+    rs_spy = getattr(technical, "relative_strength_vs_spy", None)
+    if rs_spy is not None and float(rs_spy) > 0:
+        score += min(4.0, float(rs_spy) / 2.0)
+
+    return round(score, 2)
+
+
 def _rank_recommendation_candidates(candidates: list[dict], top_n: int) -> list[dict]:
     """Sort recommendation candidates by conviction-weighted upside then quality.
 
@@ -232,9 +308,11 @@ def _rank_recommendation_candidates(candidates: list[dict], top_n: int) -> list[
         c["conviction_weighted_upside"] = round(
             c["adjusted_upside_pct"] * (1.0 + conviction * 0.2), 2
         )
+        c["quality_score"] = round(float(c.get("quality_score", 0.0) or 0.0), 2)
     ranked = sorted(
         candidates,
         key=lambda item: (
+            item["quality_score"],
             item["conviction_weighted_upside"],
             item["overall_score"],
             item["confidence"],
@@ -306,22 +384,14 @@ def _recommendation_scan_worker(
                 adjusted_upside = round(candidate["expected_upside_pct"] + learning_adj, 2)
                 candidate["learning_adjustment"] = learning_adj
                 candidate["adjusted_upside_pct"] = max(0.0, adjusted_upside)
+                candidate["quality_score"] = _compute_quality_rank_score(analysis, candidate)
 
                 if learning_adj > 0:
                     candidate["reason"] += " Past tracked outcomes for this symbol have been favorable."
                 elif learning_adj < 0:
                     candidate["reason"] += " Past tracked outcomes for this symbol have been weaker, so confidence is trimmed."
 
-                is_buy_uptrend = (
-                    str(candidate.get("recommendation", "")).upper() == "BUY"
-                    and str(candidate.get("trend", "")).lower() == "uptrend"
-                )
-                passes_target = (
-                    True if target_percentage is None
-                    else candidate["adjusted_upside_pct"] >= target_percentage
-                )
-
-                if is_buy_uptrend and passes_target:
+                if _is_high_quality_recommendation(analysis, candidate, target_percentage):
                     symbol_key = str(candidate.get("symbol", "")).upper()
                     if symbol_key and symbol_key not in seen_symbols:
                         seen_symbols.add(symbol_key)
