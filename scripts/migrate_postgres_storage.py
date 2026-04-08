@@ -118,7 +118,7 @@ def _copy_kb_users(src_conn, dst_conn) -> CopyResult:
     with src_conn.cursor() as s_cur, dst_conn.cursor() as d_cur:
         s_cur.execute(
             """
-            SELECT email, hashed_password, is_admin, is_approved, email_verified, created_at
+            SELECT email, hashed_password, is_admin, is_approved, created_at
             FROM kb_users
             """
         )
@@ -126,13 +126,12 @@ def _copy_kb_users(src_conn, dst_conn) -> CopyResult:
         for row in rows:
             d_cur.execute(
                 """
-                INSERT INTO kb_users (email, hashed_password, is_admin, is_approved, email_verified, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO kb_users (email, hashed_password, is_admin, is_approved, created_at)
+                VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (email) DO UPDATE SET
                     hashed_password = EXCLUDED.hashed_password,
                     is_admin = EXCLUDED.is_admin,
                     is_approved = EXCLUDED.is_approved,
-                    email_verified = EXCLUDED.email_verified,
                     created_at = EXCLUDED.created_at
                 """,
                 row,

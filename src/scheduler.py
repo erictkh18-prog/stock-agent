@@ -9,11 +9,95 @@ silently skips setup and logs a warning — the rest of the app still works.
 """
 
 import logging
+import os
+import threading
+from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
 _scheduler = None  # BackgroundScheduler instance, set by start_scheduler()
+_run_guard_lock = threading.Lock()
+_last_auto_buy_run_day: Optional[str] = None
+_last_auto_close_run_day: Optional[str] = None
+_ET = ZoneInfo("America/New_York")
+
+
+def _today_et_key() -> str:
+    return datetime.now(_ET).date().isoformat()
+
+
+def _claim_daily_run(job_name: str) -> bool:
+    """Return True if this job hasn't run yet today in ET, and claim today's slot."""
+    global _last_auto_buy_run_day, _last_auto_close_run_day
+
+    today = _today_et_key()
+    with _run_guard_lock:
+        if job_name == "auto_buy":
+            if _last_auto_buy_run_day == today:
+                return False
+            _last_auto_buy_run_day = today
+            return True
+        if job_name == "auto_close":
+            if _last_auto_close_run_day == today:
+                return False
+            _last_auto_close_run_day = today
+            return True
+
+    return False
+
+
+def _maybe_run_startup_auto_buy_catchup(screener) -> None:
+    """Run auto-buy once on startup if service wakes after 09:35 ET on a weekday.
+
+    This helps free-tier deployments that sleep through the exact cron minute.
+    Set SCHEDULER_STARTUP_CATCHUP_BUY=false to disable.
+    """
+    enabled_raw = os.getenv("SCHEDULER_STARTUP_CATCHUP_BUY", "true").strip().lower()
+    if enabled_raw not in {"1", "true", "yes", "on"}:
+        logger.info("startup catch-up: disabled via SCHEDULER_STARTUP_CATCHUP_BUY")
+        return
+
+    now_et = datetime.now(_ET)
+    if now_et.weekday() >= 5:
+        return
+
+    current_hhmm = now_et.hour * 60 + now_et.minute
+    start_hhmm = 9 * 60 + 35
+    end_hhmm = 15 * 60 + 55
+
+    if current_hhmm < start_hhmm or current_hhmm > end_hhmm:
+        return
+
+    logger.info("startup catch-up: running auto-buy once for %s ET", now_et.date().isoformat())
+    auto_buy_job(screener)
+
+
+def _maybe_run_startup_auto_close_catchup() -> None:
+    """Run auto-close once on startup if service wakes after 16:05 ET on a weekday.
+
+    This helps free-tier deployments that sleep through the exact cron minute.
+    Set SCHEDULER_STARTUP_CATCHUP_CLOSE=false to disable.
+    """
+    enabled_raw = os.getenv("SCHEDULER_STARTUP_CATCHUP_CLOSE", "true").strip().lower()
+    if enabled_raw not in {"1", "true", "yes", "on"}:
+        logger.info("startup catch-up: auto-close disabled via SCHEDULER_STARTUP_CATCHUP_CLOSE")
+        return
+
+    now_et = datetime.now(_ET)
+    if now_et.weekday() >= 5:
+        return
+
+    current_hhmm = now_et.hour * 60 + now_et.minute
+    start_hhmm = 16 * 60 + 5
+    end_hhmm = 23 * 60 + 55
+
+    if current_hhmm < start_hhmm or current_hhmm > end_hhmm:
+        return
+
+    logger.info("startup catch-up: running auto-close once for %s ET", now_et.date().isoformat())
+    auto_close_job()
 
 
 # ── Job functions ─────────────────────────────────────────────────────────────
@@ -28,6 +112,10 @@ def auto_buy_job(screener, shares: int = 10, duration_days: int = 30, target_pct
         has_open_position,
         open_position,
     )
+
+    if not _claim_daily_run("auto_buy"):
+        logger.info("auto_buy_job: already ran today (ET) — skipping duplicate trigger")
+        return
 
     logger.info("auto_buy_job: starting daily scan")
     try:
@@ -79,6 +167,10 @@ def auto_close_job() -> None:
         assert_persistent_storage_ready_for_trading,
         check_and_close_positions,
     )
+
+    if not _claim_daily_run("auto_close"):
+        logger.info("auto_close_job: already ran today (ET) — skipping duplicate trigger")
+        return
 
     logger.info("auto_close_job: checking open positions")
     try:
@@ -139,6 +231,9 @@ def start_scheduler(screener) -> None:
     logger.info(
         "Scheduler started — auto_buy @ 09:35 ET, auto_close @ 16:05 ET (Mon-Fri)"
     )
+
+    _maybe_run_startup_auto_buy_catchup(screener)
+    _maybe_run_startup_auto_close_catchup()
 
 
 def stop_scheduler() -> None:

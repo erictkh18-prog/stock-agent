@@ -1,4 +1,5 @@
 """Tests for insider_activity module."""
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch, call
 from xml.etree import ElementTree
 
@@ -85,12 +86,15 @@ def _submissions_response(forms, dates, accessions, primary_docs):
 
 
 def test_get_recent_form4_filings_filters_correctly(monkeypatch):
+    recent_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    old_date = (datetime.now() - timedelta(days=120)).strftime("%Y-%m-%d")
+
     monkeypatch.setattr("src.insider_activity.time.sleep", lambda x: None)
     monkeypatch.setattr(
         "src.insider_activity.requests.get",
         lambda *a, **kw: _submissions_response(
             forms=["4", "10-K", "4"],
-            dates=["2026-03-20", "2026-03-19", "2025-01-01"],  # only first is recent
+            dates=[recent_date, recent_date, old_date],  # only first is recent Form 4
             accessions=["0001-26-000001", "0001-26-000002", "0001-26-000003"],
             primary_docs=["form4.xml", "10k.htm", "form4_old.xml"],
         ),
