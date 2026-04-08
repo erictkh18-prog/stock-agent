@@ -327,10 +327,11 @@
       <div class="filter-group">
         <label>Max Symbols to Scan</label>
         <select id="recMaxSymbols">
-          <option value="10" selected>10 (Fast)</option>
-          <option value="25">25</option>
-          <option value="50">50 (Thorough)</option>
-          <option value="80">80 (Full)</option>
+          <option value="25">25 (Fast)</option>
+          <option value="80">80</option>
+          <option value="150" selected>150 (Recommended)</option>
+          <option value="250">250 (Deep)</option>
+          <option value="400">400 (Broad)</option>
         </select>
       </div>
       <div class="filter-group">
@@ -726,44 +727,107 @@ async function runRecommendationScan() {
   const duration = document.getElementById('recDuration').value;
   const targetPct = document.getElementById('recTargetPct').value;
 
+  const topN = 10;
+
   setRecStep(1);
   safeText(document.getElementById('recLoadingText'), 'Scanning ' + maxSymbols + ' symbols from ' + universe.toUpperCase() + '...');
 
   try {
-    let url = '/stock-recommendations?universe=' + encodeURIComponent(universe)
+    let startUrl = '/stock-recommendations/scan/start?universe=' + encodeURIComponent(universe)
       + '&max_symbols=' + encodeURIComponent(maxSymbols)
+      + '&top_n=' + encodeURIComponent(topN)
       + '&duration_days=' + encodeURIComponent(duration)
       + '&target_percentage=' + encodeURIComponent(targetPct);
-    if (sector) url += '&sector=' + encodeURIComponent(sector);
+    if (sector) startUrl += '&sector=' + encodeURIComponent(sector);
 
     setRecStep(2);
-    await sleep(400);
-    setRecStep(3);
-
-    const resp = await fetch(url);
-    if (!resp.ok) {
-      const body = await resp.text();
-      throw new Error('Server error ' + resp.status + ': ' + body.slice(0, 200));
+    const startResp = await fetch(startUrl, { method: 'POST' });
+    if (!startResp.ok) {
+      const body = await startResp.text();
+      throw new Error('Server error ' + startResp.status + ': ' + body.slice(0, 200));
     }
-    const data = await resp.json();
 
-    setRecStep(4);
-    await sleep(200);
-    setRecStep(5);
-    await sleep(200);
+    const startData = await startResp.json();
+    if (!startData.job_id) {
+      loading.classList.remove('visible');
+      showRecError(startData.message || 'Could not start recommendation scan.');
+      btn.disabled = false;
+      return;
+    }
+
+    const jobId = startData.job_id;
+    let latest = startData;
+    let pollCount = 0;
+    const pollLimit = 80;
+
+    while (pollCount < pollLimit) {
+      pollCount += 1;
+
+      const statusResp = await fetch('/stock-recommendations/scan/' + encodeURIComponent(jobId));
+      if (!statusResp.ok) {
+        const body = await statusResp.text();
+        throw new Error('Scan poll failed ' + statusResp.status + ': ' + body.slice(0, 200));
+      }
+
+      latest = await statusResp.json();
+      const scannedCount = Number(latest.scanned_count || 0);
+      const totalSymbols = Number(latest.total_symbols || 0);
+      const foundCount = Number(latest.found_count || 0);
+      const progressRatio = totalSymbols > 0 ? Math.min(1, scannedCount / totalSymbols) : 0;
+
+      if (progressRatio < 0.2) setRecStep(2);
+      else if (progressRatio < 0.5) setRecStep(3);
+      else if (progressRatio < 0.9) setRecStep(4);
+      else setRecStep(5);
+
+      safeText(
+        document.getElementById('recLoadingText'),
+        'Scanned ' + scannedCount + '/' + totalSymbols + ' symbols · Found ' + foundCount + ' match(es).'
+      );
+
+      if (Array.isArray(latest.results) && latest.results.length > 0) {
+        renderRecommendationResults(latest, true);
+      }
+
+      if (latest.status === 'completed') {
+        break;
+      }
+      if (latest.status === 'error' || latest.status === 'stopped') {
+        break;
+      }
+
+      await sleep(1000);
+    }
 
     loading.classList.remove('visible');
 
-    if (!data.results || data.results.length === 0) {
+    if (latest.status === 'error') {
+      showRecError(latest.message || 'Recommendation scan failed.');
+      btn.disabled = false;
+      return;
+    }
+
+    if (!latest.results || latest.results.length === 0) {
       showRecError('No qualifying stocks found. Try lowering the target % or expanding the universe.');
       btn.disabled = false;
       return;
     }
 
-    const grid = document.getElementById('recStocksGrid');
-    grid.innerHTML = '';
+    renderRecommendationResults(latest, false);
 
-    data.results.forEach((s, i) => {
+  } catch(err) {
+    loading.classList.remove('visible');
+    showRecError(err.message || 'Something went wrong. Please try again.');
+  }
+  btn.disabled = false;
+}
+
+function renderRecommendationResults(data, isPartial) {
+  const grid = document.getElementById('recStocksGrid');
+  const results = document.getElementById('recResultsSection');
+  grid.innerHTML = '';
+
+  data.results.forEach((s, i) => {
       const scC = s.overall_score >= 75 ? 'score-high' : s.overall_score >= 60 ? 'score-mid' : 'score-low';
       const chSign = s.recommendation === 'BUY' ? '↑ Bullish' : s.recommendation === 'SELL' ? '↓ Bearish' : '→ Neutral';
       const upsidePct = s.adjusted_upside_pct != null ? s.adjusted_upside_pct : s.expected_upside_pct;
@@ -822,17 +886,14 @@ async function runRecommendationScan() {
       card.appendChild(whyEl);
       if (riskTagsDiv) card.appendChild(riskTagsDiv);
       grid.appendChild(card);
-    });
+  });
 
-    const scannedInfo = 'Top ' + data.results.length + ' picks from ' + (data.scanned_count || '?') + ' scanned · ' + data.duration_days + '-day / +' + data.target_percentage + '% target';
-    safeText(document.getElementById('recResultsCount'), scannedInfo);
-    results.classList.add('visible');
-
-  } catch(err) {
-    loading.classList.remove('visible');
-    showRecError(err.message || 'Something went wrong. Please try again.');
-  }
-  btn.disabled = false;
+  const progressPrefix = isPartial ? 'Live: ' : 'Final: ';
+  const scannedInfo = progressPrefix
+    + data.results.length + ' pick(s) from ' + (data.scanned_count || '?') + ' scanned'
+    + ' · ' + data.duration_days + '-day / +' + data.target_percentage + '% target';
+  safeText(document.getElementById('recResultsCount'), scannedInfo);
+  results.classList.add('visible');
 }
 
 function showRecError(msg) {

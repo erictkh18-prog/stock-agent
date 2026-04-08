@@ -49,6 +49,87 @@ def _resolve_auto_buy_duration_days(duration_days: Optional[int]) -> tuple[int, 
         return 30, "fallback_default"
 
 
+def _auto_buy_quality_score(analysis) -> float:
+    """Score auto-buy candidates; higher means stronger trend-quality alignment."""
+    technical = getattr(analysis, "technical", None)
+    fundamental = getattr(analysis, "fundamental", None)
+
+    score = 0.0
+    score += min(2.0, max(0.0, (float(getattr(analysis, "overall_score", 0.0) or 0.0) - 55.0) / 10.0))
+
+    conviction = float(getattr(analysis, "conviction_score", 0.0) or 0.0)
+    score += conviction
+
+    trend = str(getattr(technical, "trend", "") or "").lower()
+    if trend == "uptrend":
+        score += 1.0
+
+    rs_spy = getattr(technical, "relative_strength_vs_spy", None)
+    if rs_spy is not None:
+        score += 0.6 if float(rs_spy) > 0 else -0.6
+
+    rsi = getattr(technical, "rsi", None)
+    if rsi is not None:
+        rsi_val = float(rsi)
+        if 45.0 <= rsi_val <= 68.0:
+            score += 0.8
+        elif rsi_val > 75.0:
+            score -= 1.0
+        elif rsi_val < 40.0:
+            score -= 0.6
+
+    price_change_3m = getattr(technical, "price_change_3m", None)
+    if price_change_3m is not None:
+        pcm = float(price_change_3m)
+        if 0.03 <= pcm <= 0.35:
+            score += 0.6
+        elif pcm > 0.50:
+            score -= 0.5
+
+    if bool(getattr(technical, "is_breakout", False)):
+        score += 0.4
+
+    eps_fwd_rev = getattr(fundamental, "eps_forward_revision", None)
+    if eps_fwd_rev is not None and float(eps_fwd_rev) > 0:
+        score += 0.4
+
+    if str(getattr(analysis, "macro_regime", "") or "").lower() == "bear":
+        score -= 0.8
+
+    return round(score, 3)
+
+
+def _is_auto_buy_candidate(analysis) -> bool:
+    """Return True when analysis passes stricter automated entry checks."""
+    if str(getattr(analysis, "recommendation", "")).upper() != "BUY":
+        return False
+
+    technical = getattr(analysis, "technical", None)
+    if str(getattr(technical, "trend", "") or "").lower() != "uptrend":
+        return False
+
+    if float(getattr(analysis, "overall_score", 0.0) or 0.0) < 58.0:
+        return False
+
+    conviction = getattr(analysis, "conviction_score", None)
+    if conviction is not None and float(conviction) < 0.45:
+        return False
+
+    macro_regime = getattr(analysis, "macro_regime", None)
+    if isinstance(macro_regime, str) and macro_regime.lower() == "bear":
+        return False
+
+    rsi = getattr(technical, "rsi", None)
+    if rsi is not None and float(rsi) > 75.0:
+        return False
+
+    rs_spy = getattr(technical, "relative_strength_vs_spy", None)
+    if rs_spy is not None and float(rs_spy) < 0:
+        return False
+
+    return _auto_buy_quality_score(analysis) >= 2.2
+
+
 # ── Auto-buy trigger ──────────────────────────────────────────────────────────
 
 @router.post("/paper-trading/auto-buy")
@@ -89,17 +170,15 @@ async def trigger_auto_buy(
         _screener.screen_stocks, symbols, filters, max(25, max_positions * 8), None, True
     )
 
-    buys = [
-        a for a in result.top_picks
-        if str(a.recommendation).upper() == "BUY"
-        and str(getattr(a.technical, "trend", "")).lower() == "uptrend"
-    ]
+    buys = [a for a in result.top_picks if _is_auto_buy_candidate(a)]
     if not buys:
         return {
             "status": "no_buy",
-            "message": "No BUY uptrend recommendations found. No position opened.",
+            "message": "No high-quality BUY uptrend recommendations found. No position opened.",
             "scanned": len(result.top_picks),
         }
+
+    buys.sort(key=_auto_buy_quality_score, reverse=True)
 
     opened_positions = []
     skipped_existing = []

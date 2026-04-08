@@ -56,7 +56,7 @@ async def stock_recommendations(
     sector: Optional[str] = Query(None),
     min_overall_score: float = Query(50, ge=0, le=100),
     top_n: int = Query(10, ge=1, le=50),
-    max_symbols: int = Query(80, ge=5, le=800),
+    max_symbols: int = Query(150, ge=5, le=1200),
     duration_days: Optional[int] = Query(None, ge=1, le=365),
     target_percentage: Optional[float] = Query(None, ge=1, le=100),
     seed: Optional[int] = Query(None),
@@ -161,6 +161,8 @@ async def stock_recommendations(
 async def start_stock_recommendation_scan(
     universe: str = Query("sp500", pattern="^(sp500|nasdaq100|combined)$"),
     sector: Optional[str] = Query(None),
+    top_n: int = Query(10, ge=1, le=25),
+    max_symbols: int = Query(150, ge=5, le=1200),
     duration_days: Optional[int] = Query(None, ge=1, le=365),
     target_percentage: Optional[float] = Query(None, ge=1, le=100),
 ):
@@ -175,12 +177,16 @@ async def start_stock_recommendation_scan(
     else:
         symbols = all_symbols
 
+    symbols = symbols[:max_symbols]
+
     if not symbols:
         return {
             "job_id": None,
             "status": "completed",
             "universe": universe,
             "sector": normalized_sector,
+            "top_n": top_n,
+            "max_symbols": max_symbols,
             "duration_days": duration_days,
             "target_percentage": target_percentage,
             "scanned_count": 0,
@@ -199,6 +205,8 @@ async def start_stock_recommendation_scan(
             "stop_requested": False,
             "universe": universe,
             "sector": normalized_sector,
+            "top_n": top_n,
+            "max_symbols": max_symbols,
             "duration_days": duration_days,
             "target_percentage": target_percentage,
             "scanned_count": 0,
@@ -217,6 +225,7 @@ async def start_stock_recommendation_scan(
             "symbols": symbols,
             "duration_days": duration_days,
             "target_percentage": target_percentage,
+            "target_count": top_n,
         },
         daemon=True,
     )

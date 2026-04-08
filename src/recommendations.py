@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 # ── Scan constants ────────────────────────────────────────────────────────────
 
 RECOMMENDATION_MIN_BASE_SCORE = 50.0
-RECOMMENDATION_SCAN_TARGET_COUNT = 5
-RECOMMENDATION_SCAN_BATCH_SIZE = 15
+RECOMMENDATION_SCAN_TARGET_COUNT = 10
+RECOMMENDATION_SCAN_BATCH_SIZE = 20
 
 # ── Scan job state ────────────────────────────────────────────────────────────
 
@@ -251,6 +251,8 @@ def _snapshot_recommendation_job(job: dict) -> dict:
         "status": job["status"],
         "universe": job["universe"],
         "sector": job["sector"],
+        "top_n": job.get("top_n"),
+        "max_symbols": job.get("max_symbols"),
         "duration_days": job["duration_days"],
         "target_percentage": job["target_percentage"],
         "scanned_count": job["scanned_count"],
@@ -270,6 +272,7 @@ def _recommendation_scan_worker(
     symbols: list[str],
     duration_days: Optional[int],
     target_percentage: Optional[float],
+    target_count: int,
 ) -> None:
     """Background worker for progressive recommendation scanning."""
     try:
@@ -331,7 +334,7 @@ def _recommendation_scan_worker(
                 job["scanned_count"] = min(len(symbols), start + len(batch))
                 existing = list(job.get("results", []))
                 existing.extend(fresh_candidates)
-                job["results"] = _rank_recommendation_candidates(existing, RECOMMENDATION_SCAN_TARGET_COUNT)
+                job["results"] = _rank_recommendation_candidates(existing, target_count)
                 found_count = len(job["results"])
                 total = job.get("total_symbols", len(symbols))
                 job["message"] = (
@@ -340,7 +343,7 @@ def _recommendation_scan_worker(
                 )
                 job["updated_at"] = datetime.now().isoformat()
 
-                if found_count >= RECOMMENDATION_SCAN_TARGET_COUNT:
+                if found_count >= target_count:
                     job["status"] = "completed"
                     if target_percentage is not None and duration_days is not None:
                         job["message"] = (
