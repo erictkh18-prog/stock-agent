@@ -57,6 +57,7 @@ from src.routers import auth as _auth_router                         # 1.3.1
 from src.routers import stock_analysis as _stock_analysis_router     # 2.1
 from src.routers import stock_screening as _stock_screening_router   # 2.2
 from src.routers import market as _market_router                     # 2.3
+from src.routers import market_admin as _market_admin_router         # 2.3 Admin
 from src.routers import recommendations as _recommendations_router   # 2.4
 from src.routers import paper_trading as _paper_trading_router        # 3.1 Paper Trading
 
@@ -249,6 +250,7 @@ app.include_router(_auth_router.router)               # 1.3.1 Admin - Account Ma
 app.include_router(_stock_analysis_router.router)    # 2.1 Single Stock Analysis
 app.include_router(_stock_screening_router.router)   # 2.2 Multiple Stock Analysis
 app.include_router(_market_router.router)             # 2.3 Top Performers
+app.include_router(_market_admin_router.router)       # 2.3 Admin - Quality Universe
 app.include_router(_recommendations_router.router)    # 2.4 Stock Recommendations
 app.include_router(_paper_trading_router.router)       # 3.1 Paper Trading
 

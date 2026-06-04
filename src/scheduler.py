@@ -10,7 +10,6 @@ silently skips setup and logs a warning — the rest of the app still works.
 
 import logging
 import os
-import random
 import threading
 from datetime import datetime
 from typing import Optional
@@ -185,9 +184,14 @@ def _maybe_run_startup_auto_close_catchup() -> None:
 # ── Job functions ─────────────────────────────────────────────────────────────
 
 def auto_buy_job(screener, shares: int = 10, duration_days: int = 30, target_pct: float = 8.0) -> None:
-    """Scan for top BUY recommendation and open a simulated position."""
-    from src.market_universe import _get_us_market_universe
+    """Scan for top BUY recommendation and open a simulated position.
+    
+    Uses 2-tier approach:
+    - Tier 1: Load ~600 quality-filtered stocks (cached daily)
+    - Tier 2: Deep analysis on top 300 candidates
+    """
     from src.models import ScreeningFilter
+    from src.quality_universe import get_quality_universe
     from src.recommendations import _build_exit_strategy
     from src.paper_trading import (
         assert_persistent_storage_ready_for_trading,
@@ -203,9 +207,12 @@ def auto_buy_job(screener, shares: int = 10, duration_days: int = 30, target_pct
     try:
         assert_persistent_storage_ready_for_trading()
 
-        all_symbols = _get_us_market_universe("combined")
-        random.shuffle(all_symbols)
-        symbols = all_symbols[:80]
+        # Tier 1: Pre-screen all 600 quality stocks
+        all_quality_symbols = get_quality_universe()
+        logger.info("auto_buy_job: pre-screening %d quality stocks", len(all_quality_symbols))
+        
+        # Tier 2: Deep analysis on top 300 candidates
+        symbols = all_quality_symbols[:300]
         filters = ScreeningFilter(min_overall_score=50)
         result = screener.screen_stocks(symbols, filters, 25, None, True)
 

@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import random
 import threading
 from datetime import datetime
 from typing import Optional
@@ -12,6 +11,7 @@ from fastapi import APIRouter, Query
 import src.market_universe as market_universe
 from src.market_universe import _normalize_sector
 from src.models import ScreeningFilter
+from src.quality_universe import get_quality_universe
 from src.stock_screener import StockScreener
 
 logger = logging.getLogger(__name__)
@@ -176,9 +176,9 @@ async def scan_us_market(
                 return cached["payload"]
         _market_scan_cache_misses += 1
 
-    all_symbols = market_universe._get_us_market_universe(universe)
-    random.shuffle(all_symbols)
-    symbols = all_symbols[:max_symbols]
+    # Use quality universe instead of raw universe (filters ~600 quality stocks)
+    all_quality_symbols = get_quality_universe(universe)
+    symbols = all_quality_symbols[:max_symbols]
     if normalized_sector != "all":
         symbols = await asyncio.to_thread(
             market_universe._filter_symbols_by_sector, symbols, normalized_sector
