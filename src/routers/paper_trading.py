@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import random
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -164,7 +165,9 @@ async def trigger_auto_buy(
 
     effective_duration_days, duration_source = _resolve_auto_buy_duration_days(duration_days)
 
-    symbols = _get_us_market_universe(universe)[:80]
+    all_symbols = _get_us_market_universe(universe)
+    random.shuffle(all_symbols)
+    symbols = all_symbols[:80]
     filters = ScreeningFilter(min_overall_score=50)
     result = await asyncio.to_thread(
         _screener.screen_stocks, symbols, filters, max(25, max_positions * 8), None, True

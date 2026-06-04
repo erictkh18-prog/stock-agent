@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import random
 import threading
 from datetime import datetime
 from typing import Optional
@@ -175,7 +176,9 @@ async def scan_us_market(
                 return cached["payload"]
         _market_scan_cache_misses += 1
 
-    symbols = market_universe._get_us_market_universe(universe)[:max_symbols]
+    all_symbols = market_universe._get_us_market_universe(universe)
+    random.shuffle(all_symbols)
+    symbols = all_symbols[:max_symbols]
     if normalized_sector != "all":
         symbols = await asyncio.to_thread(
             market_universe._filter_symbols_by_sector, symbols, normalized_sector

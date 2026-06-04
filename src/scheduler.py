@@ -10,6 +10,7 @@ silently skips setup and logs a warning — the rest of the app still works.
 
 import logging
 import os
+import random
 import threading
 from datetime import datetime
 from typing import Optional
@@ -202,7 +203,9 @@ def auto_buy_job(screener, shares: int = 10, duration_days: int = 30, target_pct
     try:
         assert_persistent_storage_ready_for_trading()
 
-        symbols = _get_us_market_universe("combined")[:80]
+        all_symbols = _get_us_market_universe("combined")
+        random.shuffle(all_symbols)
+        symbols = all_symbols[:80]
         filters = ScreeningFilter(min_overall_score=50)
         result = screener.screen_stocks(symbols, filters, 25, None, True)
 
