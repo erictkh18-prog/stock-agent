@@ -278,7 +278,6 @@
     "EMR",
     "ETR",
     "EOG",
-    "EPAM",
     "EQT",
     "EFX",
     "EQIX",
@@ -301,6 +300,7 @@
     "FAST",
     "FRT",
     "FDX",
+    "FDXF",
     "FIS",
     "FITB",
     "FSLR",
@@ -607,5 +607,5 @@
     "ZBH",
     "ZTS"
   ],
-  "timestamp": "2026-06-03T23:14:47.146648"
+  "timestamp": "2026-06-04T22:03:16.923532"
 }

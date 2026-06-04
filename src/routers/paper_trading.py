@@ -164,9 +164,9 @@ async def trigger_auto_buy(
 
     effective_duration_days, duration_source = _resolve_auto_buy_duration_days(duration_days)
 
-    # Load quality universe (600 stocks) and select top 300 for deep analysis
-    from src.quality_universe import get_quality_universe
-    all_quality_symbols = get_quality_universe(universe)
+    # Load stratified universe (target-size sampling) and select symbols for deep analysis
+    from src.quality_universe import get_stratified_universe
+    all_quality_symbols = get_stratified_universe(300, universe)
     symbols = all_quality_symbols[:300]
     filters = ScreeningFilter(min_overall_score=50)
     result = await asyncio.to_thread(

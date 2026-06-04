@@ -29,13 +29,13 @@ QUALITY_UNIVERSE_CACHE_TTL_SECONDS = 86400  # 24 hours
 
 # ── Quality thresholds ────────────────────────────────────────────────────────
 
-MIN_MARKET_CAP_B = 2.0  # $2B minimum
-MIN_PRICE = 5.0  # Avoid micro-caps
-MIN_AVG_VOLUME = 1_000_000  # 1M shares/day
-MAX_PE_RATIO = 100.0  # Avoid extremely overvalued
-MAX_DEBT_TO_EQUITY = 2.0  # Reasonable leverage
-MIN_PROFIT_MARGIN = -0.20  # Allow some losses but not severe
-MIN_ROE = -0.10  # Generating some returns
+MIN_MARKET_CAP_B = 1.0  # $1B minimum (relaxed)
+MIN_PRICE = 1.0  # Lower price floor to include more names
+MIN_AVG_VOLUME = 500_000  # 500k shares/day
+MAX_PE_RATIO = 200.0  # Allow higher P/E to include growth names
+MAX_DEBT_TO_EQUITY = 3.0  # Looser leverage allowance
+MIN_PROFIT_MARGIN = -0.50  # Allow larger negative margins for growth names
+MIN_ROE = -0.25  # More permissive ROE floor
 
 # ── Cache state ───────────────────────────────────────────────────────────────
 
@@ -270,3 +270,87 @@ def get_universe_stats() -> dict:
         "age_seconds": age_seconds,
         "needs_refresh": age_seconds is None or age_seconds > QUALITY_UNIVERSE_CACHE_TTL_SECONDS,
     }
+
+
+def get_stratified_universe(target_size: int = 300, universe: str = "combined", force_refresh: bool = False) -> List[str]:
+    """Return a stratified universe of `target_size` symbols.
+
+    Strategy:
+      - Start with the high-quality `combined` list (strict filters).
+      - If size < target, fetch remaining candidates from base universe and
+        group by sector. Allocate a per-sector quota and pick top market-cap
+        names per sector until target is reached. Falls back to global
+        market-cap ordering if needed.
+    """
+    combined_quality = get_quality_universe(force_refresh=force_refresh)
+    if len(combined_quality) >= target_size:
+        return combined_quality[:target_size]
+
+    # Build pool of remaining candidates
+    base = _get_us_market_universe(universe)
+    remaining = [s for s in base if s not in set(combined_quality)]
+
+    # Resolve sector and market cap for remaining candidates in parallel
+    candidates = []
+    def _fetch_info(sym: str):
+        try:
+            info = yf.Ticker(sym).info
+            market_cap = info.get("marketCap") or 0
+            sector = info.get("sector") or "Unknown"
+            return sym, market_cap, sector
+        except Exception:
+            return sym, 0, "Unknown"
+
+    max_workers = min(16, max(2, len(remaining) // 10))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_fetch_info, s): s for s in remaining}
+        for future in as_completed(futures):
+            sym, market_cap, sector = future.result()
+            candidates.append({"symbol": sym, "market_cap": market_cap or 0, "sector": sector or "Unknown"})
+
+    # Group by sector
+    sector_map: dict = {}
+    for c in candidates:
+        sector = c["sector"]
+        sector_map.setdefault(sector, []).append(c)
+
+    # Determine per-sector quota (at least 1 each) proportional to sector size
+    total_sectors = len(sector_map) or 1
+    quota = max(1, (target_size - len(combined_quality)) // total_sectors)
+
+    selected = list(combined_quality)
+
+    # Pick top market-cap names per sector up to quota
+    for sector, items in sector_map.items():
+        items_sorted = sorted(items, key=lambda x: x["market_cap"], reverse=True)
+        take = min(quota, len(items_sorted))
+        for c in items_sorted[:take]:
+            if len(selected) >= target_size:
+                break
+            selected.append(c["symbol"])
+        if len(selected) >= target_size:
+            break
+
+    # If still short, fill from remaining candidates sorted by market cap
+    if len(selected) < target_size:
+        remaining_sorted = sorted(candidates, key=lambda x: x["market_cap"], reverse=True)
+        for c in remaining_sorted:
+            if c["symbol"] in selected:
+                continue
+            selected.append(c["symbol"])
+            if len(selected) >= target_size:
+                break
+
+    # Deduplicate and trim
+    final = []
+    seen = set()
+    for s in selected:
+        if s not in seen:
+            seen.add(s)
+            final.append(s)
+        if len(final) >= target_size:
+            break
+
+    # Persist combined snapshot too (to avoid surprises)
+    _save_quality_universe_snapshot(final)
+    return final

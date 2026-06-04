@@ -11,7 +11,7 @@ from fastapi import APIRouter, Query
 import src.market_universe as market_universe
 from src.market_universe import _normalize_sector
 from src.models import ScreeningFilter
-from src.quality_universe import get_quality_universe
+from src.quality_universe import get_stratified_universe
 from src.stock_screener import StockScreener
 
 logger = logging.getLogger(__name__)
@@ -176,8 +176,9 @@ async def scan_us_market(
                 return cached["payload"]
         _market_scan_cache_misses += 1
 
-    # Use quality universe instead of raw universe (filters ~600 quality stocks)
-    all_quality_symbols = get_quality_universe(universe)
+    # Use stratified universe instead of raw universe (build target-sized pool)
+    desired_pool = max(300, max_symbols)
+    all_quality_symbols = get_stratified_universe(desired_pool, universe)
     symbols = all_quality_symbols[:max_symbols]
     if normalized_sector != "all":
         symbols = await asyncio.to_thread(

@@ -191,7 +191,7 @@ def auto_buy_job(screener, shares: int = 10, duration_days: int = 30, target_pct
     - Tier 2: Deep analysis on top 300 candidates
     """
     from src.models import ScreeningFilter
-    from src.quality_universe import get_quality_universe
+    from src.quality_universe import get_stratified_universe
     from src.recommendations import _build_exit_strategy
     from src.paper_trading import (
         assert_persistent_storage_ready_for_trading,
@@ -207,11 +207,11 @@ def auto_buy_job(screener, shares: int = 10, duration_days: int = 30, target_pct
     try:
         assert_persistent_storage_ready_for_trading()
 
-        # Tier 1: Pre-screen all 600 quality stocks
-        all_quality_symbols = get_quality_universe()
-        logger.info("auto_buy_job: pre-screening %d quality stocks", len(all_quality_symbols))
-        
-        # Tier 2: Deep analysis on top 300 candidates
+        # Tier 1: Build a stratified candidate universe (target 300 by default)
+        all_quality_symbols = get_stratified_universe(300)
+        logger.info("auto_buy_job: stratified pre-screening %d quality symbols", len(all_quality_symbols))
+
+        # Tier 2: Deep analysis on the returned candidates (usually 300)
         symbols = all_quality_symbols[:300]
         filters = ScreeningFilter(min_overall_score=50)
         result = screener.screen_stocks(symbols, filters, 25, None, True)
